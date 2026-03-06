@@ -17,5 +17,5 @@ func (d UpdateMachineInput) GetPointId() string {
 }
 
 func (d UpdateMachineInput) Origin() string {
-	return origin.FindOrigin(d.PointId)
+	return origin.FindOriginLocal(d.PointId)
 }

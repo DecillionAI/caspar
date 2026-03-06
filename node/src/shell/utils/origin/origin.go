@@ -14,3 +14,14 @@ func FindOrigin(id string) string {
 		}
 	}
 }
+
+func LocalOnly(value string) string {
+	if value == "global" {
+		return ""
+	}
+	return value
+}
+
+func FindOriginLocal(id string) string {
+	return LocalOnly(FindOrigin(id))
+}

@@ -15,5 +15,5 @@ func (d DeleteInput) GetPointId() string {
 }
 
 func (d DeleteInput) Origin() string {
-	return origin.FindOrigin(d.PointId)
+	return origin.FindOriginLocal(d.PointId)
 }

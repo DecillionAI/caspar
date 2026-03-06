@@ -15,5 +15,5 @@ func (d AcceptInput) GetPointId() string {
 }
 
 func (d AcceptInput) Origin() string {
-	return origin.FindOrigin(d.PointId)
+	return origin.FindOriginLocal(d.PointId)
 }

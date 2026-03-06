@@ -16,7 +16,7 @@ func (d MetaInput) GetPointId() string {
 }
 
 func (d MetaInput) Origin() string {
-	o := origin.FindOrigin(d.PointId)
+	o := origin.FindOriginLocal(d.PointId)
 	if o == "global" {
 		return ""
 	}
