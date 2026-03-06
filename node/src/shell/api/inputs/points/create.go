@@ -1,5 +1,7 @@
 package inputs_points
 
+import "kasper/src/shell/utils/origin"
+
 type CreateInput struct {
 	Tag      string          `json:"tag" validate:"required"`
 	IsPublic *bool           `json:"isPublic" validate:"required"`
@@ -19,5 +21,5 @@ func (d CreateInput) GetPointId() string {
 }
 
 func (d CreateInput) Origin() string {
-	return d.Orig
+	return origin.LocalOnly(d.Orig)
 }

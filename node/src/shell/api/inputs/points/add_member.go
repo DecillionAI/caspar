@@ -3,9 +3,9 @@ package inputs_points
 import "kasper/src/shell/utils/origin"
 
 type AddMemberInput struct {
-	UserId   string           `json:"userId" validate:"required"`
-	PointId  string           `json:"pointId" validate:"required"`
-	Metadata map[string]any   `json:"metadata" validate:"required"`
+	UserId   string          `json:"userId" validate:"required"`
+	PointId  string          `json:"pointId" validate:"required"`
+	Metadata map[string]any  `json:"metadata" validate:"required"`
 	Access   map[string]bool `json:"access" validate:"required"`
 }
 
@@ -18,5 +18,5 @@ func (d AddMemberInput) GetPointId() string {
 }
 
 func (d AddMemberInput) Origin() string {
-	return origin.FindOrigin(d.PointId)
+	return origin.FindOriginLocal(d.PointId)
 }

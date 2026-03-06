@@ -1,5 +1,7 @@
 package inputs_points
 
+import "kasper/src/shell/utils/origin"
+
 type ReadInput struct {
 	Offset int64  `json:"offset"`
 	Count  int64  `json:"count"`
@@ -16,5 +18,5 @@ func (d ReadInput) GetPointId() string {
 }
 
 func (d ReadInput) Origin() string {
-	return d.Orig
+	return origin.LocalOnly(d.Orig)
 }

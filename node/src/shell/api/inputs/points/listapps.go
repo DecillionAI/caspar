@@ -15,5 +15,5 @@ func (d ListPointAppsInput) GetPointId() string {
 }
 
 func (d ListPointAppsInput) Origin() string {
-	return origin.FindOrigin(d.PointId)
+	return origin.FindOriginLocal(d.PointId)
 }
