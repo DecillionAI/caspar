@@ -47,7 +47,7 @@ func (wm *Wasm) Assign(machineId string) {
 			data := string(a.([]byte))
 			if key == "points/signal" {
 				str, _ := json.Marshal(map[string]any{
-					"type":      "runOffChain",
+					"type":      "runVm",
 					"machineId": machineId,
 					"input":     data,
 					"astPath":   astPath,
@@ -59,27 +59,11 @@ func (wm *Wasm) Assign(machineId string) {
 }
 
 func (wm *Wasm) ExecuteChainTrxsGroup(trxs []*worker.Trx) {
-	b, e := json.Marshal(trxs)
-	if e != nil {
-		println(e)
-		return
-	}
-	input := string(b)
-	astStorePath := wm.app.Tools().Storage().StorageRoot() + "/machines"
-	str, _ := json.Marshal(map[string]any{
-		"type":         "runOnChain",
-		"astStorePath": astStorePath,
-		"input":        input,
-	})
-	wm.aeSocket <- string(str)
+	_ = trxs
 }
 
 func (wm *Wasm) ExecuteChainEffects(effects string) {
-	str, _ := json.Marshal(map[string]any{
-		"type":    "applyTrxEffects",
-		"effects": effects,
-	})
-	wm.aeSocket <- string(str)
+	_ = effects
 }
 
 type ChainDbOp struct {
@@ -103,10 +87,18 @@ func (wm *Wasm) RunVm(machineId string, pointId string, data string) {
 	b, _ := json.Marshal(updates_points.Send{User: model.User{}, Point: point, Action: "single", Data: data})
 	input := string(b)
 	str, _ := json.Marshal(map[string]any{
-		"type":      "runOffChain",
+		"type":      "runVm",
 		"machineId": machineId,
 		"input":     input,
 		"astPath":   astPath,
+	})
+	wm.aeSocket <- string(str)
+}
+
+func (wm *Wasm) TerminateVm(machineId string) {
+	str, _ := json.Marshal(map[string]any{
+		"type":      "terminateVm",
+		"machineId": machineId,
 	})
 	wm.aeSocket <- string(str)
 }
@@ -135,342 +127,435 @@ func (wm *Wasm) WasmCallback(dataRaw string) (string, int64) {
 		println(err)
 		return err.Error(), reqId
 	}
-	if key == "runDocker" {
-		machineId, err := checkField(input, "machineId", "")
-		if err != nil {
-			println(err)
-			return err.Error(), reqId
-		}
-		pointId, err := checkField(input, "pointId", "")
-		if err != nil {
-			println(err)
-			return err.Error(), reqId
-		}
-		found := false
-		wm.app.ModifyState(true, func(trx trx.ITrx) error {
-			if trx.GetLink("member::"+pointId+"::"+machineId) == "true" {
-				found = true
-			}
-			return nil
-		})
-		if !found {
-			err := errors.New("access denied")
-			println(err)
-			return err.Error(), reqId
-		}
-		inputFilesStr, err := checkField(input, "inputFiles", "{}")
-		if err != nil {
-			println(err)
-			return err.Error(), reqId
-		}
-		inputFiles := map[string]string{}
-		err = json.Unmarshal([]byte(inputFilesStr), &inputFiles)
-		if err != nil {
-			println(err)
-			return err.Error(), reqId
-		}
-		finalInputFiles := map[string]string{}
-		for k, v := range inputFiles {
-			if !wm.file.CheckFileFromStorage(wm.storageRoot, pointId, k) {
-				err := errors.New("input file does not exist")
-				println(err)
-				return err.Error(), reqId
-			}
-			path := fmt.Sprintf("%s/files/%s/%s", wm.storageRoot, pointId, k)
-			finalInputFiles[path] = v
-		}
-		imageName, err := checkField(input, "imageName", "")
-		if err != nil {
-			println(err)
-			return err.Error(), reqId
-		}
-		cn, err := checkField(input, "containerName", "")
-		if err != nil {
-			println(err)
-			return err.Error(), reqId
-		}
-		cnParts := strings.Split(cn, "|")
-		containerName := cnParts[0]
-		isAsync := cnParts[1] == "true"
-		creatorUserId := cnParts[2]
-		creatorSignature := cnParts[3]
-		lockId := cnParts[4]
-		inp, _ := json.Marshal(inputs_users.ConsumeLockInput{
-			Type:      "pay",
-			UserId:    creatorUserId,
-			Signature: creatorSignature,
-			LockId:    lockId,
-			Amount:    100,
-		})
-		sign := wm.app.SignPacketAsOwner(inp)
-		resChan := make(chan bool)
-		wm.app.ExecBaseRequestOnChain("/users/consumeLock", inp, sign, wm.app.OwnerId(), "", func(b []byte, i int, err error) {
-			if err != nil {
-				println(err)
-				resChan <- false
-			} else {
-				resChan <- true
-			}
-		})
-		if res := <-resChan; res {
-			if isAsync {
-				future.Async(func() {
-					if imageName != "main" || containerName != "main" {
-						wm.docker.Assign(machineId + "_" + imageName + "_" + containerName)
-					}
-					wm.docker.SaRContainer(machineId, imageName, containerName)
-					wm.docker.RunContainer(machineId, pointId, imageName, containerName, finalInputFiles, false)
-				}, false)
-			} else {
-				wm.docker.SaRContainer(machineId, imageName, containerName)
-				outputFile, err := wm.docker.RunContainer(machineId, pointId, imageName, containerName, finalInputFiles, false)
-				if err != nil {
-					println(err)
-					return err.Error(), reqId
-				}
-				if outputFile != nil {
-					str, err := json.Marshal(outputFile)
-					if err != nil {
-						println(err)
-						return err.Error(), reqId
-					}
-					return string(str), reqId
-				}
-			}
-		}
-	} else if key == "execDocker" {
-		machineId, err := checkField(input, "machineId", "")
-		if err != nil {
-			println(err)
-			return err.Error(), reqId
-		}
-		imageName, err := checkField(input, "imageName", "")
-		if err != nil {
-			println(err)
-			return err.Error(), reqId
-		}
-		containerName, err := checkField(input, "containerName", "")
-		if err != nil {
-			println(err)
-			return err.Error(), reqId
-		}
-		command, err := checkField(input, "command", "")
-		if err != nil {
-			println(err)
-			return err.Error(), reqId
-		}
-		output, err := wm.docker.ExecContainer(machineId, imageName, containerName, command)
-		if err != nil {
-			println(err)
-			return err.Error(), reqId
-		}
-		return output, reqId
-	} else if key == "copyToDocker" {
-		machineId, err := checkField(input, "machineId", "")
-		if err != nil {
-			println(err)
-			return err.Error(), reqId
-		}
-		imageName, err := checkField(input, "imageName", "")
-		if err != nil {
-			println(err)
-			return err.Error(), reqId
-		}
-		containerName, err := checkField(input, "containerName", "")
-		if err != nil {
-			println(err)
-			return err.Error(), reqId
-		}
-		fileName, err := checkField(input, "fileName", "")
-		if err != nil {
-			println(err)
-			return err.Error(), reqId
-		}
-		content, err := checkField(input, "content", "")
-		if err != nil {
-			println(err)
-			return err.Error(), reqId
-		}
-		err = wm.docker.CopyToContainer(machineId, imageName, containerName, fileName, content)
-		if err != nil {
-			println(err)
-			return err.Error(), reqId
-		}
-		return "", reqId
-	} else if key == "log" {
+
+	switch key {
+	case "execDocker":
+		return wm.handleExecDocker(input, reqId)
+	case "copyToDocker":
+		return wm.handleCopyToDocker(input, reqId)
+	case "httpPost":
+		return wm.handleHTTPPost(input, reqId)
+	case "checkTokenValidity":
+		return wm.handleCheckTokenValidity(input, reqId)
+	case "plantTrigger":
+		return wm.handlePlantTrigger(input, reqId)
+	case "signalPoint":
+		return wm.handleSignalPoint(input, reqId)
+	case "runVm":
+		return wm.handleRunVM(input, reqId)
+	case "terminateVm":
+		return wm.handleTerminateVM(input, reqId)
+	case "log":
 		_, err := checkField(input, "text", "")
 		if err != nil {
 			println(err)
 			return err.Error(), reqId
 		}
-		// println("elpis vm:", text)
-	} else if key == "httpPost" {
-		url, err := checkField(input, "url", "")
-		if err != nil {
-			println(err)
-			return err.Error(), reqId
-		}
-		method := strings.Split(url, "|")[0]
-		url = url[len(method)+1:]
-		headers, err := checkField(input, "headers", "")
-		if err != nil {
-			println(err)
-			return err.Error(), reqId
-		}
-		body, err := checkField(input, "body", "")
-		if err != nil {
-			println(err)
-			return err.Error(), reqId
-		}
-		req, err := http.NewRequest(method, url, bytes.NewBuffer([]byte(body)))
-		if err != nil {
-			println("Error creating request:" + err.Error())
-			return err.Error(), reqId
-		}
-		heads := map[string]string{}
-		err = json.Unmarshal([]byte(headers), &heads)
-		if err != nil {
-			println(err)
-			return err.Error(), reqId
-		}
-		for k, v := range heads {
-			req.Header.Set(k, v)
-		}
-		client := &http.Client{}
-		resp, err := client.Do(req)
-		if err != nil {
-			println("Request failed:" + err.Error())
-			return err.Error(), reqId
-		}
-		defer resp.Body.Close()
-		println("Response status:" + resp.Status)
-		bodyBytes, err := io.ReadAll(resp.Body)
-		if err != nil {
-			println("Error reading response body:" + err.Error())
-			return err.Error(), reqId
-		}
-		return base64.StdEncoding.EncodeToString(bodyBytes), reqId
-	} else if key == "checkTokenValidity" {
-		tokenOwnerId, err := checkField(input, "tokenOwnerId", "")
-		if err != nil {
-			println(err)
-			return err.Error(), reqId
-		}
-		tokenId, err := checkField(input, "tokenId", "")
-		if err != nil {
-			println(err)
-			return err.Error(), reqId
-		}
-		gasLimit := int64(0)
-		wm.app.ModifyState(true, func(trx trx.ITrx) error {
-			if trx.GetString("Temp::User::"+tokenOwnerId+"::consumedTokens::"+tokenId) == "true" {
-				return nil
-			}
-			if m, e := trx.GetJson("Json::User::"+tokenOwnerId, "lockedTokens."+tokenId); e == nil {
-				gasLimit = int64(m["amount"].(float64))
-			}
-			return nil
-		})
-		jsn, _ := json.Marshal(map[string]any{"gasLimit": gasLimit})
-		return string(jsn), reqId
-	} else if key == "plantTrigger" {
-		count, err := checkField(input, "count", float64(0))
-		if err != nil {
-			println(err)
-			return err.Error(), reqId
-		}
-		machineId, err := checkField(input, "machineId", "")
-		if err != nil {
-			println(err)
-			return err.Error(), reqId
-		}
-		tag, err := checkField(input, "tag", "")
-		if err != nil {
-			println(err)
-			return err.Error(), reqId
-		}
-		pointId, err := checkField(input, "pointId", "")
-		if err != nil {
-			println(err)
-			return err.Error(), reqId
-		}
-		data, err := checkField(input, "input", "")
-		if err != nil {
-			println(err)
-			return err.Error(), reqId
-		}
-		if tag == "alarm" {
-			future.Async(func() {
-				wm.app.ModifyState(false, func(trx trx.ITrx) error {
-					trx.PutLink("vmAlarmPointId::"+machineId, pointId)
-					trx.PutLink("vmAlarmData::"+machineId, data)
-					trx.PutLink("vmAlarmTime::"+machineId, fmt.Sprintf("%d", time.Now().UnixMilli()+(int64(count)*1000)))
-					return nil
-				})
-				time.Sleep(time.Duration(count) * time.Second)
-				wm.app.ModifyState(false, func(trx trx.ITrx) error {
-					trx.DelKey("link::vmAlarmPointId::" + machineId)
-					trx.DelKey("link::vmAlarmData::" + machineId)
-					trx.DelKey("link::vmAlarmTime::" + machineId)
-					return nil
-				})
-				if wm.app.Tools().Security().HasAccessToPoint(machineId, pointId) {
-					wm.RunVm(machineId, pointId, data)
-				}
-			}, false)
-		} else {
-			wm.app.PlantChainTrigger(int(count), machineId, tag, machineId, pointId, data)
-		}
-	} else if key == "signalPoint" {
-		machineId, err := checkField(input, "machineId", "")
-		if err != nil {
-			println(err)
-			return err.Error(), reqId
-		}
-		typAndTemp, err := checkField(input, "type", "")
-		if err != nil {
-			println(err)
-			return err.Error(), reqId
-		}
-		parts := strings.Split(typAndTemp, "|")
-		typ := parts[0]
-		temp := false
-		if len(parts) > 1 {
-			switch parts[1] {
-			case "true":
-				temp = true
-			case "false":
-				temp = false
-			}
-		}
-		pointId, err := checkField(input, "pointId", "")
-		if err != nil {
-			println(err)
-			return err.Error(), reqId
-		}
-		userId, err := checkField(input, "userId", "")
-		if err != nil {
-			println(err)
-			return err.Error(), reqId
-		}
-		data, err := checkField(input, "data", "")
-		if err != nil {
-			println(err)
-			return err.Error(), reqId
-		}
-		wm.app.ModifyStateSecurly(false, base.NewInfo(machineId, pointId), func(s state.IState) error {
-			_, _, err := wm.app.Actor().FetchAction("/points/signal").Act(s, inputs_points.SignalInput{
-				Type:    typ,
-				Data:    data,
-				PointId: pointId,
-				UserId:  userId,
-				Temp:    temp,
-			})
-			return err
-		})
 	}
 
 	return "{}", reqId
+}
+
+func (wm *Wasm) handleRunDocker(input map[string]any, reqId int64) (string, int64) {
+	machineId, err := checkField(input, "machineId", "")
+	if err != nil {
+		println(err)
+		return err.Error(), reqId
+	}
+	pointId, err := checkField(input, "pointId", "")
+	if err != nil {
+		println(err)
+		return err.Error(), reqId
+	}
+	found := false
+	wm.app.ModifyState(true, func(trx trx.ITrx) error {
+		if trx.GetLink("member::"+pointId+"::"+machineId) == "true" {
+			found = true
+		}
+		return nil
+	})
+	if !found {
+		err := errors.New("access denied")
+		println(err)
+		return err.Error(), reqId
+	}
+	inputFilesStr, err := checkField(input, "inputFiles", "{}")
+	if err != nil {
+		println(err)
+		return err.Error(), reqId
+	}
+	inputFiles := map[string]string{}
+	err = json.Unmarshal([]byte(inputFilesStr), &inputFiles)
+	if err != nil {
+		println(err)
+		return err.Error(), reqId
+	}
+	finalInputFiles := map[string]string{}
+	for k, v := range inputFiles {
+		if !wm.file.CheckFileFromStorage(wm.storageRoot, pointId, k) {
+			err := errors.New("input file does not exist")
+			println(err)
+			return err.Error(), reqId
+		}
+		path := fmt.Sprintf("%s/files/%s/%s", wm.storageRoot, pointId, k)
+		finalInputFiles[path] = v
+	}
+	imageName, err := checkField(input, "imageName", "")
+	if err != nil {
+		println(err)
+		return err.Error(), reqId
+	}
+	containerName, err := checkField(input, "containerName", "")
+	if err != nil {
+		println(err)
+		return err.Error(), reqId
+	}
+	isAsync, _ := checkField(input, "async", false)
+	creatorUserId, _ := checkField(input, "creatorUserId", "")
+	creatorSignature, _ := checkField(input, "creatorSignature", "")
+	lockId, _ := checkField(input, "lockId", "")
+
+	if creatorUserId == "" || creatorSignature == "" || lockId == "" {
+		legacy, legacyErr := checkField(input, "containerMeta", "")
+		if legacyErr != nil {
+			legacy, legacyErr = checkField(input, "containerName", "")
+		}
+		if legacyErr == nil {
+			parts := strings.Split(legacy, "|")
+			if len(parts) >= 5 {
+				containerName = parts[0]
+				isAsync = parts[1] == "true"
+				creatorUserId = parts[2]
+				creatorSignature = parts[3]
+				lockId = parts[4]
+			}
+		}
+	}
+
+	inp, _ := json.Marshal(inputs_users.ConsumeLockInput{
+		Type:      "pay",
+		UserId:    creatorUserId,
+		Signature: creatorSignature,
+		LockId:    lockId,
+		Amount:    100,
+	})
+	sign := wm.app.SignPacketAsOwner(inp)
+	resChan := make(chan bool)
+	wm.app.ExecBaseRequestOnChain("/users/consumeLock", inp, sign, wm.app.OwnerId(), "", func(b []byte, i int, err error) {
+		if err != nil {
+			println(err)
+			resChan <- false
+		} else {
+			resChan <- true
+		}
+	})
+	if res := <-resChan; res {
+		if isAsync {
+			future.Async(func() {
+				if imageName != "main" || containerName != "main" {
+					wm.docker.Assign(machineId + "_" + imageName + "_" + containerName)
+				}
+				wm.docker.SaRContainer(machineId, imageName, containerName)
+				wm.docker.RunContainer(machineId, pointId, imageName, containerName, finalInputFiles, false)
+			}, false)
+		} else {
+			wm.docker.SaRContainer(machineId, imageName, containerName)
+			outputFile, err := wm.docker.RunContainer(machineId, pointId, imageName, containerName, finalInputFiles, false)
+			if err != nil {
+				println(err)
+				return err.Error(), reqId
+			}
+			if outputFile != nil {
+				str, err := json.Marshal(outputFile)
+				if err != nil {
+					println(err)
+					return err.Error(), reqId
+				}
+				return string(str), reqId
+			}
+		}
+	}
+	return "{}", reqId
+}
+
+func (wm *Wasm) handleExecDocker(input map[string]any, reqId int64) (string, int64) {
+	machineId, err := checkField(input, "machineId", "")
+	if err != nil {
+		println(err)
+		return err.Error(), reqId
+	}
+	imageName, err := checkField(input, "imageName", "")
+	if err != nil {
+		println(err)
+		return err.Error(), reqId
+	}
+	containerName, err := checkField(input, "containerName", "")
+	if err != nil {
+		println(err)
+		return err.Error(), reqId
+	}
+	command, err := checkField(input, "command", "")
+	if err != nil {
+		println(err)
+		return err.Error(), reqId
+	}
+	output, err := wm.docker.ExecContainer(machineId, imageName, containerName, command)
+	if err != nil {
+		println(err)
+		return err.Error(), reqId
+	}
+	return output, reqId
+}
+
+func (wm *Wasm) handleCopyToDocker(input map[string]any, reqId int64) (string, int64) {
+	machineId, err := checkField(input, "machineId", "")
+	if err != nil {
+		println(err)
+		return err.Error(), reqId
+	}
+	imageName, err := checkField(input, "imageName", "")
+	if err != nil {
+		println(err)
+		return err.Error(), reqId
+	}
+	containerName, err := checkField(input, "containerName", "")
+	if err != nil {
+		println(err)
+		return err.Error(), reqId
+	}
+	fileName, err := checkField(input, "fileName", "")
+	if err != nil {
+		println(err)
+		return err.Error(), reqId
+	}
+	content, err := checkField(input, "content", "")
+	if err != nil {
+		println(err)
+		return err.Error(), reqId
+	}
+	err = wm.docker.CopyToContainer(machineId, imageName, containerName, fileName, content)
+	if err != nil {
+		println(err)
+		return err.Error(), reqId
+	}
+	return "", reqId
+}
+
+func (wm *Wasm) handleHTTPPost(input map[string]any, reqId int64) (string, int64) {
+	url, err := checkField(input, "url", "")
+	if err != nil {
+		println(err)
+		return err.Error(), reqId
+	}
+	method, _ := checkField(input, "method", "")
+	if method == "" {
+		method = strings.Split(url, "|")[0]
+		url = url[len(method)+1:]
+	}
+	headers, err := checkField(input, "headers", "")
+	if err != nil {
+		println(err)
+		return err.Error(), reqId
+	}
+	body, err := checkField(input, "body", "")
+	if err != nil {
+		println(err)
+		return err.Error(), reqId
+	}
+	req, err := http.NewRequest(method, url, bytes.NewBuffer([]byte(body)))
+	if err != nil {
+		println("Error creating request:" + err.Error())
+		return err.Error(), reqId
+	}
+	heads := map[string]string{}
+	err = json.Unmarshal([]byte(headers), &heads)
+	if err != nil {
+		println(err)
+		return err.Error(), reqId
+	}
+	for k, v := range heads {
+		req.Header.Set(k, v)
+	}
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		println("Request failed:" + err.Error())
+		return err.Error(), reqId
+	}
+	defer resp.Body.Close()
+	println("Response status:" + resp.Status)
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		println("Error reading response body:" + err.Error())
+		return err.Error(), reqId
+	}
+	return base64.StdEncoding.EncodeToString(bodyBytes), reqId
+}
+
+func (wm *Wasm) handleCheckTokenValidity(input map[string]any, reqId int64) (string, int64) {
+	tokenOwnerId, err := checkField(input, "tokenOwnerId", "")
+	if err != nil {
+		println(err)
+		return err.Error(), reqId
+	}
+	tokenId, err := checkField(input, "tokenId", "")
+	if err != nil {
+		println(err)
+		return err.Error(), reqId
+	}
+	gasLimit := int64(0)
+	wm.app.ModifyState(true, func(trx trx.ITrx) error {
+		if trx.GetString("Temp::User::"+tokenOwnerId+"::consumedTokens::"+tokenId) == "true" {
+			return nil
+		}
+		if m, e := trx.GetJson("Json::User::"+tokenOwnerId, "lockedTokens."+tokenId); e == nil {
+			gasLimit = int64(m["amount"].(float64))
+		}
+		return nil
+	})
+	jsn, _ := json.Marshal(map[string]any{"gasLimit": gasLimit})
+	return string(jsn), reqId
+}
+
+func (wm *Wasm) handlePlantTrigger(input map[string]any, reqId int64) (string, int64) {
+	count, err := checkField(input, "count", float64(0))
+	if err != nil {
+		println(err)
+		return err.Error(), reqId
+	}
+	machineId, err := checkField(input, "machineId", "")
+	if err != nil {
+		println(err)
+		return err.Error(), reqId
+	}
+	tag, err := checkField(input, "tag", "")
+	if err != nil {
+		println(err)
+		return err.Error(), reqId
+	}
+	pointId, err := checkField(input, "pointId", "")
+	if err != nil {
+		println(err)
+		return err.Error(), reqId
+	}
+	data, err := checkField(input, "input", "")
+	if err != nil {
+		println(err)
+		return err.Error(), reqId
+	}
+	if tag == "alarm" {
+		future.Async(func() {
+			wm.app.ModifyState(false, func(trx trx.ITrx) error {
+				trx.PutLink("vmAlarmPointId::"+machineId, pointId)
+				trx.PutLink("vmAlarmData::"+machineId, data)
+				trx.PutLink("vmAlarmTime::"+machineId, fmt.Sprintf("%d", time.Now().UnixMilli()+(int64(count)*1000)))
+				return nil
+			})
+			time.Sleep(time.Duration(count) * time.Second)
+			wm.app.ModifyState(false, func(trx trx.ITrx) error {
+				trx.DelKey("link::vmAlarmPointId::" + machineId)
+				trx.DelKey("link::vmAlarmData::" + machineId)
+				trx.DelKey("link::vmAlarmTime::" + machineId)
+				return nil
+			})
+			if wm.app.Tools().Security().HasAccessToPoint(machineId, pointId) {
+				wm.RunVm(machineId, pointId, data)
+			}
+		}, false)
+	} else {
+		wm.app.PlantChainTrigger(int(count), machineId, tag, machineId, pointId, data)
+	}
+	return "{}", reqId
+}
+
+func (wm *Wasm) handleSignalPoint(input map[string]any, reqId int64) (string, int64) {
+	machineId, err := checkField(input, "machineId", "")
+	if err != nil {
+		println(err)
+		return err.Error(), reqId
+	}
+	typAndTemp, err := checkField(input, "type", "")
+	if err != nil {
+		println(err)
+		return err.Error(), reqId
+	}
+	typ := typAndTemp
+	temp := false
+	if tempRaw, tempErr := checkField(input, "temp", false); tempErr == nil {
+		temp = tempRaw
+	} else {
+		parts := strings.Split(typAndTemp, "|")
+		typ = parts[0]
+		if len(parts) > 1 {
+			temp = parts[1] == "true"
+		}
+	}
+	pointId, err := checkField(input, "pointId", "")
+	if err != nil {
+		println(err)
+		return err.Error(), reqId
+	}
+	userId, err := checkField(input, "userId", "")
+	if err != nil {
+		println(err)
+		return err.Error(), reqId
+	}
+	data, err := checkField(input, "data", "")
+	if err != nil {
+		println(err)
+		return err.Error(), reqId
+	}
+	wm.app.ModifyStateSecurly(false, base.NewInfo(machineId, pointId), func(s state.IState) error {
+		_, _, err := wm.app.Actor().FetchAction("/points/signal").Act(s, inputs_points.SignalInput{
+			Type:    typ,
+			Data:    data,
+			PointId: pointId,
+			UserId:  userId,
+			Temp:    temp,
+		})
+		return err
+	})
+	return "{}", reqId
+}
+
+func (wm *Wasm) handleRunVM(input map[string]any, reqId int64) (string, int64) {
+	targetRuntime, err := checkField(input, "runtime", "")
+	if err != nil {
+		return err.Error(), reqId
+	}
+	targetMachineId, err := checkField(input, "machineId", "")
+	if err != nil {
+		return err.Error(), reqId
+	}
+	targetPointId, _ := checkField(input, "pointId", "")
+	if targetRuntime == "wasm" {
+		data, _ := checkField(input, "data", "{}")
+		wm.RunVm(targetMachineId, targetPointId, data)
+		return "{}", reqId
+	}
+	if targetRuntime == "docker" {
+		return wm.handleRunDocker(input, reqId)
+	}
+	return "unsupported runtime", reqId
+}
+
+func (wm *Wasm) handleTerminateVM(input map[string]any, reqId int64) (string, int64) {
+	targetRuntime, err := checkField(input, "runtime", "")
+	if err != nil {
+		return err.Error(), reqId
+	}
+	targetMachineId, _ := checkField(input, "machineId", "")
+	if targetRuntime == "docker" {
+		imageName, _ := checkField(input, "imageName", "main")
+		containerName, _ := checkField(input, "containerName", "main")
+		wm.docker.SaRContainer(targetMachineId, imageName, containerName)
+		return "{}", reqId
+	}
+	if targetRuntime == "wasm" {
+		wm.TerminateVm(targetMachineId)
+		return "{}", reqId
+	}
+	return "unsupported runtime", reqId
 }
 
 func checkField[T any](input map[string]any, fieldName string, defVal T) (T, error) {
