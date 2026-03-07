@@ -10,6 +10,7 @@ import (
 type App struct {
 	Id            string `json:"id"`
 	ChainId       string `json:"chainId"`
+	ShardChainId  string `json:"shardChainId"`
 	OwnerId       string `json:"ownerId"`
 	Username      string `json:"username"`
 	MachinesCount int    `json:"machinesCount"`
@@ -30,6 +31,7 @@ func (d App) Push(trx trx.ITrx) {
 		"ownerId":       []byte(d.OwnerId),
 		"username":      []byte(d.Username),
 		"chainId":       []byte(d.ChainId),
+		"shardChainId":  []byte(d.ShardChainId),
 		"machinesCount": mcBytes,
 	})
 }
@@ -41,6 +43,7 @@ func (d App) Pull(trx trx.ITrx, flags ...bool) App {
 		d.Username = string(m["username"])
 		d.OwnerId = string(m["ownerId"])
 		d.ChainId = string(m["chainId"])
+		d.ShardChainId = string(m["shardChainId"])
 		d.MachinesCount = int(binary.LittleEndian.Uint32(m["machinesCount"]))
 		if len(flags) > 0 {
 			if flags[0] {
@@ -60,6 +63,7 @@ func (d App) Delete(trx trx.ITrx) {
 	trx.DelKey("obj::" + d.Type() + "::" + d.Id + "::id")
 	trx.DelKey("obj::" + d.Type() + "::" + d.Id + "::username")
 	trx.DelKey("obj::" + d.Type() + "::" + d.Id + "::chainId")
+	trx.DelKey("obj::" + d.Type() + "::" + d.Id + "::shardChainId")
 	trx.DelKey("obj::" + d.Type() + "::" + d.Id + "::machinesCount")
 	trx.DelKey("obj::" + d.Type() + "::" + d.Id + "::ownerId")
 	trx.DelJson("AppMeta::"+d.Id, "metadata")
@@ -87,6 +91,7 @@ func (d App) List(trx trx.ITrx, prefix string) ([]App, error) {
 			d.OwnerId = string(m["ownerId"])
 			d.Username = string(m["username"])
 			d.ChainId = string(m["chainId"])
+			d.ShardChainId = string(m["shardChainId"])
 			d.MachinesCount = int(binary.LittleEndian.Uint32(m["machinesCount"]))
 			entities = append(entities, d)
 		}
@@ -111,6 +116,7 @@ func (d App) All(trx trx.ITrx, offset int64, count int64) ([]App, error) {
 			d.OwnerId = string(m["ownerId"])
 			d.Username = string(m["username"])
 			d.ChainId = string(m["chainId"])
+			d.ShardChainId = string(m["shardChainId"])
 			d.MachinesCount = int(binary.LittleEndian.Uint32(m["machinesCount"]))
 			entities = append(entities, d)
 		}
