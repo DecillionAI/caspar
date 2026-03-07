@@ -4,6 +4,7 @@ import "kasper/src/abstract/models/update"
 
 type ChainMessage struct {
 	Key         string
+	MessageType string
 	Author      string
 	Submitter   string
 	Payload     []byte
@@ -12,6 +13,23 @@ type ChainMessage struct {
 	Recievers   map[string]map[string]bool
 	ReplyTo     string
 	PointId     string
+	Pay         *ChainPayPacket
+}
+
+type ChainPayPacket struct {
+	Type             string
+	SessionId        string
+	MachineIds       []string
+	UserId           string
+	LockId           string
+	LockSignature    string
+	Amount           int64
+	RequestedSeconds int64
+	AcceptedSeconds  int64
+	CostPerSecond    int64
+	Error            string
+	PointId          string
+	VmPayload        string
 }
 
 type ChainBaseRequest struct {

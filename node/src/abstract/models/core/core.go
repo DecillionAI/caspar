@@ -29,6 +29,8 @@ type ICore interface {
 	Close()
 	PlantChainTrigger(count int, userId string, tag string, machineId string, pointId string, input string)
 	ExecBaseRequestOnChain(key string, payload []byte, signature string, userId string, tag string, callback func([]byte, int, error))
+	SendMessageOnChain(key string, payload []byte, signature string, userId string, receivers map[string]map[string]bool, replyTo string, callback func(string, []byte))
+	SendTypedMessageOnChain(chainId string, key string, messageType string, payload []byte, signature string, userId string, receivers map[string]map[string]bool, replyTo string, pointId string, pay *chain.ChainPayPacket, callback func(string, []byte))
 	ExecBaseResponseOnChain(callbackId string, packet []byte, signature string, resCode int, e string, updates []update.Update, tag string, toUserId string)
 	OnChainPacket(typ string, trxPayload []byte) string
 	AppPendingTrxs()
