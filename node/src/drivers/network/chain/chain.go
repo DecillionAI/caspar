@@ -3,6 +3,7 @@ package chain
 import (
 	"crypto/tls"
 	"kasper/src/abstract/models/core"
+	"kasper/src/abstract/models/trx"
 	"kasper/src/drivers/network/chain/babble"
 	"kasper/src/drivers/network/chain/config"
 	"kasper/src/drivers/network/chain/crypto/keys"
@@ -14,6 +15,7 @@ import (
 	"kasper/src/drivers/network/chain/proxy"
 	"kasper/src/drivers/network/chain/proxy/inmem"
 	"kasper/src/drivers/network/chain/service"
+	"kasper/src/shell/api/model"
 	"kasper/src/shell/utils/future"
 	"log"
 	"os"
@@ -239,10 +241,33 @@ func (c *Blockchain) Peers() []string {
 	return peers
 }
 
-func (c *Blockchain) SubmitTrx(chainId string, typ string, payload []byte) {
-	mainWorkChain, _ := c.chains.Get(chainId)
-	mainShardChain, _ := mainWorkChain.shardChains.Get("shard-main")
-	mainShardChain.shardProxy.SubmitTx(payload)
+func (c *Blockchain) SubmitTrx(chainId string, machineId string, typ string, payload []byte) {
+	_ = typ
+	workChain, found := c.chains.Get(chainId)
+	if !found {
+		log.Println("work chain not found", chainId)
+		return
+	}
+	targetShardId := "shard-main"
+	if machineId != "" {
+		c.app.ModifyState(true, func(trx trx.ITrx) error {
+			vm := model.Vm{MachineId: machineId}.Pull(trx)
+			if vm.AppId == "" {
+				return nil
+			}
+			app := model.App{Id: vm.AppId}.Pull(trx)
+			if app.ChainId == chainId && app.ShardChainId != "" {
+				targetShardId = app.ShardChainId
+			}
+			return nil
+		})
+	}
+	targetShardChain, found := workChain.shardChains.Get(targetShardId)
+	if !found {
+		log.Println("target shard chain not found", chainId, targetShardId)
+		return
+	}
+	targetShardChain.shardProxy.SubmitTx(payload)
 }
 
 func (c *Blockchain) NotifyNewMachineCreated(chainId string, machineId string) {
@@ -258,6 +283,20 @@ func (c *Blockchain) CreateTempChain() string {
 
 func (c *Blockchain) CreateWorkChain() string {
 	return c.createNewWorkChain(uuid.NewString()).Id
+}
+
+func (c *Blockchain) CreateShardChain(chainId string, shardChainId string, peers []string) string {
+	workChain, found := c.chains.Get(chainId)
+	if !found {
+		return ""
+	}
+	if shardChainId == "" {
+		shardChainId = "shard-" + uuid.NewString()
+	}
+	if _, exists := workChain.shardChains.Get(shardChainId); exists {
+		return shardChainId
+	}
+	return workChain.createNewShardChain(shardChainId, true, peers).Id
 }
 
 func (c *Blockchain) UserOwnsOrigin(userId string, origin string) bool {

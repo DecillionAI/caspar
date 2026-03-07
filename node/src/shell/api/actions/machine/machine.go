@@ -84,7 +84,11 @@ func (a *Actions) CreateApp(state state.IState, input inputs_machiner.CreateAppI
 	if trx.HasIndex("App", "username", "id", input.Username) {
 		return nil, errors.New("app username already exists")
 	}
-	app := model.App{Id: a.App.Tools().Storage().GenId(trx, input.Origin()), MachinesCount: 0, Username: input.Username, OwnerId: state.Info().UserId(), ChainId: input.ChainId}
+	shardChainId := "shard-main"
+	if input.ShardChainId != nil && *input.ShardChainId != "" {
+		shardChainId = *input.ShardChainId
+	}
+	app := model.App{Id: a.App.Tools().Storage().GenId(trx, input.Origin()), MachinesCount: 0, Username: input.Username, OwnerId: state.Info().UserId(), ChainId: input.ChainId, ShardChainId: shardChainId}
 	app.Push(trx)
 	trx.PutJson("AppMeta::"+app.Id, "metadata", input.Metadata, false)
 	profile, err := trx.GetJson("AppMeta::"+app.Id, "metadata.public.profile")
@@ -171,6 +175,7 @@ func (a *Actions) MyCreatedApps(state state.IState, input inputs_machiner.ListIn
 			result = append(result, map[string]any{
 				"id":            app.Id,
 				"chainId":       app.ChainId,
+				"shardChainId":  app.ShardChainId,
 				"username":      app.Username,
 				"ownerId":       app.OwnerId,
 				"machinesCount": app.MachinesCount,
@@ -183,6 +188,7 @@ func (a *Actions) MyCreatedApps(state state.IState, input inputs_machiner.ListIn
 		result = append(result, map[string]any{
 			"id":            app.Id,
 			"chainId":       app.ChainId,
+			"shardChainId":  app.ShardChainId,
 			"username":      app.Username,
 			"ownerId":       app.OwnerId,
 			"machinesCount": app.MachinesCount,

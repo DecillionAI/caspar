@@ -354,6 +354,18 @@ func (c *Core) chainMessageMachineIds(packet chain.ChainMessage) map[string]bool
 	return machineIds
 }
 
+func (c *Core) chainSubmitMachineId(op any) string {
+	switch t := op.(type) {
+	case chain.ChainMessage:
+		for machineId := range c.chainMessageMachineIds(t) {
+			if machineId != "" {
+				return machineId
+			}
+		}
+	}
+	return ""
+}
+
 func (c *Core) runChainMessage(packet chain.ChainMessage) {
 	for machineId := range c.chainMessageMachineIds(packet) {
 		var runtimeType string
@@ -630,7 +642,8 @@ func (c *Core) Load(gods []string, args map[string]interface{}) {
 				serialized, err := json.Marshal(op)
 				if err == nil {
 					log.Println(string(serialized))
-					c.tools.Network().Chain().SubmitTrx(chainId, typ, []byte(typ+"::"+string(serialized)))
+					machineId := c.chainSubmitMachineId(op)
+					c.tools.Network().Chain().SubmitTrx(chainId, machineId, typ, []byte(typ+"::"+string(serialized)))
 				} else {
 					log.Println(err)
 				}

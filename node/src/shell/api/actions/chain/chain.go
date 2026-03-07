@@ -2,9 +2,11 @@ package actions_chain
 
 import (
 	"encoding/json"
+	"errors"
 	"kasper/src/abstract/models/core"
 	"kasper/src/abstract/state"
 	inputs_chain "kasper/src/shell/api/inputs/chain"
+	inputs_users "kasper/src/shell/api/inputs/users"
 	"net"
 )
 
@@ -16,8 +18,49 @@ func Install(a *Actions, extra ...any) error {
 	return nil
 }
 
+func (a *Actions) consumeChainCreationLock(state state.IState, lockId *string, lockSignature *string) error {
+	if lockId == nil || lockSignature == nil || *lockId == "" || *lockSignature == "" {
+		return nil
+	}
+	payment, err := state.Trx().GetJson("Json::User::"+state.Info().UserId(), "lockedTokens."+*lockId)
+	if err != nil {
+		return errors.New("lock not found")
+	}
+	typ, _ := payment["type"].(string)
+	amountRaw, ok := payment["amount"].(float64)
+	if typ != "pay" || !ok || amountRaw <= 0 {
+		return errors.New("invalid lock payment")
+	}
+	payload, err := json.Marshal(inputs_users.ConsumeLockInput{
+		Type:      "pay",
+		UserId:    state.Info().UserId(),
+		LockId:    *lockId,
+		Signature: *lockSignature,
+		Amount:    int64(amountRaw),
+	})
+	if err != nil {
+		return err
+	}
+	lockConsumeDone := make(chan error, 1)
+	a.App.ExecBaseRequestOnChain("/users/consumeLock", payload, a.App.SignPacketAsOwner(payload), a.App.OwnerId(), "", func(b []byte, i int, err error) {
+		if err != nil {
+			lockConsumeDone <- err
+			return
+		}
+		if i >= 400 {
+			lockConsumeDone <- errors.New("failed to consume lock")
+			return
+		}
+		lockConsumeDone <- nil
+	})
+	return <-lockConsumeDone
+}
+
 // Create /chains/create check [ true false false ] access [ true false false false POST ]
 func (a *Actions) Create(state state.IState, input inputs_chain.CreateInput) (any, error) {
+	if err := a.consumeChainCreationLock(state, input.LockId, input.LockSignature); err != nil {
+		return nil, err
+	}
 	id := ""
 	if *input.IsTemp {
 		id = a.App.Tools().Network().Chain().CreateTempChain()
@@ -25,6 +68,22 @@ func (a *Actions) Create(state state.IState, input inputs_chain.CreateInput) (an
 		id = a.App.Tools().Network().Chain().CreateWorkChain()
 	}
 	return map[string]any{"chainId": id}, nil
+}
+
+// CreateShard /chains/createShard check [ true false false ] access [ true false false false POST ]
+func (a *Actions) CreateShard(state state.IState, input inputs_chain.CreateShardInput) (any, error) {
+	if err := a.consumeChainCreationLock(state, input.LockId, input.LockSignature); err != nil {
+		return nil, err
+	}
+	shardChainId := ""
+	if input.ShardChainId != nil {
+		shardChainId = *input.ShardChainId
+	}
+	id := a.App.Tools().Network().Chain().CreateShardChain(input.ChainId, shardChainId, input.Peers)
+	if id == "" {
+		return nil, errors.New("work chain not found")
+	}
+	return map[string]any{"chainId": input.ChainId, "shardChainId": id}, nil
 }
 
 // SubmitBaseTrx /chains/submitBaseTrx check [ true false false ] access [ true false false false POST ]

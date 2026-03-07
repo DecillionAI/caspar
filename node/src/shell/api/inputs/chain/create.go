@@ -1,7 +1,9 @@
 package inputs_machiner
 
 type CreateInput struct {
-	IsTemp *bool `json:"isTemp" validate:"required"`
+	IsTemp        *bool   `json:"isTemp" validate:"required"`
+	LockId        *string `json:"lockId"`
+	LockSignature *string `json:"lockSignature"`
 }
 
 func (d CreateInput) GetData() any {

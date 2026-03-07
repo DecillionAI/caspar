@@ -1,10 +1,11 @@
 package inputs_machiner
 
 type SubBaseTrxInput struct {
-	ChainId   int64  `json:"chainId" validate:"required"`
-	Key       string `json:"key" validate:"required"`
-	Payload   []byte `json:"payload" validate:"required"`
-	Signature string `json:"signature" validate:"required"`
+	ChainId   string  `json:"chainId" validate:"required"`
+	MachineId *string `json:"machineId"`
+	Key       string  `json:"key" validate:"required"`
+	Payload   []byte  `json:"payload" validate:"required"`
+	Signature string  `json:"signature" validate:"required"`
 }
 
 func (d SubBaseTrxInput) GetData() any {
