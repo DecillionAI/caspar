@@ -29,6 +29,7 @@ import (
 	actor "kasper/src/core/module/actor"
 	mainstate "kasper/src/core/module/actor/model/state"
 	module_trx "kasper/src/core/module/actor/model/trx"
+	inputs_users "kasper/src/shell/api/inputs/users"
 	mach_model "kasper/src/shell/api/model"
 	"kasper/src/shell/utils/crypto"
 	"kasper/src/shell/utils/future"
@@ -48,6 +49,7 @@ import (
 	"log"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -105,48 +107,55 @@ func (t *Tools) Firectl() firectl.IFirectl {
 }
 
 type Core struct {
-	lock             sync.Mutex
-	triggerLock      sync.Mutex
-	ownerId          string
-	ownerPrivKey     *rsa.PrivateKey
-	id               string
-	tools            tools.ITools
-	started          bool
-	gods             []string
-	chain            chan any
-	chainCallbacks   map[string]*chain.ChainCallback
-	Ip               string
-	elections        []chain.Election
-	elecReg          bool
-	elecStarter      string
-	elecStartTime    int64
-	executors        map[string]bool
-	appPendingTrxs   []*worker.Trx
-	actionStore      iaction.IActor
-	privKey          *rsa.PrivateKey
-	messageCallbacks map[string]*chain.MessageCallback
+	lock                   sync.Mutex
+	triggerLock            sync.Mutex
+	ownerId                string
+	ownerPrivKey           *rsa.PrivateKey
+	id                     string
+	tools                  tools.ITools
+	started                bool
+	gods                   []string
+	chain                  chan any
+	chainCallbacks         map[string]*chain.ChainCallback
+	Ip                     string
+	elections              []chain.Election
+	elecReg                bool
+	elecStarter            string
+	elecStartTime          int64
+	executors              map[string]bool
+	appPendingTrxs         []*worker.Trx
+	actionStore            iaction.IActor
+	privKey                *rsa.PrivateKey
+	messageCallbacks       map[string]*chain.MessageCallback
+	executionCostPerSecond int64
 }
 
 var MAX_VALIDATOR_COUNT = 5
+
+type chainSubmission struct {
+	chainId string
+	op      any
+}
 
 func NewCore(origin string, ownerId string, ownerPrivateKey *rsa.PrivateKey) *Core {
 	id := origin
 	execs := map[string]bool{}
 	execs[os.Getenv("ROOT_NODE")] = true
 	return &Core{
-		ownerId:          ownerId,
-		ownerPrivKey:     ownerPrivateKey,
-		id:               id,
-		gods:             make([]string, 0),
-		chain:            nil,
-		chainCallbacks:   map[string]*chain.ChainCallback{},
-		messageCallbacks: map[string]*chain.MessageCallback{},
-		Ip:               id,
-		elections:        nil,
-		elecReg:          false,
-		executors:        execs,
-		actionStore:      actor.NewActor(),
-		started:          false,
+		ownerId:                ownerId,
+		ownerPrivKey:           ownerPrivateKey,
+		id:                     id,
+		gods:                   make([]string, 0),
+		chain:                  nil,
+		chainCallbacks:         map[string]*chain.ChainCallback{},
+		messageCallbacks:       map[string]*chain.MessageCallback{},
+		Ip:                     id,
+		elections:              nil,
+		elecReg:                false,
+		executors:              execs,
+		actionStore:            actor.NewActor(),
+		started:                false,
+		executionCostPerSecond: 0,
 	}
 }
 
@@ -300,16 +309,88 @@ func (c *Core) ExecBaseRequestOnChain(key string, payload []byte, signature stri
 	}, false)
 }
 
-func (c *Core) SendMessageOnChain(key string, payload []byte, signature string, userId string, receivers map[string]map[string]bool, ReplyTo string, callback func(string, []byte)) {
+func (c *Core) SendMessageOnChain(key string, payload []byte, signature string, userId string, receivers map[string]map[string]bool, replyTo string, callback func(string, []byte)) {
+	c.SendTypedMessageOnChain("main", key, "vm.execute", payload, signature, userId, receivers, replyTo, "", nil, callback)
+}
+
+func (c *Core) SendTypedMessageOnChain(chainId string, key string, messageType string, payload []byte, signature string, userId string, receivers map[string]map[string]bool, replyTo string, pointId string, pay *chain.ChainPayPacket, callback func(string, []byte)) {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 	callbackId := crypto.SecureUniqueString()
 	if callback != nil {
 		c.messageCallbacks[callbackId] = &chain.MessageCallback{Id: callbackId, Fn: callback}
 	}
+	if messageType == "" {
+		messageType = "vm.execute"
+	}
+	if chainId == "" {
+		chainId = "main"
+	}
 	future.Async(func() {
-		c.chain <- chain.ChainMessage{Key: key, Recievers: receivers, Signatures: []string{c.SignPacket(payload), signature}, Submitter: c.id, RequestId: callbackId, Author: "user::" + userId, Payload: payload}
+		c.chain <- chainSubmission{chainId: chainId, op: chain.ChainMessage{Key: key, MessageType: messageType, ReplyTo: replyTo, PointId: pointId, Pay: pay, Recievers: receivers, Signatures: []string{c.SignPacket(payload), signature}, Submitter: c.id, RequestId: callbackId, Author: "user::" + userId, Payload: payload}}
 	}, false)
+}
+
+func (c *Core) chainMessageTargetsLocalNode(packet chain.ChainMessage) bool {
+	if _, exists := packet.Recievers["*"]; exists {
+		return true
+	}
+	_, exists := packet.Recievers[c.id]
+	return exists
+}
+
+func (c *Core) chainMessageMachineIds(packet chain.ChainMessage) map[string]bool {
+	machineIds := map[string]bool{}
+	if ids, ok := packet.Recievers[c.id]; ok {
+		for machineId := range ids {
+			machineIds[machineId] = true
+		}
+	}
+	if packet.Pay != nil {
+		for _, machineId := range packet.Pay.MachineIds {
+			machineIds[machineId] = true
+		}
+	}
+	return machineIds
+}
+
+func (c *Core) runChainMessage(packet chain.ChainMessage) {
+	for machineId := range c.chainMessageMachineIds(packet) {
+		var runtimeType string
+		c.ModifyState(true, func(trx trx.ITrx) error {
+			vm := mach_model.Vm{MachineId: machineId}.Pull(trx)
+			runtimeType = vm.Runtime
+			return nil
+		})
+		future.Async(func() {
+			if runtimeType == "wasm" {
+				c.Tools().Wasm().RunVm(machineId, packet.PointId, string(packet.Payload))
+			}
+		}, false)
+	}
+}
+
+func (c *Core) consumePayLockOnChain(pay *chain.ChainPayPacket) bool {
+	if pay == nil || pay.LockId == "" || pay.UserId == "" || pay.LockSignature == "" || pay.Amount <= 0 {
+		return false
+	}
+	inp, _ := json.Marshal(inputs_users.ConsumeLockInput{
+		Type:      "pay",
+		UserId:    pay.UserId,
+		LockId:    pay.LockId,
+		Signature: pay.LockSignature,
+		Amount:    pay.Amount,
+	})
+	sign := c.SignPacketAsOwner(inp)
+	res := make(chan bool, 1)
+	c.ExecBaseRequestOnChain("/users/consumeLock", inp, sign, c.ownerId, "", func(b []byte, i int, err error) {
+		if err != nil || i >= 400 {
+			res <- false
+			return
+		}
+		res <- true
+	})
+	return <-res
 }
 
 func (c *Core) ExecBaseResponseOnChain(callbackId string, packet []byte, signature string, resCode int, e string, updates []update.Update, tag string, toUserId string) {
@@ -333,6 +414,9 @@ func (c *Core) OnChainPacket(typ string, trxPayload []byte) string {
 				log.Println(err)
 				return ""
 			}
+			if packet.MessageType == "" {
+				packet.MessageType = "vm.execute"
+			}
 			if packet.ReplyTo != "" {
 				cb, ok := c.messageCallbacks[packet.ReplyTo]
 				if !ok {
@@ -340,27 +424,35 @@ func (c *Core) OnChainPacket(typ string, trxPayload []byte) string {
 				}
 				cb.Fn(packet.Key, packet.Payload)
 			} else {
-				if _, exists := packet.Recievers["*"]; !exists {
-					// TODO on chain consensus
-				} else {
-					if _, exists := packet.Recievers[c.id]; !exists {
+				if !c.chainMessageTargetsLocalNode(packet) {
+					return ""
+				}
+				switch packet.MessageType {
+				case "vm.cost.negotiate":
+					if packet.Author == c.id {
 						return ""
-					} else {
-						machineIds := packet.Recievers[c.id]
-						for machineId := range machineIds {
-							var runtimeType string
-							c.ModifyState(true, func(trx trx.ITrx) error {
-								vm := mach_model.Vm{MachineId: machineId}.Pull(trx)
-								runtimeType = vm.Runtime
-								return nil
-							})
-							future.Async(func() {
-								if runtimeType == "wasm" {
-									c.Tools().Wasm().RunVm(machineId, packet.PointId, string(packet.Payload))
-								}
-							}, false)
-						}
 					}
+					pay := &chain.ChainPayPacket{Type: "vm.cost.ack", SessionId: packet.RequestId, CostPerSecond: c.executionCostPerSecond}
+					future.Async(func() {
+						c.chain <- chain.ChainMessage{Key: packet.Key, MessageType: "vm.cost.ack", ReplyTo: packet.RequestId, Recievers: map[string]map[string]bool{packet.Submitter: map[string]bool{}}, Signatures: []string{c.SignPacket([]byte(strconv.FormatInt(c.executionCostPerSecond, 10)))}, Submitter: c.id, RequestId: crypto.SecureUniqueString(), Author: c.id, Pay: pay}
+					}, false)
+				case "vm.execute.request", "vm.execute.charge", "vm.execute":
+					if packet.Pay != nil && (packet.MessageType == "vm.execute.request" || packet.MessageType == "vm.execute.charge") {
+						packetCpy := packet
+						future.Async(func() {
+							if !c.consumePayLockOnChain(packetCpy.Pay) {
+								return
+							}
+							if packetCpy.Pay.AcceptedSeconds <= 0 && c.executionCostPerSecond > 0 {
+								packetCpy.Pay.AcceptedSeconds = packetCpy.Pay.Amount / c.executionCostPerSecond
+							}
+							c.runChainMessage(packetCpy)
+						}, false)
+						return ""
+					}
+					c.runChainMessage(packet)
+				default:
+					return ""
 				}
 			}
 			break
@@ -482,6 +574,12 @@ func (c *Core) Load(gods []string, args map[string]interface{}) {
 		elpis:    dElpis,
 	}
 
+	if cpsRaw := os.Getenv("VM_EXEC_COST_PER_SECOND"); cpsRaw != "" {
+		if cps, err := strconv.ParseInt(cpsRaw, 10, 64); err == nil && cps >= 0 {
+			c.executionCostPerSecond = cps
+		}
+	}
+
 	c.tools.Network().Chain().RegisterPipeline(func(b [][]byte, insiderCb func([]byte)) []string {
 		machineIds := []string{}
 		for _, trx := range b {
@@ -506,8 +604,16 @@ func (c *Core) Load(gods []string, args map[string]interface{}) {
 	c.chain = make(chan any, 1)
 	future.Async(func() {
 		for {
-			op := <-c.chain
+			rawOp := <-c.chain
 			typ := ""
+			chainId := "main"
+			op := rawOp
+			if envelope, ok := rawOp.(chainSubmission); ok {
+				op = envelope.op
+				if envelope.chainId != "" {
+					chainId = envelope.chainId
+				}
+			}
 			switch op.(type) {
 			case chain.ChainBaseRequest:
 				{
@@ -524,7 +630,7 @@ func (c *Core) Load(gods []string, args map[string]interface{}) {
 				serialized, err := json.Marshal(op)
 				if err == nil {
 					log.Println(string(serialized))
-					c.tools.Network().Chain().SubmitTrx("main", typ, []byte(typ+"::"+string(serialized)))
+					c.tools.Network().Chain().SubmitTrx(chainId, typ, []byte(typ+"::"+string(serialized)))
 				} else {
 					log.Println(err)
 				}

@@ -11,6 +11,7 @@ import (
 	"kasper/src/abstract/adapters/file"
 	"kasper/src/abstract/adapters/signaler"
 	"kasper/src/abstract/adapters/storage"
+	"kasper/src/abstract/models/chain"
 	"kasper/src/abstract/models/core"
 	"kasper/src/abstract/models/trx"
 	"kasper/src/abstract/models/worker"
@@ -145,6 +146,8 @@ func (wm *Wasm) WasmCallback(dataRaw string) (string, int64) {
 		return wm.handleRunVM(input, reqId)
 	case "terminateVm":
 		return wm.handleTerminateVM(input, reqId)
+	case "sendMessageOnChain":
+		return wm.handleSendMessageOnChain(input, reqId)
 	case "log":
 		_, err := checkField(input, "text", "")
 		if err != nil {
@@ -537,6 +540,111 @@ func (wm *Wasm) handleRunVM(input map[string]any, reqId int64) (string, int64) {
 		return wm.handleRunDocker(input, reqId)
 	}
 	return "unsupported runtime", reqId
+}
+
+func parseChainReceivers(input map[string]any) map[string]map[string]bool {
+	receivers := map[string]map[string]bool{}
+	receiversRaw, ok := input["receivers"]
+	if !ok {
+		return map[string]map[string]bool{"*": map[string]bool{}}
+	}
+	nodesMap, ok := receiversRaw.(map[string]any)
+	if !ok {
+		return receivers
+	}
+	for nodeId, machineIdsRaw := range nodesMap {
+		receivers[nodeId] = map[string]bool{}
+		if machineIds, ok := machineIdsRaw.([]any); ok {
+			for _, machineIdRaw := range machineIds {
+				if machineId, ok := machineIdRaw.(string); ok {
+					receivers[nodeId][machineId] = true
+				}
+			}
+		}
+	}
+	if len(receivers) == 0 {
+		receivers["*"] = map[string]bool{}
+	}
+	return receivers
+}
+
+func parseChainPayPacket(input map[string]any) *chain.ChainPayPacket {
+	payRaw, ok := input["pay"]
+	if !ok {
+		return nil
+	}
+	payMap, ok := payRaw.(map[string]any)
+	if !ok {
+		return nil
+	}
+	pay := &chain.ChainPayPacket{}
+	if v, ok := payMap["type"].(string); ok {
+		pay.Type = v
+	}
+	if v, ok := payMap["sessionId"].(string); ok {
+		pay.SessionId = v
+	}
+	if v, ok := payMap["userId"].(string); ok {
+		pay.UserId = v
+	}
+	if v, ok := payMap["lockId"].(string); ok {
+		pay.LockId = v
+	}
+	if v, ok := payMap["lockSignature"].(string); ok {
+		pay.LockSignature = v
+	}
+	if v, ok := payMap["pointId"].(string); ok {
+		pay.PointId = v
+	}
+	if v, ok := payMap["vmPayload"].(string); ok {
+		pay.VmPayload = v
+	}
+	if v, ok := payMap["error"].(string); ok {
+		pay.Error = v
+	}
+	if v, ok := payMap["amount"].(float64); ok {
+		pay.Amount = int64(v)
+	}
+	if v, ok := payMap["requestedSeconds"].(float64); ok {
+		pay.RequestedSeconds = int64(v)
+	}
+	if v, ok := payMap["acceptedSeconds"].(float64); ok {
+		pay.AcceptedSeconds = int64(v)
+	}
+	if v, ok := payMap["costPerSecond"].(float64); ok {
+		pay.CostPerSecond = int64(v)
+	}
+	if machineIdsRaw, ok := payMap["machineIds"].([]any); ok {
+		pay.MachineIds = []string{}
+		for _, m := range machineIdsRaw {
+			if machineId, ok := m.(string); ok {
+				pay.MachineIds = append(pay.MachineIds, machineId)
+			}
+		}
+	}
+	return pay
+}
+
+func (wm *Wasm) handleSendMessageOnChain(input map[string]any, reqId int64) (string, int64) {
+	chainId, _ := checkField(input, "chainId", "main")
+	key, err := checkField(input, "msgKey", "")
+	if err != nil {
+		key, err = checkField(input, "key", "")
+		if err != nil {
+			println(err)
+			return err.Error(), reqId
+		}
+	}
+	messageType, _ := checkField(input, "messageType", "vm.execute")
+	payloadStr, _ := checkField(input, "payload", "{}")
+	signature, _ := checkField(input, "signature", "")
+	userId, _ := checkField(input, "userId", wm.app.OwnerId())
+	replyTo, _ := checkField(input, "replyTo", "")
+	pointId, _ := checkField(input, "pointId", "")
+	receivers := parseChainReceivers(input)
+	pay := parseChainPayPacket(input)
+	wm.app.SendTypedMessageOnChain(chainId, key, messageType, []byte(payloadStr), signature, userId, receivers, replyTo, pointId, pay, nil)
+	return "{}", reqId
 }
 
 func (wm *Wasm) handleTerminateVM(input map[string]any, reqId int64) (string, int64) {
