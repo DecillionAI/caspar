@@ -167,6 +167,7 @@ Source: `node/src/shell/api/actions/*`
 ### Chain
 
 - `POST /chains/create`
+- `POST /chains/createFromPoint`
 - `POST /chains/registerNode`
 - `POST /chains/submitBaseTrx`
 
