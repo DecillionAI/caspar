@@ -374,6 +374,16 @@ func (c *Core) runChainMessage(packet chain.ChainMessage) {
 			runtimeType = vm.Runtime
 			return nil
 		})
+		if runtimeType == "wasm" || runtimeType == "docker" {
+			listener, found := c.Tools().Signaler().Listeners().Get(machineId)
+			if found && listener != nil {
+				payload := append([]byte(nil), packet.Payload...)
+				future.Async(func() {
+					listener.Signal("points/signal", payload)
+				}, false)
+				continue
+			}
+		}
 		future.Async(func() {
 			if runtimeType == "wasm" {
 				c.Tools().Wasm().RunVm(machineId, packet.PointId, string(packet.Payload))
