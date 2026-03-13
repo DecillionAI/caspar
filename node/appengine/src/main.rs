@@ -2102,3 +2102,101 @@ impl Clone for ChainTrx {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn noop_callback(_: JsonValue) -> String {
+        "{}".to_string()
+    }
+
+    #[test]
+    fn trx_put_get_and_delete_work_in_memory() {
+        let mut trx = Trx::new();
+
+        trx.put("k1".to_string(), "v1".to_string());
+        assert_eq!(trx.get("k1".to_string()), "v1");
+
+        trx.del("k1".to_string());
+        assert_eq!(trx.get("k1".to_string()), "");
+    }
+
+    #[test]
+    fn trx_get_by_prefix_reads_cached_values() {
+        let mut trx = Trx::new();
+        trx.put("prefix/a".to_string(), "1".to_string());
+        trx.put("prefix/b".to_string(), "2".to_string());
+        trx.put("other/c".to_string(), "3".to_string());
+
+        let mut got = trx.get_by_prefix("prefix/".to_string());
+        got.sort();
+        assert_eq!(got, vec!["1".to_string(), "2".to_string()]);
+    }
+
+    #[test]
+    fn wasm_mac_finalize_returns_collected_ops() {
+        let mut mac = WasmMac::new_vm(
+            "machine".to_string(),
+            "point".to_string(),
+            "module.wasm".to_string(),
+            Box::new(noop_callback),
+        );
+
+        mac.trx.put("a".to_string(), "b".to_string());
+        let ops = mac.finalize();
+
+        assert_eq!(ops.len(), 1);
+        assert_eq!(ops[0].type_, "put");
+        assert_eq!(ops[0].key, "a");
+        assert_eq!(ops[0].val, "b");
+    }
+
+    #[test]
+    fn wasm_mac_constructors_set_expected_modes() {
+        let vm = WasmMac::new_vm(
+            "machine".to_string(),
+            "point".to_string(),
+            "module.wasm".to_string(),
+            Box::new(noop_callback),
+        );
+        assert!(!vm.onchain);
+        assert_eq!(vm.point_id, "point");
+
+        let onchain = WasmMac::new_onchain(
+            "machine".to_string(),
+            "vm-id".to_string(),
+            7,
+            "module.wasm".to_string(),
+            Box::new(noop_callback),
+        );
+        assert!(onchain.onchain);
+        assert_eq!(onchain.id, "vm-id");
+        assert_eq!(onchain.index, 7);
+    }
+
+    #[test]
+    fn managed_vm_terminate_sets_stop_flag() {
+        let handle = ManagedVmHandle {
+            stop: Arc::new(AtomicBool::new(false)),
+            running: Arc::new(AtomicBool::new(true)),
+        };
+        handle.terminate_vm_instance();
+        assert!(handle.stop.load(Ordering::Relaxed));
+    }
+
+    #[test]
+    fn wasm_task_new_is_empty() {
+        let task = WasmTask::new();
+        assert_eq!(task.id, 0);
+        assert!(task.name.is_empty());
+        assert!(!task.started);
+    }
+
+    #[test]
+    fn noop_callback_returns_json_shape() {
+        let out = noop_callback(json!({"x": 1}));
+        assert_eq!(out, "{}");
+    }
+}

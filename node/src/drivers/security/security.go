@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"crypto/x509"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/pem"
 	"fmt"
 	"kasper/src/abstract/adapters/security"
@@ -97,14 +98,20 @@ func (sm *Security) Encrypt(tag string, plainText string) string {
 }
 
 func (sm *Security) Decrypt(tag string, cipherText string) string {
-	privateKeyPEM := sm.keys[tag][0]
-	privateKeyBlock, _ := pem.Decode(privateKeyPEM)
-	privateKey, err := x509.ParsePKCS1PrivateKey(privateKeyBlock.Bytes)
+	rawCipher, err := hex.DecodeString(cipherText)
 	if err != nil {
 		log.Println(err)
 		return ""
 	}
-	plaintext, err := rsa.DecryptPKCS1v15(rand.Reader, privateKey, []byte(cipherText))
+	privateKeyPEM := sm.keys[tag][0]
+	privateKeyBlock, _ := pem.Decode(privateKeyPEM)
+	privateKeyIface, err := x509.ParsePKCS8PrivateKey(privateKeyBlock.Bytes)
+	if err != nil {
+		log.Println(err)
+		return ""
+	}
+	privateKey := privateKeyIface.(*rsa.PrivateKey)
+	plaintext, err := rsa.DecryptPKCS1v15(rand.Reader, privateKey, rawCipher)
 	if err != nil {
 		log.Println(err)
 		return ""

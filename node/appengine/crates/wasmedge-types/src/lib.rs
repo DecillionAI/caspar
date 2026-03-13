@@ -501,3 +501,70 @@ pub type WasmEdgeResult<T> = Result<T, Box<error::WasmEdgeError>>;
 pub enum NeverType {}
 unsafe impl Send for NeverType {}
 unsafe impl Sync for NeverType {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ref_type_and_val_type_roundtrip() {
+        assert_eq!(RefType::from(ValType::FuncRef), RefType::FuncRef);
+        assert_eq!(RefType::from(ValType::ExternRef), RefType::ExternRef);
+        assert_eq!(ValType::from(RefType::FuncRef), ValType::FuncRef);
+        assert_eq!(ValType::from(RefType::ExternRef), ValType::ExternRef);
+    }
+
+    #[test]
+    #[should_panic]
+    fn ref_type_from_invalid_val_panics() {
+        let _ = RefType::from(ValType::I32);
+    }
+
+    #[test]
+    fn mutability_numeric_conversions() {
+        assert_eq!(Mutability::from(0_u32), Mutability::Const);
+        assert_eq!(Mutability::from(1_u32), Mutability::Var);
+        assert_eq!(u32::from(Mutability::Const), 0_u32);
+        assert_eq!(u32::from(Mutability::Var), 1_u32);
+        assert_eq!(Mutability::from(0_i32), Mutability::Const);
+        assert_eq!(Mutability::from(1_i32), Mutability::Var);
+        assert_eq!(i32::from(Mutability::Const), 0_i32);
+        assert_eq!(i32::from(Mutability::Var), 1_i32);
+    }
+
+    #[test]
+    fn compiler_output_and_opt_level_conversions() {
+        assert_eq!(
+            CompilerOutputFormat::from(0_u32),
+            CompilerOutputFormat::Native
+        );
+        assert_eq!(
+            CompilerOutputFormat::from(1_u32),
+            CompilerOutputFormat::Wasm
+        );
+        assert_eq!(u32::from(CompilerOutputFormat::Native), 0_u32);
+        assert_eq!(u32::from(CompilerOutputFormat::Wasm), 1_u32);
+
+        let levels = [
+            CompilerOptimizationLevel::O0,
+            CompilerOptimizationLevel::O1,
+            CompilerOptimizationLevel::O2,
+            CompilerOptimizationLevel::O3,
+            CompilerOptimizationLevel::Os,
+            CompilerOptimizationLevel::Oz,
+        ];
+
+        for (idx, level) in levels.into_iter().enumerate() {
+            assert_eq!(CompilerOptimizationLevel::from(idx as u32), level);
+            assert_eq!(CompilerOptimizationLevel::from(idx as i32), level);
+            assert_eq!(u32::from(level), idx as u32);
+            assert_eq!(i32::from(level), idx as i32);
+        }
+    }
+
+    #[test]
+    #[should_panic]
+    fn compiler_output_invalid_panics() {
+        let _ = CompilerOutputFormat::from(99_u32);
+    }
+}
