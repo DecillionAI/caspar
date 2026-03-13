@@ -7,7 +7,9 @@ import (
 	"kasper/src/abstract/state"
 	inputs_chain "kasper/src/shell/api/inputs/chain"
 	inputs_users "kasper/src/shell/api/inputs/users"
+	"kasper/src/shell/utils/origin"
 	"net"
+	"strings"
 )
 
 type Actions struct {
@@ -84,6 +86,54 @@ func (a *Actions) CreateShard(state state.IState, input inputs_chain.CreateShard
 		return nil, errors.New("work chain not found")
 	}
 	return map[string]any{"chainId": input.ChainId, "shardChainId": id}, nil
+}
+
+// CreateFromPoint /chains/createFromPoint check [ true true false ] access [ true false false false POST ]
+func (a *Actions) CreateFromPoint(state state.IState, input inputs_chain.CreateFromPointInput) (any, error) {
+	members, err := state.Trx().GetLinksList("member::"+state.Info().PointId()+"::", -1, -1)
+	if err != nil {
+		return nil, err
+	}
+	peersMap := map[string]bool{}
+	for _, memberLink := range members {
+		parts := strings.Split(memberLink, "::")
+		if len(parts) < 3 {
+			continue
+		}
+		memberId := parts[len(parts)-1]
+		addr := origin.FindOrigin(memberId)
+		if addr != "" {
+			peersMap[addr] = true
+		}
+	}
+	peers := []string{}
+	for addr := range peersMap {
+		peers = append(peers, addr)
+	}
+
+	createResRaw, err := a.Create(state, inputs_chain.CreateInput{IsTemp: input.IsTemp, LockId: input.LockId, LockSignature: input.LockSignature})
+	if err != nil {
+		return nil, err
+	}
+	createRes, ok := createResRaw.(map[string]any)
+	if !ok {
+		return nil, errors.New("failed to create work chain")
+	}
+	chainId, _ := createRes["chainId"].(string)
+	if chainId == "" {
+		return nil, errors.New("failed to create work chain")
+	}
+
+	shardChainId := a.App.Tools().Network().Chain().CreateShardChain(chainId, "", peers)
+	if shardChainId == "" {
+		return nil, errors.New("work chain not found")
+	}
+
+	return map[string]any{
+		"chainId":      chainId,
+		"shardChainId": shardChainId,
+		"peers":        peers,
+	}, nil
 }
 
 // SubmitBaseTrx /chains/submitBaseTrx check [ true false false ] access [ true false false false POST ]

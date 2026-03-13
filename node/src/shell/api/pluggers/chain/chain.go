@@ -21,6 +21,10 @@ func (c *Plugger) CreateShard() iaction.IAction {
 	return utils.ExtractSecureAction(c.Core, c.Actions.CreateShard)
 }
 
+func (c *Plugger) CreateFromPoint() iaction.IAction {
+	return utils.ExtractSecureAction(c.Core, c.Actions.CreateFromPoint)
+}
+
 func (c *Plugger) SubmitBaseTrx() iaction.IAction {
 	return utils.ExtractSecureAction(c.Core, c.Actions.SubmitBaseTrx)
 }
