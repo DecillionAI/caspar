@@ -8,6 +8,7 @@ inherits = "dev"
 debug = "full"
 
 [dependencies]
+elpify-lang = { path = "crates/elpify-lang" }
 rocksdb = "0.24.0"
 once_cell = "1.18"
 crossbeam = "0.8"
@@ -59,4 +60,5 @@ members = [
     "crates/wasmedge-types",
     "crates/wasmedge-macro",
     "crates/async-wasi",
+    "crates/elpify-lang",
 ]
