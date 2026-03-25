@@ -122,7 +122,7 @@ type Core struct {
 	elecReg                bool
 	elecStarter            string
 	elecStartTime          int64
-	executors              map[string]bool
+	freeNodes              map[string]bool
 	appPendingTrxs         []*worker.Trx
 	actionStore            iaction.IActor
 	privKey                *rsa.PrivateKey
@@ -139,8 +139,8 @@ type chainSubmission struct {
 
 func NewCore(origin string, ownerId string, ownerPrivateKey *rsa.PrivateKey) *Core {
 	id := origin
-	execs := map[string]bool{}
-	execs[os.Getenv("ROOT_NODE")] = true
+	freeNodes := map[string]bool{}
+	freeNodes[os.Getenv("ROOT_NODE")] = true
 	return &Core{
 		ownerId:                ownerId,
 		ownerPrivKey:           ownerPrivateKey,
@@ -152,19 +152,27 @@ func NewCore(origin string, ownerId string, ownerPrivateKey *rsa.PrivateKey) *Co
 		Ip:                     id,
 		elections:              nil,
 		elecReg:                false,
-		executors:              execs,
+		freeNodes:              freeNodes,
 		actionStore:            actor.NewActor(),
 		started:                false,
 		executionCostPerSecond: 0,
 	}
 }
 
-func (c *Core) Executors() map[string]bool {
-	return c.executors
+func (c *Core) FreeNodes() map[string]bool {
+	return c.freeNodes
 }
 
-func (c *Core) SetExecutors(execs map[string]bool) {
-	c.executors = execs
+func (c *Core) AddFreeNode(nodeId string) {
+	if nodeId == "" {
+		return
+	}
+	c.lock.Lock()
+	defer c.lock.Unlock()
+	if c.freeNodes == nil {
+		c.freeNodes = map[string]bool{}
+	}
+	c.freeNodes[nodeId] = true
 }
 
 func (c *Core) Actor() iaction.IActor {
@@ -226,6 +234,18 @@ func (c *Core) OwnerId() string {
 
 func (c *Core) Gods() []string {
 	return c.gods
+}
+
+func (c *Core) AddGod(username string) {
+	if username == "" {
+		return
+	}
+	c.lock.Lock()
+	defer c.lock.Unlock()
+	if slices.Contains(c.gods, username) {
+		return
+	}
+	c.gods = append(c.gods, username)
 }
 
 func (c *Core) IpAddr() string {
@@ -460,14 +480,14 @@ func (c *Core) OnChainPacket(typ string, trxPayload []byte) string {
 					}, false)
 				case "vm.execute.request", "vm.execute.charge", "vm.execute":
 					if packet.Pay != nil && (packet.MessageType == "vm.execute.request" || packet.MessageType == "vm.execute.charge") {
+						if !c.freeNodes[packet.Submitter] && !c.consumePayLockOnChain(packet.Pay) {
+							return ""
+						}
 						packetCpy := packet
+						if packetCpy.Pay.AcceptedSeconds <= 0 && c.executionCostPerSecond > 0 {
+							packetCpy.Pay.AcceptedSeconds = packetCpy.Pay.Amount / c.executionCostPerSecond
+						}
 						future.Async(func() {
-							if !c.consumePayLockOnChain(packetCpy.Pay) {
-								return
-							}
-							if packetCpy.Pay.AcceptedSeconds <= 0 && c.executionCostPerSecond > 0 {
-								packetCpy.Pay.AcceptedSeconds = packetCpy.Pay.Amount / c.executionCostPerSecond
-							}
 							c.runChainMessage(packetCpy)
 						}, false)
 						return ""
@@ -488,16 +508,10 @@ func (c *Core) OnChainPacket(typ string, trxPayload []byte) string {
 				return ""
 			}
 			execs := map[string]bool{}
-			for k, v := range c.executors {
-				execs[k] = v
-			}
 			if packet.Submitter == c.id {
 				c.chainCallbacks[packet.RequestId].Executors = execs
 			} else {
 				c.chainCallbacks[packet.RequestId] = &chain.ChainCallback{Fn: nil, Executors: execs, Responses: map[string]string{}}
-			}
-			if !c.executors[c.Ip] {
-				return ""
 			}
 			userId := ""
 			if strings.HasPrefix(packet.Author, "user::") {
