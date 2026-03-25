@@ -21,6 +21,9 @@ func Install(a *Actions, extra ...any) error {
 }
 
 func (a *Actions) consumeChainCreationLock(state state.IState, lockId *string, lockSignature *string) error {
+	if state.Info().UserId() == a.App.OwnerId() {
+		return nil
+	}
 	if lockId == nil || lockSignature == nil || *lockId == "" || *lockSignature == "" {
 		return nil
 	}
