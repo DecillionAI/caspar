@@ -67,12 +67,16 @@ func (a *Actions) Create(state state.IState, input inputs_chain.CreateInput) (an
 		return nil, err
 	}
 	id := ""
-	if *input.IsTemp {
-		id = a.App.Tools().Network().Chain().CreateTempChain()
-	} else {
-		id = a.App.Tools().Network().Chain().CreateWorkChain()
+	pointId := ""
+	if input.PointId != nil {
+		pointId = *input.PointId
 	}
-	return map[string]any{"chainId": id}, nil
+	if *input.IsTemp {
+		id = a.App.Tools().Network().Chain().CreateTempChain(pointId)
+	} else {
+		id = a.App.Tools().Network().Chain().CreateWorkChain(pointId)
+	}
+	return map[string]any{"chainId": id, "pointId": pointId}, nil
 }
 
 // CreateShard /chains/createShard check [ true false false ] access [ true false false false POST ]
@@ -114,7 +118,7 @@ func (a *Actions) CreateFromPoint(state state.IState, input inputs_chain.CreateF
 		peers = append(peers, addr)
 	}
 
-	createResRaw, err := a.Create(state, inputs_chain.CreateInput{IsTemp: input.IsTemp, LockId: input.LockId, LockSignature: input.LockSignature})
+	createResRaw, err := a.Create(state, inputs_chain.CreateInput{PointId: &input.PointId, IsTemp: input.IsTemp, LockId: input.LockId, LockSignature: input.LockSignature})
 	if err != nil {
 		return nil, err
 	}
@@ -136,6 +140,7 @@ func (a *Actions) CreateFromPoint(state state.IState, input inputs_chain.CreateF
 		"chainId":      chainId,
 		"shardChainId": shardChainId,
 		"peers":        peers,
+		"pointId":      input.PointId,
 	}, nil
 }
 

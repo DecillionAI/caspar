@@ -1,6 +1,7 @@
 package inputs_machiner
 
 type CreateInput struct {
+	PointId       *string `json:"pointId"`
 	IsTemp        *bool   `json:"isTemp" validate:"required"`
 	LockId        *string `json:"lockId"`
 	LockSignature *string `json:"lockSignature"`
@@ -11,6 +12,9 @@ func (d CreateInput) GetData() any {
 }
 
 func (d CreateInput) GetPointId() string {
+	if d.PointId != nil {
+		return *d.PointId
+	}
 	return ""
 }
 
