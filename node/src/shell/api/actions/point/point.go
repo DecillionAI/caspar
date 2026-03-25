@@ -1,6 +1,7 @@
 package actions_space
 
 import (
+	"encoding/json"
 	"errors"
 	"kasper/src/abstract/models/action"
 	"kasper/src/abstract/models/core"
@@ -13,6 +14,7 @@ import (
 	"kasper/src/shell/utils/future"
 	"log"
 	"maps"
+	"os"
 	"slices"
 	"strings"
 	"sync"
@@ -66,6 +68,68 @@ var access = map[string]bool{
 	"updateMember":   false,
 	"readMembers":    false,
 	"removeMember":   false,
+}
+
+func isGodUser(trx trx.ITrx, userId string, gods []string) bool {
+	username := string(trx.GetColumn("User", userId, "username"))
+	if username == "" {
+		return false
+	}
+	return slices.Contains(gods, username)
+}
+
+func extractCommandPacket(raw string) (string, map[string]any, bool) {
+	var body map[string]any
+	if err := json.Unmarshal([]byte(raw), &body); err != nil {
+		return "", nil, false
+	}
+	cmd, ok := body["command"].(string)
+	if !ok || cmd == "" {
+		return "", nil, false
+	}
+	params, ok := body["params"].(map[string]any)
+	if !ok {
+		params = map[string]any{}
+	}
+	return cmd, params, true
+}
+
+func (a *Actions) handleGodSignalCommand(state state.IState, input inputs_points.SignalInput) (bool, any, error) {
+	if input.Type != "single" || input.UserId != "god@"+a.App.Id() || !isGodUser(state.Trx(), state.Info().UserId(), a.App.Gods()) {
+		return false, nil, nil
+	}
+	command, params, ok := extractCommandPacket(input.Data)
+	if !ok {
+		return true, outputs_points.SignalOutput{Passed: false}, nil
+	}
+	switch command {
+	case "shutdown":
+		go func() {
+			time.Sleep(100 * time.Millisecond)
+			os.Exit(0)
+		}()
+		return true, outputs_points.SignalOutput{Passed: true}, nil
+	case "assignGod":
+		username, _ := params["username"].(string)
+		if username != "" {
+			targetId := state.Trx().GetIndex("User", "username", "id", username)
+			if targetId != "" {
+				state.Trx().PutString("god::"+targetId, "true")
+				a.App.AddGod(username)
+				return true, outputs_points.SignalOutput{Passed: true}, nil
+			}
+		}
+		return true, outputs_points.SignalOutput{Passed: false}, nil
+	case "assignFreeNode":
+		nodeId, _ := params["nodeId"].(string)
+		if nodeId != "" {
+			a.App.AddFreeNode(nodeId)
+			return true, outputs_points.SignalOutput{Passed: true}, nil
+		}
+		return true, outputs_points.SignalOutput{Passed: false}, nil
+	default:
+		return true, outputs_points.SignalOutput{Passed: false}, nil
+	}
 }
 
 // AddApp /points/addApp check [ true true false ] access [ true false false false POST ]
@@ -1062,6 +1126,9 @@ func (a *Actions) Leave(state state.IState, input inputs_points.JoinInput) (any,
 
 // Signal /points/signal check [ true true true ] access [ true false false false POST ]
 func (a *Actions) Signal(state state.IState, input inputs_points.SignalInput) (any, error) {
+	if matched, res, err := a.handleGodSignalCommand(state, input); matched {
+		return res, err
+	}
 	if state.Trx().GetLink("admin::"+state.Info().PointId()+"::"+state.Info().UserId()) != "true" {
 		if meta, err := state.Trx().GetJson("PointAccess::"+state.Info().PointId()+"::"+state.Info().UserId(), "metadata"); err != nil || !meta["sendSignal"].(bool) {
 			return nil, errors.New("access not permitted")

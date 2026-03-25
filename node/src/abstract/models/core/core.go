@@ -21,9 +21,10 @@ type ICore interface {
 	OwnerId() string
 	Id() string
 	Gods() []string
+	AddGod(username string)
 	Tools() tools.ITools
-	Executors() map[string]bool
-	SetExecutors(map[string]bool)
+	FreeNodes() map[string]bool
+	AddFreeNode(nodeId string)
 	Actor() action.IActor
 	Load([]string, map[string]interface{})
 	Close()
