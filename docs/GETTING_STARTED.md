@@ -42,8 +42,9 @@ cp sample.env .env
 | `ENTITY_API_PORT` | HTTPS entity/stream API port |
 | `VM_API_PORT` | HTTPS VM gateway port |
 | `IPADDR` | advertise address for chain config |
+| `ROOT_NODE` | bootstrap/free-node seed origin used by election/free-node logic |
 | `IS_HEAD` | node mode used by shard/bootstrap logic |
-| `ROOT_NODE` | root origin used in bootstrap/election defaults |
+| `VM_EXEC_COST_PER_SECOND` | optional non-negative execution pricing value consumed by core runtime accounting |
 
 Legacy/unused in current code path:
 - `AdminPassword` (kept in template)
@@ -109,6 +110,8 @@ From `sample.env` / scripts:
 - `BLOCKCHAIN_API_PORT=1337`
 - `ENTITY_API_PORT=3000`
 - `VM_API_PORT=3001`
+- `ROOT_NODE=<origin-hostname>`
+- `VM_EXEC_COST_PER_SECOND=0` (or unset)
 - pprof: `9999`
 - hashgraph service API default bind: `8000` (mapped to `8079` by `run-testnet.sh`)
 
