@@ -17,7 +17,7 @@ import (
 	"kasper/src/abstract/adapters/signaler"
 	"kasper/src/abstract/adapters/storage"
 	"kasper/src/abstract/adapters/tools"
-	"kasper/src/abstract/adapters/wasm"
+	"kasper/src/abstract/adapters/vmm"
 	iaction "kasper/src/abstract/models/action"
 	"kasper/src/abstract/models/chain"
 	"kasper/src/abstract/models/info"
@@ -40,7 +40,7 @@ import (
 	driver_security "kasper/src/drivers/security"
 	driver_signaler "kasper/src/drivers/signaler"
 	driver_storage "kasper/src/drivers/storage"
-	driver_wasm "kasper/src/drivers/wasm"
+	driver_vmm "kasper/src/drivers/vmm"
 
 	driver_network_fed "kasper/src/drivers/network/federation"
 
@@ -62,7 +62,7 @@ type Tools struct {
 	storage  storage.IStorage
 	network  network.INetwork
 	file     file.IFile
-	vmm      wasm.IWasm
+	vmm      vmm.IVmm
 	elpis    elpis.IElpis
 	docker   docker.IDocker
 	firectl  firectl.IFirectl
@@ -88,7 +88,7 @@ func (t *Tools) File() file.IFile {
 	return t.file
 }
 
-func (t *Tools) Vmm() wasm.IWasm {
+func (t *Tools) Vmm() vmm.IVmm {
 	return t.vmm
 }
 
@@ -580,7 +580,7 @@ func (c *Core) Load(gods []string, args map[string]interface{}) {
 	dNetwork := driver_network.NewNetwork(c, dstorage, dsecurity, dsignaler, dnFederation)
 	dFile := driver_file.NewFileTool(sroot)
 	var dDocker docker.IDocker
-	dVmm := driver_wasm.NewVmm(c, sroot, dstorage, adbPath, dDocker, dFile)
+	dVmm := driver_vmm.NewVmm(c, sroot, dstorage, adbPath, dDocker, dFile)
 	var dElpis elpis.IElpis
 	dnFederation.SecondStageForFill(dstorage, dFile, dsignaler)
 	dFirectl := driver_firectl.NewFireCtl()

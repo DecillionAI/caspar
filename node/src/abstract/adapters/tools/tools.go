@@ -9,7 +9,7 @@ import (
 	"kasper/src/abstract/adapters/security"
 	"kasper/src/abstract/adapters/signaler"
 	"kasper/src/abstract/adapters/storage"
-	"kasper/src/abstract/adapters/wasm"
+	"kasper/src/abstract/adapters/vmm"
 )
 
 type ITools interface {
@@ -18,7 +18,7 @@ type ITools interface {
 	Storage() storage.IStorage
 	Network() network.INetwork
 	File() file.IFile
-	Vmm() wasm.IWasm
+	Vmm() vmm.IVmm
 	Elpis() elpis.IElpis
 	Docker() docker.IDocker
 	Firectl() firectl.IFirectl
