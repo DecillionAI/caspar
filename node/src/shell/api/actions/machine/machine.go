@@ -27,42 +27,42 @@ type Actions struct {
 
 func Install(a *Actions, extra ...any) error {
 	a.App.ModifyState(true, func(trx trx.ITrx) error {
-		vms, err := model.Vm{}.All(trx, -1, -1)
+		programs, err := model.Program{}.All(trx, -1, -1)
 		if err != nil {
 			panic(err)
 		}
-		for _, vm := range vms {
-			if vm.Runtime == "wasm" || vm.Runtime == "elpify" || vm.Runtime == "javascript" {
-				a.App.Tools().Vmm().Assign(vm.MachineId)
-				if pointId := trx.GetLink("vmAlarmPointId::" + vm.MachineId); pointId != "" {
+		for _, program := range programs {
+			if program.Runtime == "wasm" || program.Runtime == "elpify" || program.Runtime == "javascript" {
+				a.App.Tools().Vmm().Assign(program.MachineId)
+				if pointId := trx.GetLink("vmAlarmPointId::" + program.MachineId); pointId != "" {
 					future.Async(func() {
-						t, _ := strconv.ParseInt(trx.GetLink("vmAlarmTime::"+vm.MachineId), 10, 64)
+						t, _ := strconv.ParseInt(trx.GetLink("vmAlarmTime::"+program.MachineId), 10, 64)
 						ct := time.Now().UnixMilli()
 						if t > ct {
 							time.Sleep(time.Duration(t-ct) * time.Millisecond)
 						}
-						data := trx.GetLink("vmAlarmData::" + vm.MachineId)
-						trx.DelKey("link::vmAlarmPointId::" + vm.MachineId)
-						trx.DelKey("link::vmAlarmData::" + vm.MachineId)
-						trx.DelKey("link::vmAlarmTime::" + vm.MachineId)
-						if a.App.Tools().Security().HasAccessToPoint(vm.MachineId, pointId) {
-							a.App.Tools().Vmm().RunVm(vm.MachineId, pointId, data)
+						data := trx.GetLink("vmAlarmData::" + program.MachineId)
+						trx.DelKey("link::vmAlarmPointId::" + program.MachineId)
+						trx.DelKey("link::vmAlarmData::" + program.MachineId)
+						trx.DelKey("link::vmAlarmTime::" + program.MachineId)
+						if a.App.Tools().Security().HasAccessToPoint(program.MachineId, pointId) {
+							a.App.Tools().Vmm().RunVm(program.MachineId, pointId, data)
 						}
 					}, false)
 				}
-			} else if vm.Runtime == "elpis" {
-				a.App.Tools().Elpis().Assign(vm.MachineId)
-			} else if vm.Runtime == "docker" {
-				a.App.Tools().Docker().Assign(vm.MachineId)
-				if trx.GetLink("vmStatus::"+vm.MachineId) == "running" {
+			} else if program.Runtime == "elpis" {
+				a.App.Tools().Elpis().Assign(program.MachineId)
+			} else if program.Runtime == "docker" {
+				a.App.Tools().Docker().Assign(program.MachineId)
+				if trx.GetLink("vmStatus::"+program.MachineId) == "running" {
 					future.Async(func() {
-						a.App.Tools().Docker().SaRContainer(vm.MachineId, "main", "main")
-						a.App.Tools().Docker().RunContainer(vm.MachineId, "", "main", "main", map[string]string{}, true)
+						a.App.Tools().Docker().SaRContainer(program.MachineId, "main", "main")
+						a.App.Tools().Docker().RunContainer(program.MachineId, "", "main", "main", map[string]string{}, true)
 					}, false)
 				}
 			}
 			var pointIds []string
-			prefix := "memberof::" + vm.MachineId + "::"
+			prefix := "memberof::" + program.MachineId + "::"
 			pIds, err := trx.GetLinksList(prefix, -1, -1)
 			if err != nil {
 				log.Println(err)
@@ -71,7 +71,7 @@ func Install(a *Actions, extra ...any) error {
 				pointIds = pIds
 			}
 			for _, pointId := range pointIds {
-				a.App.Tools().Signaler().JoinGroup(pointId[len(prefix):], vm.MachineId)
+				a.App.Tools().Signaler().JoinGroup(pointId[len(prefix):], program.MachineId)
 			}
 		}
 		return nil
@@ -89,10 +89,10 @@ func (a *Actions) CreateApp(state state.IState, input inputs_machiner.CreateAppI
 	if input.ShardChainId != nil && *input.ShardChainId != "" {
 		shardChainId = *input.ShardChainId
 	}
-	app := model.App{Id: a.App.Tools().Storage().GenId(trx, input.Origin()), MachinesCount: 0, Username: input.Username, OwnerId: state.Info().UserId(), ChainId: input.ChainId, ShardChainId: shardChainId}
-	app.Push(trx)
-	trx.PutJson("AppMeta::"+app.Id, "metadata", input.Metadata, false)
-	profile, err := trx.GetJson("AppMeta::"+app.Id, "metadata.public.profile")
+	machine := model.Machine{Id: a.App.Tools().Storage().GenId(trx, input.Origin()), MachinesCount: 0, Username: input.Username, OwnerId: state.Info().UserId(), ChainId: input.ChainId, ShardChainId: shardChainId}
+	machine.Push(trx)
+	trx.PutJson("AppMeta::"+machine.Id, "metadata", input.Metadata, false)
+	profile, err := trx.GetJson("AppMeta::"+machine.Id, "metadata.public.profile")
 	if err != nil {
 		log.Println(err)
 		return nil, err
@@ -106,10 +106,10 @@ func (a *Actions) CreateApp(state state.IState, input inputs_machiner.CreateAppI
 	if profile["avatar"] == nil {
 		return nil, errors.New("avatar can not be empty")
 	}
-	trx.PutLink("createdApp::"+state.Info().UserId()+"::"+app.Id, "true")
-	trx.PutIndex("App", "title", "id", app.Id+"->"+profile["title"].(string), []byte(app.Id))
-	a.App.Tools().Network().Chain().NotifyNewMachineCreated(input.ChainId, app.Id)
-	return map[string]any{"app": app}, nil
+	trx.PutLink("createdApp::"+state.Info().UserId()+"::"+machine.Id, "true")
+	trx.PutIndex("App", "title", "id", machine.Id+"->"+profile["title"].(string), []byte(machine.Id))
+	a.App.Tools().Network().Chain().NotifyNewMachineCreated(input.ChainId, machine.Id)
+	return map[string]any{"app": machine}, nil
 }
 
 // DeleteApp /apps/deleteApp check [ true false false ] access [ true false false false POST ]
@@ -124,7 +124,7 @@ func (a *Actions) DeleteApp(state state.IState, input inputs_machiner.DeleteAppI
 	} else {
 		log.Println(err)
 	}
-	model.App{Id: input.AppId}.Delete(trx)
+	model.Machine{Id: input.AppId}.Delete(trx)
 	trx.DelKey("link::createdApp::" + state.Info().UserId() + "::" + input.AppId)
 	return map[string]any{}, nil
 }
@@ -163,23 +163,23 @@ func (a *Actions) UpdateApp(state state.IState, input inputs_machiner.UpdateAppI
 // MyCreatedApps /apps/myCreatedApps check [ true false false ] access [ true false false false GET ]
 func (a *Actions) MyCreatedApps(state state.IState, input inputs_machiner.ListInput) (any, error) {
 	trx := state.Trx()
-	apps, err := model.App{}.List(trx, "createdApp::"+state.Info().UserId()+"::")
+	machines, err := model.Machine{}.List(trx, "createdApp::"+state.Info().UserId()+"::")
 	if err != nil {
 		log.Println(err)
 		return nil, err
 	}
 	result := []map[string]any{}
-	for _, app := range apps {
-		profile, err := trx.GetJson("AppMeta::"+app.Id, "metadata.public.profile")
+	for _, machine := range machines {
+		profile, err := trx.GetJson("AppMeta::"+machine.Id, "metadata.public.profile")
 		if err != nil {
 			log.Println(err)
 			result = append(result, map[string]any{
-				"id":            app.Id,
-				"chainId":       app.ChainId,
-				"shardChainId":  app.ShardChainId,
-				"username":      app.Username,
-				"ownerId":       app.OwnerId,
-				"machinesCount": app.MachinesCount,
+				"id":            machine.Id,
+				"chainId":       machine.ChainId,
+				"shardChainId":  machine.ShardChainId,
+				"username":      machine.Username,
+				"ownerId":       machine.OwnerId,
+				"machinesCount": machine.MachinesCount,
 				"title":         "untitled",
 				"avatar":        "",
 				"desc":          "",
@@ -187,12 +187,12 @@ func (a *Actions) MyCreatedApps(state state.IState, input inputs_machiner.ListIn
 			continue
 		}
 		result = append(result, map[string]any{
-			"id":            app.Id,
-			"chainId":       app.ChainId,
-			"shardChainId":  app.ShardChainId,
-			"username":      app.Username,
-			"ownerId":       app.OwnerId,
-			"machinesCount": app.MachinesCount,
+			"id":            machine.Id,
+			"chainId":       machine.ChainId,
+			"shardChainId":  machine.ShardChainId,
+			"username":      machine.Username,
+			"ownerId":       machine.OwnerId,
+			"machinesCount": machine.MachinesCount,
 			"title":         profile["title"],
 			"avatar":        profile["avatar"],
 			"desc":          profile["desc"],
@@ -211,21 +211,21 @@ func (a *Actions) CreateMachine(state state.IState, input inputs_machiner.Create
 	if !trx.HasObj("App", input.AppId) {
 		return nil, errors.New("app not found")
 	}
-	app := model.App{Id: input.AppId}.Pull(trx)
-	if app.OwnerId != state.Info().UserId() {
+	machine := model.Machine{Id: input.AppId}.Pull(trx)
+	if machine.OwnerId != state.Info().UserId() {
 		return nil, errors.New("you are not owner of app")
 	}
 	user = model.User{Id: a.App.Tools().Storage().GenId(trx, input.Origin()), Balance: 1000, Typ: "machine", PublicKey: input.PublicKey, Username: input.Username + "@" + state.Source()}
 	session = model.Session{Id: a.App.Tools().Storage().GenId(trx, input.Origin()), UserId: user.Id}
-	vm := model.Vm{MachineId: user.Id, AppId: app.Id, Path: input.Path, Runtime: input.Runtime, Comment: input.Comment}
-	app.MachinesCount++
-	app.Push(trx)
+	program := model.Program{MachineId: user.Id, AppId: machine.Id, Path: input.Path, Runtime: input.Runtime, Comment: input.Comment}
+	machine.MachinesCount++
+	machine.Push(trx)
 	user.Push(trx)
 	session.Push(trx)
-	vm.Push(trx)
-	trx.PutJson("MachineMeta::"+vm.MachineId, "metadata", map[string]any{}, true)
-	trx.PutIndex("Machine", "id", "appId", user.Id, []byte(app.Id))
-	trx.PutLink("appMachines::"+app.Id+"::"+vm.MachineId, "true")
+	program.Push(trx)
+	trx.PutJson("MachineMeta::"+program.MachineId, "metadata", map[string]any{}, true)
+	trx.PutIndex("Machine", "id", "appId", user.Id, []byte(machine.Id))
+	trx.PutLink("appMachines::"+machine.Id+"::"+program.MachineId, "true")
 	return outputs_machiner.CreateOutput{User: user}, nil
 }
 
@@ -237,11 +237,11 @@ func (a *Actions) DeleteMachine(state state.IState, input inputs_machiner.Delete
 	}
 	model.User{Id: input.MachineId}.Delete(trx)
 	appId := trx.GetIndex("Machine", "id", "appId", input.MachineId)
-	app := model.App{Id: appId}.Pull(trx)
-	app.MachinesCount--
-	app.Push(trx)
+	machine := model.Machine{Id: appId}.Pull(trx)
+	machine.MachinesCount--
+	machine.Push(trx)
 	trx.DelIndex("Machine", "id", "appId", input.MachineId)
-	trx.DelKey("link::appMachines::" + app.Id + "::" + input.MachineId)
+	trx.DelKey("link::appMachines::" + machine.Id + "::" + input.MachineId)
 	return map[string]any{}, nil
 }
 
@@ -251,11 +251,11 @@ func (a *Actions) UpdateMachine(state state.IState, input inputs_machiner.Update
 	if !trx.HasObj("User", input.MachineId) {
 		return nil, errors.New("machine does not exist")
 	}
-	vm := model.Vm{MachineId: input.MachineId}.Pull(trx)
-	vm.Path = input.Path
-	vm.Push(trx)
+	program := model.Program{MachineId: input.MachineId}.Pull(trx)
+	program.Path = input.Path
+	program.Push(trx)
 	if input.Metadata != nil {
-		trx.PutJson("MachineMeta::"+vm.MachineId, "metadata", input.Metadata, true)
+		trx.PutJson("MachineMeta::"+program.MachineId, "metadata", input.Metadata, true)
 	}
 	return map[string]any{}, nil
 }
@@ -264,10 +264,10 @@ func (a *Actions) UpdateMachine(state state.IState, input inputs_machiner.Update
 func (a *Actions) Signal(state state.IState, input inputs_machiner.SignalInput) (any, error) {
 	trx := state.Trx()
 	user := model.User{Id: state.Info().UserId()}.Pull(trx)
-	vm := model.Vm{MachineId: input.MachineId}.Pull(trx)
+	program := model.Program{MachineId: input.MachineId}.Pull(trx)
 	var p = updates_points.Send{Action: "single", User: user, Data: input.Data}
 	future.Async(func() {
-		a.App.Tools().Signaler().SignalUser("points/signal", vm.MachineId+"_"+input.VmTag, p, true)
+		a.App.Tools().Signaler().SignalUser("points/signal", program.MachineId+"_"+input.VmTag, p, true)
 	}, false)
 	return map[string]any{}, nil
 }
@@ -278,12 +278,12 @@ func (a *Actions) RunMachine(state state.IState, input inputs_machiner.RunMachin
 	if !trx.HasObj("User", input.MachineId) {
 		return nil, errors.New("machine does not exist")
 	}
-	vm := model.Vm{MachineId: input.MachineId}.Pull(trx)
-	app := model.App{Id: vm.AppId}.Pull(trx)
-	if app.OwnerId != state.Info().UserId() {
+	program := model.Program{MachineId: input.MachineId}.Pull(trx)
+	machine := model.Machine{Id: program.AppId}.Pull(trx)
+	if machine.OwnerId != state.Info().UserId() {
 		return nil, errors.New("you are not owner of this machine")
 	}
-	trx.PutLink("machineStatus::"+vm.MachineId, "running")
+	trx.PutLink("machineStatus::"+program.MachineId, "running")
 	future.Async(func() {
 		a.App.Tools().Docker().SaRContainer(input.MachineId, "main", "main")
 		a.App.Tools().Docker().RunContainer(input.MachineId, "", "main", "main", map[string]string{}, true)
@@ -297,12 +297,12 @@ func (a *Actions) StopMachine(state state.IState, input inputs_machiner.RunMachi
 	if !trx.HasObj("User", input.MachineId) {
 		return nil, errors.New("machine does not exist")
 	}
-	vm := model.Vm{MachineId: input.MachineId}.Pull(trx)
-	app := model.App{Id: vm.AppId}.Pull(trx)
-	if app.OwnerId != state.Info().UserId() {
+	program := model.Program{MachineId: input.MachineId}.Pull(trx)
+	machine := model.Machine{Id: program.AppId}.Pull(trx)
+	if machine.OwnerId != state.Info().UserId() {
 		return nil, errors.New("you are not owner of this machine")
 	}
-	trx.DelKey("link::machineStatus::" + vm.MachineId)
+	trx.DelKey("link::machineStatus::" + program.MachineId)
 	a.App.Tools().Docker().SaRContainer(input.MachineId, "main", "main")
 	return map[string]any{}, nil
 }
@@ -332,12 +332,12 @@ func (a *Actions) Deploy(state state.IState, input inputs_machiner.DeployInput) 
 	if !trx.HasObj("Vm", input.MachineId) {
 		return nil, errors.New("vm not found")
 	}
-	vm := model.Vm{MachineId: input.MachineId}.Pull(trx)
-	if !trx.HasObj("App", vm.AppId) {
+	program := model.Program{MachineId: input.MachineId}.Pull(trx)
+	if !trx.HasObj("App", program.AppId) {
 		return nil, errors.New("app not found")
 	}
-	app := model.App{Id: vm.AppId}.Pull(trx)
-	if app.OwnerId != state.Info().UserId() {
+	machine := model.Machine{Id: program.AppId}.Pull(trx)
+	if machine.OwnerId != state.Info().UserId() {
 		return nil, errors.New("access to vm denied")
 	}
 	if input.EntityType != "docker" && input.EntityType != "wasm" && input.EntityType != "elpify" && input.EntityType != "javascript" {
@@ -361,7 +361,7 @@ func (a *Actions) Deploy(state state.IState, input inputs_machiner.DeployInput) 
 				files = filesCast
 			}
 		}
-		dockerfileFolderPath := fmt.Sprintf("%s%s%s/entities/%s", a.App.Tools().Storage().StorageRoot(), pluginsTemplateName, vm.MachineId, input.EntityId)
+		dockerfileFolderPath := fmt.Sprintf("%s%s%s/entities/%s", a.App.Tools().Storage().StorageRoot(), pluginsTemplateName, program.MachineId, input.EntityId)
 		err2 := a.App.Tools().File().SaveDataToGlobalStorage(dockerfileFolderPath, data, "Dockerfile", true)
 		if err2 != nil {
 			return nil, err2
@@ -383,9 +383,9 @@ func (a *Actions) Deploy(state state.IState, input inputs_machiner.DeployInput) 
 			}
 		}
 		buildId := uuid.NewString()
-		trx.PutLink("vmBuilds::"+vm.MachineId+"::"+buildId, "true")
+		trx.PutLink("vmBuilds::"+program.MachineId+"::"+buildId, "true")
 		future.Async(func() {
-			a.App.Tools().Vmm().BuildVmImage(vm.MachineId, imageName, dockerfileFolderPath)
+			a.App.Tools().Vmm().BuildVmImage(program.MachineId, imageName, dockerfileFolderPath)
 		}, false)
 		entityPathForLink = dockerfileFolderPath + "/Dockerfile"
 	} else {
@@ -395,47 +395,47 @@ func (a *Actions) Deploy(state state.IState, input inputs_machiner.DeployInput) 
 		} else if input.EntityType == "javascript" {
 			fileName = "module.js"
 		}
-		entityFolderPath := fmt.Sprintf("%s%s%s/entities/%s", a.App.Tools().Storage().StorageRoot(), pluginsTemplateName, vm.MachineId, input.EntityId)
+		entityFolderPath := fmt.Sprintf("%s%s%s/entities/%s", a.App.Tools().Storage().StorageRoot(), pluginsTemplateName, program.MachineId, input.EntityId)
 		entityPath := entityFolderPath + "/" + fileName
 		err2 := a.App.Tools().File().SaveDataToGlobalStorage(entityFolderPath, data, fileName, true)
 		if err2 != nil {
 			return nil, err2
 		}
-		vm.Runtime = input.EntityType
-		vm.Path = entityPath
+		program.Runtime = input.EntityType
+		program.Path = entityPath
 		entityPathForLink = entityPath
-		vm.Push(trx)
-		if vm.Runtime == "wasm" || vm.Runtime == "elpify" || vm.Runtime == "javascript" {
-			a.App.Tools().Vmm().Assign(vm.MachineId)
-		} else if vm.Runtime == "elpis" {
-			a.App.Tools().Elpis().Assign(vm.MachineId)
+		program.Push(trx)
+		if program.Runtime == "wasm" || program.Runtime == "elpify" || program.Runtime == "javascript" {
+			a.App.Tools().Vmm().Assign(program.MachineId)
+		} else if program.Runtime == "elpis" {
+			a.App.Tools().Elpis().Assign(program.MachineId)
 		}
 	}
-	trx.PutLink("vmEntityPath::"+vm.MachineId+"::"+input.EntityId, entityPathForLink)
-	trx.PutLink("vmEntityType::"+vm.MachineId+"::"+input.EntityId, input.EntityType)
-	trx.PutLink("vmEntityDownloadable::"+vm.MachineId+"::"+input.EntityId, strconv.FormatBool(input.Downloadable))
+	trx.PutLink("vmEntityPath::"+program.MachineId+"::"+input.EntityId, entityPathForLink)
+	trx.PutLink("vmEntityType::"+program.MachineId+"::"+input.EntityId, input.EntityType)
+	trx.PutLink("vmEntityDownloadable::"+program.MachineId+"::"+input.EntityId, strconv.FormatBool(input.Downloadable))
 	return outputs_machiner.PlugInput{}, nil
 }
 
 // ListApps /apps/list check [ true false false ] access [ true false false false GET ]
 func (a *Actions) ListApps(state state.IState, input inputs_machiner.ListInput) (any, error) {
 	trx := state.Trx()
-	apps, err := model.App{}.All(trx, input.Offset, input.Count)
+	machines, err := model.Machine{}.All(trx, input.Offset, input.Count)
 	if err != nil {
 		log.Println(err)
 		return nil, err
 	}
 	result := []map[string]any{}
-	for _, app := range apps {
-		profile, err := trx.GetJson("AppMeta::"+app.Id, "metadata.public.profile")
+	for _, machine := range machines {
+		profile, err := trx.GetJson("AppMeta::"+machine.Id, "metadata.public.profile")
 		if err != nil {
 			log.Println(err)
 			result = append(result, map[string]any{
-				"id":            app.Id,
-				"chainId":       app.ChainId,
-				"username":      app.Username,
-				"ownerId":       app.OwnerId,
-				"machinesCount": app.MachinesCount,
+				"id":            machine.Id,
+				"chainId":       machine.ChainId,
+				"username":      machine.Username,
+				"ownerId":       machine.OwnerId,
+				"machinesCount": machine.MachinesCount,
 				"title":         "untitled",
 				"avatar":        "",
 				"desc":          "",
@@ -443,11 +443,11 @@ func (a *Actions) ListApps(state state.IState, input inputs_machiner.ListInput) 
 			continue
 		}
 		result = append(result, map[string]any{
-			"id":            app.Id,
-			"chainId":       app.ChainId,
-			"username":      app.Username,
-			"ownerId":       app.OwnerId,
-			"machinesCount": app.MachinesCount,
+			"id":            machine.Id,
+			"chainId":       machine.ChainId,
+			"username":      machine.Username,
+			"ownerId":       machine.OwnerId,
+			"machinesCount": machine.MachinesCount,
 			"title":         profile["title"],
 			"avatar":        profile["avatar"],
 			"desc":          profile["desc"],
@@ -475,24 +475,24 @@ func (a *Actions) ListAppMachs(state state.IState, input inputs_machiner.ListApp
 		log.Println(err)
 		return nil, err
 	}
-	vms, err := model.Vm{}.List(trx, "appMachines::"+input.AppId+"::")
+	programs, err := model.Program{}.List(trx, "appMachines::"+input.AppId+"::")
 	if err != nil {
 		log.Println(err)
 		return nil, err
 	}
-	vmMap := map[string]model.Vm{}
-	for _, vm := range vms {
-		vmMap[vm.MachineId] = vm
+	programByMachineID := map[string]model.Program{}
+	for _, program := range programs {
+		programByMachineID[program.MachineId] = program
 	}
 	result := []map[string]any{}
-	for _, macine := range machines {
+	for _, machine := range machines {
 		result = append(result, map[string]any{
-			"id":       macine.Id,
-			"type":     macine.Typ,
-			"username": macine.Username,
-			"runtime":  vmMap[macine.Id].Runtime,
-			"path":     vmMap[macine.Id].Path,
-			"comment":  vmMap[macine.Id].Comment,
+			"id":       machine.Id,
+			"type":     machine.Typ,
+			"username": machine.Username,
+			"runtime":  programByMachineID[machine.Id].Runtime,
+			"path":     programByMachineID[machine.Id].Path,
+			"comment":  programByMachineID[machine.Id].Comment,
 		})
 	}
 	return map[string]any{"machines": result}, nil
