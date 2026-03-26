@@ -44,18 +44,7 @@ func (wm *Vmm) Assign(machineId string) {
 	wm.app.Tools().Signaler().ListenToSingle(&signaler.Listener{
 		Id: machineId,
 		Signal: func(key string, a any) {
-			astPath := wm.app.Tools().Storage().StorageRoot() + "/machines/" + machineId + "/module"
-			vmType := "wasm"
-			wm.app.ModifyState(true, func(trx trx.ITrx) error {
-				vm := model.Vm{MachineId: machineId}.Pull(trx)
-				if vm.Path != "" {
-					astPath = vm.Path
-				}
-				if vm.Runtime != "" {
-					vmType = vm.Runtime
-				}
-				return nil
-			})
+			astPath, vmType := wm.resolveVmExecutionTarget(machineId, "")
 			data := string(a.([]byte))
 			if key == "points/signal" {
 				str, _ := json.Marshal(map[string]any{
@@ -85,7 +74,39 @@ type ChainDbOp struct {
 	Val    string `json:"val"`
 }
 
+func normalizeRuntime(runtime string) string {
+	return strings.ToLower(strings.TrimSpace(runtime))
+}
+
+func (wm *Vmm) resolveVmExecutionTarget(machineId string, entityId string) (string, string) {
+	astPath := wm.app.Tools().Storage().StorageRoot() + "/machines/" + machineId + "/module"
+	vmType := "wasm"
+	wm.app.ModifyState(true, func(trx trx.ITrx) error {
+		vm := model.Vm{MachineId: machineId}.Pull(trx)
+		if vm.Path != "" {
+			astPath = vm.Path
+		}
+		if vm.Runtime != "" {
+			vmType = normalizeRuntime(vm.Runtime)
+		}
+		if entityId != "" {
+			if entityRuntime := trx.GetLink("vmEntityType::" + machineId + "::" + entityId); entityRuntime != "" {
+				vmType = normalizeRuntime(entityRuntime)
+			}
+			if entityPath := trx.GetLink("vmEntityPath::" + machineId + "::" + entityId); entityPath != "" {
+				astPath = entityPath
+			}
+		}
+		return nil
+	})
+	return astPath, vmType
+}
+
 func (wm *Vmm) RunVm(machineId string, pointId string, data string) {
+	wm.RunVmEntity(machineId, pointId, data, "")
+}
+
+func (wm *Vmm) RunVmEntity(machineId string, pointId string, data string, entityId string) {
 	point := model.Point{Id: pointId}
 	isMemberOfPoint := false
 	wm.app.ModifyState(true, func(trx trx.ITrx) error {
@@ -96,18 +117,7 @@ func (wm *Vmm) RunVm(machineId string, pointId string, data string) {
 	if !isMemberOfPoint {
 		return
 	}
-	astPath := wm.app.Tools().Storage().StorageRoot() + "/machines/" + machineId + "/module"
-	vmType := "wasm"
-	wm.app.ModifyState(true, func(trx trx.ITrx) error {
-		vm := model.Vm{MachineId: machineId}.Pull(trx)
-		if vm.Path != "" {
-			astPath = vm.Path
-		}
-		if vm.Runtime != "" {
-			vmType = vm.Runtime
-		}
-		return nil
-	})
+	astPath, vmType := wm.resolveVmExecutionTarget(machineId, entityId)
 	b, _ := json.Marshal(updates_points.Send{User: model.User{}, Point: point, Action: "single", Data: data})
 	input := string(b)
 	str, _ := json.Marshal(map[string]any{
@@ -504,18 +514,23 @@ func (wm *Vmm) handleSignalPoint(input map[string]any, reqId int64) (string, int
 }
 
 func (wm *Vmm) handleRunVM(input map[string]any, reqId int64) (string, int64) {
-	targetRuntime, err := checkField(input, "runtime", "")
-	if err != nil {
-		return err.Error(), reqId
-	}
+	targetRuntime, _ := checkField(input, "runtime", "")
+	targetRuntime = normalizeRuntime(targetRuntime)
 	targetMachineId, err := checkField(input, "machineId", "")
 	if err != nil {
 		return err.Error(), reqId
 	}
 	targetPointId, _ := checkField(input, "pointId", "")
-	if targetRuntime == "wasm" {
+	entityId, _ := checkField(input, "entityId", "")
+	if targetRuntime == "" && entityId != "" {
+		_, targetRuntime = wm.resolveVmExecutionTarget(targetMachineId, entityId)
+	}
+	if targetRuntime == "" {
+		targetRuntime = "wasm"
+	}
+	if targetRuntime == "wasm" || targetRuntime == "javascript" || targetRuntime == "elpify" {
 		data, _ := checkField(input, "data", "{}")
-		wm.RunVm(targetMachineId, targetPointId, data)
+		wm.RunVmEntity(targetMachineId, targetPointId, data, entityId)
 		return "{}", reqId
 	}
 	if targetRuntime == "docker" {
@@ -634,6 +649,7 @@ func (wm *Vmm) handleTerminateVM(input map[string]any, reqId int64) (string, int
 	if err != nil {
 		return err.Error(), reqId
 	}
+	targetRuntime = normalizeRuntime(targetRuntime)
 	targetMachineId, _ := checkField(input, "machineId", "")
 	if targetRuntime == "docker" {
 		imageName, _ := checkField(input, "imageName", "main")
@@ -641,7 +657,7 @@ func (wm *Vmm) handleTerminateVM(input map[string]any, reqId int64) (string, int
 		wm.docker.SaRContainer(targetMachineId, imageName, containerName)
 		return "{}", reqId
 	}
-	if targetRuntime == "wasm" {
+	if targetRuntime == "wasm" || targetRuntime == "javascript" || targetRuntime == "elpify" {
 		wm.TerminateVm(targetMachineId)
 		return "{}", reqId
 	}
