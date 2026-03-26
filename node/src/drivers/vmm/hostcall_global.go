@@ -3,7 +3,7 @@ package vmm
 import "encoding/json"
 
 // WasmCallback handles appengine host-call packets globally for all appengine
-// runtimes (wasm/docker) through the same ZeroMQ callback channel.
+// runtimes (wasm/docker/javascript/elpify) through the same ZeroMQ callback channel.
 func (wm *Vmm) WasmCallback(dataRaw string) (string, int64) {
 	println(dataRaw)
 	data := map[string]any{}

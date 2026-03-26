@@ -1812,8 +1812,8 @@ pub fn host_call(
         }
         "lockResource" => {
             let runtime = req["input"]["runtime"].as_str().unwrap_or("wasm");
-            if runtime != "wasm" && runtime != "docker" {
-                json!({"ok": false, "error": "lock API is only available for wasm and docker runtimes"})
+            if runtime != "wasm" && runtime != "docker" && runtime != "javascript" {
+                json!({"ok": false, "error": "lock API is only available for wasm, docker and javascript runtimes"})
                     .to_string()
             } else {
                 let resource_id = req["input"]["resourceId"].as_str().unwrap_or("");
@@ -1828,8 +1828,8 @@ pub fn host_call(
         }
         "unlockResource" => {
             let runtime = req["input"]["runtime"].as_str().unwrap_or("wasm");
-            if runtime != "wasm" && runtime != "docker" {
-                json!({"ok": false, "error": "unlock API is only available for wasm and docker runtimes"})
+            if runtime != "wasm" && runtime != "docker" && runtime != "javascript" {
+                json!({"ok": false, "error": "unlock API is only available for wasm, docker and javascript runtimes"})
                     .to_string()
             } else {
                 let resource_id = req["input"]["resourceId"].as_str().unwrap_or("");
