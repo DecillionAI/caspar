@@ -7,7 +7,7 @@ import (
 	"sort"
 )
 
-type App struct {
+type Machine struct {
 	Id            string `json:"id"`
 	ChainId       string `json:"chainId"`
 	ShardChainId  string `json:"shardChainId"`
@@ -19,11 +19,11 @@ type App struct {
 	Desc          string `json:"desc"`
 }
 
-func (m App) Type() string {
-	return "App"
+func (m Machine) Type() string {
+	return "Machine"
 }
 
-func (d App) Push(trx trx.ITrx) {
+func (d Machine) Push(trx trx.ITrx) {
 	mcBytes := make([]byte, 4)
 	binary.LittleEndian.PutUint32(mcBytes, uint32(d.MachinesCount))
 	trx.PutObj(d.Type(), d.Id, map[string][]byte{
@@ -36,7 +36,7 @@ func (d App) Push(trx trx.ITrx) {
 	})
 }
 
-func (d App) Pull(trx trx.ITrx, flags ...bool) App {
+func (d Machine) Pull(trx trx.ITrx, flags ...bool) Machine {
 	m := trx.GetObj(d.Type(), d.Id)
 	if len(m) > 0 {
 		d.Id = string(m["id"])
@@ -47,7 +47,7 @@ func (d App) Pull(trx trx.ITrx, flags ...bool) App {
 		d.MachinesCount = int(binary.LittleEndian.Uint32(m["machinesCount"]))
 		if len(flags) > 0 {
 			if flags[0] {
-				if metadata, err := trx.GetJson("AppMeta::"+d.Id, "metadata.public.profile"); err == nil {
+				if metadata, err := trx.GetJson("MachineMeta::"+d.Id, "metadata.public.profile"); err == nil {
 					d.Title = metadata["title"].(string)
 					d.Avatar = metadata["avatar"].(string)
 					d.Desc = metadata["desc"].(string)
@@ -58,7 +58,7 @@ func (d App) Pull(trx trx.ITrx, flags ...bool) App {
 	return d
 }
 
-func (d App) Delete(trx trx.ITrx) {
+func (d Machine) Delete(trx trx.ITrx) {
 	trx.DelKey("obj::" + d.Type() + "::" + d.Id + "::|")
 	trx.DelKey("obj::" + d.Type() + "::" + d.Id + "::id")
 	trx.DelKey("obj::" + d.Type() + "::" + d.Id + "::username")
@@ -66,10 +66,10 @@ func (d App) Delete(trx trx.ITrx) {
 	trx.DelKey("obj::" + d.Type() + "::" + d.Id + "::shardChainId")
 	trx.DelKey("obj::" + d.Type() + "::" + d.Id + "::machinesCount")
 	trx.DelKey("obj::" + d.Type() + "::" + d.Id + "::ownerId")
-	trx.DelJson("AppMeta::"+d.Id, "metadata")
+	trx.DelJson("MachineMeta::"+d.Id, "metadata")
 }
 
-func (d App) List(trx trx.ITrx, prefix string) ([]App, error) {
+func (d Machine) List(trx trx.ITrx, prefix string) ([]Machine, error) {
 	list, err := trx.GetLinksList(prefix, -1, -1)
 	if err != nil {
 		log.Println(err)
@@ -78,15 +78,15 @@ func (d App) List(trx trx.ITrx, prefix string) ([]App, error) {
 	for i := 0; i < len(list); i++ {
 		list[i] = list[i][len(prefix):]
 	}
-	objs, err := trx.GetObjList("App", list, map[string]string{})
+	objs, err := trx.GetObjList("Machine", list, map[string]string{})
 	if err != nil {
 		log.Println(err)
 		return nil, err
 	}
-	entities := []App{}
+	entities := []Machine{}
 	for id, m := range objs {
 		if len(m) > 0 {
-			d := App{}
+			d := Machine{}
 			d.Id = id
 			d.OwnerId = string(m["ownerId"])
 			d.Username = string(m["username"])
@@ -102,16 +102,16 @@ func (d App) List(trx trx.ITrx, prefix string) ([]App, error) {
 	return entities, nil
 }
 
-func (d App) All(trx trx.ITrx, offset int64, count int64) ([]App, error) {
-	objs, err := trx.GetObjList("App", []string{"*"}, map[string]string{}, offset, count)
+func (d Machine) All(trx trx.ITrx, offset int64, count int64) ([]Machine, error) {
+	objs, err := trx.GetObjList("Machine", []string{"*"}, map[string]string{}, offset, count)
 	if err != nil {
 		log.Println(err)
 		return nil, err
 	}
-	entities := []App{}
+	entities := []Machine{}
 	for id, m := range objs {
 		if len(m) > 0 {
-			d := App{}
+			d := Machine{}
 			d.Id = id
 			d.OwnerId = string(m["ownerId"])
 			d.Username = string(m["username"])
@@ -127,7 +127,7 @@ func (d App) All(trx trx.ITrx, offset int64, count int64) ([]App, error) {
 	return entities, nil
 }
 
-type Vm struct {
+type Program struct {
 	MachineId string `json:"id"`
 	AppId     string `json:"appId"`
 	Runtime   string `json:"runtime"`
@@ -135,11 +135,11 @@ type Vm struct {
 	Comment   string `json:"comment"`
 }
 
-func (m Vm) Type() string {
-	return "Vm"
+func (m Program) Type() string {
+	return "Program"
 }
 
-func (d Vm) Push(trx trx.ITrx) {
+func (d Program) Push(trx trx.ITrx) {
 	trx.PutObj(d.Type(), d.MachineId, map[string][]byte{
 		"machineId": []byte(d.MachineId),
 		"appId":     []byte(d.AppId),
@@ -149,7 +149,7 @@ func (d Vm) Push(trx trx.ITrx) {
 	})
 }
 
-func (d Vm) Pull(trx trx.ITrx) Vm {
+func (d Program) Pull(trx trx.ITrx) Program {
 	m := trx.GetObj(d.Type(), d.MachineId)
 	if len(m) > 0 {
 		d.MachineId = string(m["machineId"])
@@ -161,17 +161,17 @@ func (d Vm) Pull(trx trx.ITrx) Vm {
 	return d
 }
 
-func (d Vm) All(trx trx.ITrx, offset int64, count int64) ([]Vm, error) {
+func (d Program) All(trx trx.ITrx, offset int64, count int64) ([]Program, error) {
 	if count == -1 {
-		objs, err := trx.GetObjList("Vm", []string{"*"}, map[string]string{})
+		objs, err := trx.GetObjList("Program", []string{"*"}, map[string]string{})
 		if err != nil {
 			log.Println(err)
 			return nil, err
 		}
-		entities := []Vm{}
+		entities := []Program{}
 		for id, m := range objs {
 			if len(m) > 0 {
-				d := Vm{}
+				d := Program{}
 				d.MachineId = id
 				d.AppId = string(m["appId"])
 				d.Runtime = string(m["runtime"])
@@ -184,15 +184,15 @@ func (d Vm) All(trx trx.ITrx, offset int64, count int64) ([]Vm, error) {
 		})
 		return entities, nil
 	} else {
-		objs, err := trx.GetObjList("Vm", []string{"*"}, map[string]string{}, offset, count)
+		objs, err := trx.GetObjList("Program", []string{"*"}, map[string]string{}, offset, count)
 		if err != nil {
 			log.Println(err)
 			return nil, err
 		}
-		entities := []Vm{}
+		entities := []Program{}
 		for id, m := range objs {
 			if len(m) > 0 {
-				d := Vm{}
+				d := Program{}
 				d.MachineId = id
 				d.AppId = string(m["appId"])
 				d.Runtime = string(m["runtime"])
@@ -208,7 +208,7 @@ func (d Vm) All(trx trx.ITrx, offset int64, count int64) ([]Vm, error) {
 	}
 }
 
-func (d Vm) List(trx trx.ITrx, prefix string) ([]Vm, error) {
+func (d Program) List(trx trx.ITrx, prefix string) ([]Program, error) {
 	list, err := trx.GetLinksList(prefix, -1, -1)
 	if err != nil {
 		log.Println(err)
@@ -217,15 +217,15 @@ func (d Vm) List(trx trx.ITrx, prefix string) ([]Vm, error) {
 	for i := 0; i < len(list); i++ {
 		list[i] = list[i][len(prefix):]
 	}
-	objs, err := trx.GetObjList("Vm", list, map[string]string{})
+	objs, err := trx.GetObjList("Program", list, map[string]string{})
 	if err != nil {
 		log.Println(err)
 		return nil, err
 	}
-	entities := []Vm{}
+	entities := []Program{}
 	for id, m := range objs {
 		if len(m) > 0 {
-			d := Vm{}
+			d := Program{}
 			d.MachineId = id
 			d.AppId = string(m["appId"])
 			d.Runtime = string(m["runtime"])

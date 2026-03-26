@@ -254,19 +254,19 @@ func Install(a *Actions, extra ...any) error {
 					}
 				}
 			} else {
-				vm := models.Vm{MachineId: input.MachineId}.Pull(trx)
-				app := models.App{Id: vm.AppId}.Pull(trx)
-				if app.OwnerId != userId {
+				program := models.Program{MachineId: input.MachineId}.Pull(trx)
+				machine := models.Machine{Id: program.AppId}.Pull(trx)
+				if machine.OwnerId != userId {
 					e = errors.New("you are not owner of this machine")
 					return err
 				}
-				if err := a.App.Tools().File().SaveDataToGlobalStorage(a.App.Tools().Storage().StorageRoot()+"/entities/users/"+vm.MachineId, data, input.EntityId+".original", true); err != nil {
+				if err := a.App.Tools().File().SaveDataToGlobalStorage(a.App.Tools().Storage().StorageRoot()+"/entities/users/"+program.MachineId, data, input.EntityId+".original", true); err != nil {
 					log.Println(err)
 					e = err
 					return err
 				}
 				if mimeType := http.DetectContentType(data); strings.HasPrefix(mimeType, "image/") {
-					entityPath := a.App.Tools().Storage().StorageRoot() + "/entities/users/" + vm.MachineId + "/" + input.EntityId
+					entityPath := a.App.Tools().Storage().StorageRoot() + "/entities/users/" + program.MachineId + "/" + input.EntityId
 					cmd := exec.Command("convert", entityPath+".original", "-quality", imageQuality(len(data)), "-thumbnail", imageThumbSize(input.EntityId, data)+">", entityPath+".jpg")
 					output, err := cmd.Output()
 					if err != nil {
@@ -274,7 +274,7 @@ func Install(a *Actions, extra ...any) error {
 					}
 					fmt.Printf("Command output:\n%s", output)
 				} else {
-					if err := a.App.Tools().File().SaveDataToGlobalStorage(a.App.Tools().Storage().StorageRoot()+"/entities/users/"+vm.MachineId, data, input.EntityId, true); err != nil {
+					if err := a.App.Tools().File().SaveDataToGlobalStorage(a.App.Tools().Storage().StorageRoot()+"/entities/users/"+program.MachineId, data, input.EntityId, true); err != nil {
 						log.Println(err)
 						e = err
 						return err
@@ -400,8 +400,8 @@ func Install(a *Actions, extra ...any) error {
 		}
 		var e error
 		a.App.ModifyState(false, func(trx trx.ITrx) error {
-			app := models.App{Id: input.AppId}.Pull(trx)
-			if app.OwnerId != userId {
+			machine := models.Machine{Id: input.AppId}.Pull(trx)
+			if machine.OwnerId != userId {
 				e = errors.New("you are not owner of app")
 				return err
 			}
@@ -776,17 +776,17 @@ func (a *Actions) UploadUserEntity(state state.IState, input inputs_storage.Uplo
 			}
 		}
 	} else {
-		vm := models.Vm{MachineId: input.MachineId}.Pull(trx)
-		app := models.App{Id: vm.AppId}.Pull(trx)
-		if app.OwnerId != state.Info().UserId() {
+		program := models.Program{MachineId: input.MachineId}.Pull(trx)
+		machine := models.Machine{Id: program.AppId}.Pull(trx)
+		if machine.OwnerId != state.Info().UserId() {
 			return nil, errors.New("you are not owner of this machine")
 		}
-		if err := a.App.Tools().File().SaveDataToGlobalStorage(a.App.Tools().Storage().StorageRoot()+"/entities/users/"+vm.MachineId, data, input.EntityId+".original", true); err != nil {
+		if err := a.App.Tools().File().SaveDataToGlobalStorage(a.App.Tools().Storage().StorageRoot()+"/entities/users/"+program.MachineId, data, input.EntityId+".original", true); err != nil {
 			log.Println(err)
 			return nil, err
 		}
 		if mimeType := http.DetectContentType(data); strings.HasPrefix(mimeType, "image/") {
-			entityPath := a.App.Tools().Storage().StorageRoot() + "/entities/users/" + vm.MachineId + "/" + input.EntityId
+			entityPath := a.App.Tools().Storage().StorageRoot() + "/entities/users/" + program.MachineId + "/" + input.EntityId
 			cmd := exec.Command("convert", entityPath+".original", "-quality", imageQuality(len(data)), "-thumbnail", imageThumbSize(input.EntityId, data)+">", entityPath+".jpg")
 			output, err := cmd.Output()
 			if err != nil {
@@ -794,7 +794,7 @@ func (a *Actions) UploadUserEntity(state state.IState, input inputs_storage.Uplo
 			}
 			fmt.Printf("Command output:\n%s", output)
 		} else {
-			if err := a.App.Tools().File().SaveDataToGlobalStorage(a.App.Tools().Storage().StorageRoot()+"/entities/users/"+vm.MachineId, data, input.EntityId, true); err != nil {
+			if err := a.App.Tools().File().SaveDataToGlobalStorage(a.App.Tools().Storage().StorageRoot()+"/entities/users/"+program.MachineId, data, input.EntityId, true); err != nil {
 				log.Println(err)
 				return nil, err
 			}
@@ -812,12 +812,12 @@ func (a *Actions) DeleteUserEntity(state state.IState, input inputs_storage.Dele
 			return nil, err
 		}
 	} else {
-		vm := models.Vm{MachineId: input.MachineId}.Pull(trx)
-		app := models.App{Id: vm.AppId}.Pull(trx)
-		if app.OwnerId != state.Info().UserId() {
+		program := models.Program{MachineId: input.MachineId}.Pull(trx)
+		machine := models.Machine{Id: program.AppId}.Pull(trx)
+		if machine.OwnerId != state.Info().UserId() {
 			return nil, errors.New("you are not owner of this machine")
 		}
-		if err := a.App.Tools().File().DeleteFileFromGlobalStorage(a.App.Tools().Storage().StorageRoot()+"/entities/users/"+vm.MachineId, input.EntityId, true); err != nil {
+		if err := a.App.Tools().File().DeleteFileFromGlobalStorage(a.App.Tools().Storage().StorageRoot()+"/entities/users/"+program.MachineId, input.EntityId, true); err != nil {
 			log.Println(err)
 			return nil, err
 		}
@@ -863,8 +863,8 @@ func (a *Actions) UploadPointEntity(state state.IState, input inputs_storage.Upl
 
 // UploadAppEntity /storage/uploadAppEntity check [ true true true ] access [ true false false false POST ]
 func (a *Actions) UploadAppEntity(state state.IState, input inputs_storage.UploadAppEntityInput) (any, error) {
-	app := models.App{Id: input.AppId}.Pull(state.Trx())
-	if app.OwnerId != state.Info().UserId() {
+	machine := models.Machine{Id: input.AppId}.Pull(state.Trx())
+	if machine.OwnerId != state.Info().UserId() {
 		return nil, errors.New("you are not owner of app")
 	}
 	data, err := base64.StdEncoding.DecodeString(input.Data)
