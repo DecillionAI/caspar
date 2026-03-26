@@ -51,6 +51,10 @@ cp sample.env .env
 Then configure `.env` values, TLS certs, and Firebase service account as documented in `docs/GETTING_STARTED.md`.
 If you run the binary directly, make sure supporting services (QuestDB + appengine) are running too.
 
+Important env additions in current code path:
+- `ROOT_NODE`: seed/free-node root used by election/bootstrap logic.
+- `VM_EXEC_COST_PER_SECOND`: optional non-negative execution pricing value used by runtime accounting.
+
 ## Main Features
 
 - **Users**: login/authentication, profile metadata, transfer/mint, lock/consume token flows.
