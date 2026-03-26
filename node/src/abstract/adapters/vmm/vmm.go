@@ -1,8 +1,8 @@
-package wasm
+package vmm
 
 import "kasper/src/abstract/models/worker"
 
-type IWasm interface {
+type IVmm interface {
 	Assign(machineId string)
 	RunVm(machineId string, pointId string, data string)
 	TerminateVm(machineId string)

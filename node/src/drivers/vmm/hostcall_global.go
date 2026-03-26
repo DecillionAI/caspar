@@ -1,4 +1,4 @@
-package wasm
+package vmm
 
 import "encoding/json"
 
