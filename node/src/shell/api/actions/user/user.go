@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"kasper/src/abstract/models/action"
 	"kasper/src/abstract/models/core"
 	"kasper/src/abstract/models/trx"
@@ -17,6 +18,7 @@ import (
 	"kasper/src/shell/utils/crypto"
 	"log"
 	"strings"
+	"time"
 
 	firebase "firebase.google.com/go/v4"
 	"google.golang.org/api/option"
@@ -116,6 +118,9 @@ func (a *Actions) LockToken(state state.IState, input inputsusers.LockTokenInput
 	if user.Balance < input.Amount {
 		return nil, errors.New("your balance is not enough")
 	}
+	if input.UnlockAt <= 0 {
+		return nil, errors.New("unlockAt must be a unix timestamp in milliseconds")
+	}
 	lockId := crypto.SecureUniqueString()
 	if input.Type == "pay" {
 		if !state.Trx().HasObj("User", input.Target) {
@@ -123,7 +128,7 @@ func (a *Actions) LockToken(state state.IState, input inputsusers.LockTokenInput
 		}
 		user.Balance -= input.Amount
 		user.Push(state.Trx())
-		state.Trx().PutJson("Json::User::"+state.Info().UserId(), "lockedTokens."+lockId, map[string]any{"type": "pay", "amount": input.Amount, "userId": input.Target}, true)
+		state.Trx().PutJson("Json::User::"+state.Info().UserId(), "lockedTokens."+lockId, map[string]any{"type": "pay", "amount": input.Amount, "userId": input.Target, "unlockAt": input.UnlockAt}, true)
 	} else {
 		return nil, errors.New("unknown lock type")
 	}
@@ -137,9 +142,18 @@ func (a *Actions) ConsumeLock(state state.IState, input inputsusers.ConsumeLockI
 		if !state.Trx().HasObj("User", input.UserId) {
 			return nil, errors.New("payer user not found")
 		}
-		if success, _, _ := a.App.Tools().Security().AuthWithSignature(input.UserId, []byte(input.LockId), input.Signature); success {
-			sender := models.User{Id: input.UserId}.Pull(state.Trx())
-			if payment, err := state.Trx().GetJson("Json::User::"+sender.Id, "lockedTokens."+input.LockId); err == nil {
+		sender := models.User{Id: input.UserId}.Pull(state.Trx())
+		if payment, err := state.Trx().GetJson("Json::User::"+sender.Id, "lockedTokens."+input.LockId); err == nil {
+			unlockAtRaw, ok := payment["unlockAt"].(float64)
+			if !ok {
+				return nil, errors.New("lock does not include unlockAt")
+			}
+			unlockAt := int64(unlockAtRaw)
+			if time.Now().UnixMilli() < unlockAt {
+				return nil, errors.New("lock is not consumable yet")
+			}
+			signPayload := []byte(fmt.Sprintf("%s:%d", input.LockId, unlockAt))
+			if success, _, _ := a.App.Tools().Security().AuthWithSignature(input.UserId, signPayload, input.Signature); success {
 				if typ, ok := payment["type"].(string); ok && (typ == "pay") {
 					if amount, ok := payment["amount"].(float64); ok && (int64(amount) == input.Amount) {
 						if target, ok := payment["userId"].(string); ok && (target == receiver.Id) {
@@ -159,10 +173,10 @@ func (a *Actions) ConsumeLock(state state.IState, input inputsusers.ConsumeLockI
 					return nil, errors.New("type is not payment")
 				}
 			} else {
-				return nil, errors.New("lock not found")
+				return nil, errors.New("signature not verified")
 			}
 		} else {
-			return nil, errors.New("signature not verified")
+			return nil, errors.New("lock not found")
 		}
 	} else {
 		return nil, errors.New("unknown lock type")
