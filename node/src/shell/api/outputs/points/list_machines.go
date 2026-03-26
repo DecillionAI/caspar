@@ -6,6 +6,6 @@ import (
 )
 
 type ListPointAppsOutput struct {
-	Machines map[string]*updates_points.Fn `json:"machines"`
-	Apps     map[string]model.App          `json:"apps"`
+	Programs map[string]*updates_points.Fn `json:"programs"`
+	Machines map[string]model.Machine      `json:"machines"`
 }

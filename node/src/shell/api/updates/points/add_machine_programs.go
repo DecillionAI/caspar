@@ -7,7 +7,7 @@ type Fn struct {
 	Typ        string          `json:"type"`
 	Username   string          `json:"username"`
 	PublicKey  string          `json:"publicKey"`
-	AppId      string          `json:"appId"`
+	MachineId  string          `json:"machineId"`
 	Runtime    string          `json:"runtime"`
 	Path       string          `json:"path"`
 	Comment    string          `json:"comment"`
@@ -18,6 +18,6 @@ type Fn struct {
 
 type AddApp struct {
 	PointId  string         `json:"pointId"`
-	App      model.App      `json:"app"`
-	Machines map[string]*Fn `json:"machines"`
+	Machine  model.Machine  `json:"machine"`
+	Programs map[string]*Fn `json:"programs"`
 }
