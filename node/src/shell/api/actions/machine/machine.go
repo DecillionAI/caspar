@@ -2,6 +2,7 @@ package actions_machine
 
 import (
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"kasper/src/abstract/models/core"
@@ -14,6 +15,7 @@ import (
 	"kasper/src/shell/utils/future"
 	"log"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -79,8 +81,8 @@ func Install(a *Actions, extra ...any) error {
 	return nil
 }
 
-// CreateApp /apps/create check [ true false false ] access [ true false false false POST ]
-func (a *Actions) CreateApp(state state.IState, input inputs_machiner.CreateAppInput) (any, error) {
+// CreateProgram /programs/create check [ true false false ] access [ true false false false POST ]
+func (a *Actions) CreateProgram(state state.IState, input inputs_machiner.CreateAppInput) (any, error) {
 	trx := state.Trx()
 	if trx.HasIndex("App", "username", "id", input.Username) {
 		return nil, errors.New("app username already exists")
@@ -112,8 +114,8 @@ func (a *Actions) CreateApp(state state.IState, input inputs_machiner.CreateAppI
 	return map[string]any{"app": machine}, nil
 }
 
-// DeleteApp /apps/deleteApp check [ true false false ] access [ true false false false POST ]
-func (a *Actions) DeleteApp(state state.IState, input inputs_machiner.DeleteAppInput) (any, error) {
+// DeleteProgram /programs/delete check [ true false false ] access [ true false false false POST ]
+func (a *Actions) DeleteProgram(state state.IState, input inputs_machiner.DeleteAppInput) (any, error) {
 	trx := state.Trx()
 	if !trx.HasObj("App", input.AppId) {
 		return nil, errors.New("app does not exist")
@@ -129,8 +131,8 @@ func (a *Actions) DeleteApp(state state.IState, input inputs_machiner.DeleteAppI
 	return map[string]any{}, nil
 }
 
-// UpdateApp /apps/updateApp check [ true false false ] access [ true false false false POST ]
-func (a *Actions) UpdateApp(state state.IState, input inputs_machiner.UpdateAppInput) (any, error) {
+// UpdateProgram /programs/update check [ true false false ] access [ true false false false POST ]
+func (a *Actions) UpdateProgram(state state.IState, input inputs_machiner.UpdateAppInput) (any, error) {
 	trx := state.Trx()
 	if !trx.HasObj("App", input.AppId) {
 		return nil, errors.New("machine does not exist")
@@ -160,8 +162,8 @@ func (a *Actions) UpdateApp(state state.IState, input inputs_machiner.UpdateAppI
 	return map[string]any{}, nil
 }
 
-// MyCreatedApps /apps/myCreatedApps check [ true false false ] access [ true false false false GET ]
-func (a *Actions) MyCreatedApps(state state.IState, input inputs_machiner.ListInput) (any, error) {
+// MyCreatedPrograms /programs/myCreated check [ true false false ] access [ true false false false GET ]
+func (a *Actions) MyCreatedPrograms(state state.IState, input inputs_machiner.ListInput) (any, error) {
 	trx := state.Trx()
 	machines, err := model.Machine{}.List(trx, "createdApp::"+state.Info().UserId()+"::")
 	if err != nil {
@@ -229,7 +231,7 @@ func (a *Actions) CreateMachine(state state.IState, input inputs_machiner.Create
 	return outputs_machiner.CreateOutput{User: user}, nil
 }
 
-// DeleteMachine /apps/deleteMachine check [ true false false ] access [ true false false false POST ]
+// DeleteMachine /machines/delete check [ true false false ] access [ true false false false POST ]
 func (a *Actions) DeleteMachine(state state.IState, input inputs_machiner.DeleteMachineInput) (any, error) {
 	trx := state.Trx()
 	if !trx.HasObj("User", input.MachineId) {
@@ -245,7 +247,7 @@ func (a *Actions) DeleteMachine(state state.IState, input inputs_machiner.Delete
 	return map[string]any{}, nil
 }
 
-// UpdateMachine /apps/updateMachine check [ true false false ] access [ true false false false POST ]
+// UpdateMachine /machines/update check [ true false false ] access [ true false false false POST ]
 func (a *Actions) UpdateMachine(state state.IState, input inputs_machiner.UpdateMachineInput) (any, error) {
 	trx := state.Trx()
 	if !trx.HasObj("User", input.MachineId) {
@@ -272,38 +274,119 @@ func (a *Actions) Signal(state state.IState, input inputs_machiner.SignalInput) 
 	return map[string]any{}, nil
 }
 
-// RunMachine /apps/runMachine check [ true false false ] access [ true false false false POST ]
-func (a *Actions) RunMachine(state state.IState, input inputs_machiner.RunMachineInput) (any, error) {
+// RunProgramEntity /machines/runProgramEntity check [ true false false ] access [ true false false false POST ]
+func (a *Actions) RunProgramEntity(state state.IState, input inputs_machiner.RunMachineInput) (any, error) {
 	trx := state.Trx()
 	if !trx.HasObj("User", input.MachineId) {
 		return nil, errors.New("machine does not exist")
 	}
 	program := model.Program{MachineId: input.MachineId}.Pull(trx)
+	entity := model.Entity{ProgramId: program.AppId, EntityId: input.EntityId}.Pull(trx)
+	if entity.EntityId == "" {
+		return nil, errors.New("entity does not exist")
+	}
+	entityType := strings.ToLower(strings.TrimSpace(entity.EntityType))
 	machine := model.Machine{Id: program.AppId}.Pull(trx)
 	if machine.OwnerId != state.Info().UserId() {
 		return nil, errors.New("you are not owner of this machine")
 	}
 	trx.PutLink("machineStatus::"+program.MachineId, "running")
+	params := input.Params
+	if params == nil {
+		params = map[string]string{}
+	}
+	vmId := uuid.NewString()
+	trx.PutLink("vmStandaloneRunId::"+program.MachineId+"::"+input.EntityId, vmId)
+	if entityType == "docker" {
+		imageName := uuid.NewString()
+		containerName := uuid.NewString()
+		trx.PutLink("vmStandaloneImageName::"+program.MachineId+"::"+input.EntityId, imageName)
+		trx.PutLink("vmStandaloneContainerName::"+program.MachineId+"::"+input.EntityId, containerName)
+		future.Async(func() {
+			msg, _ := json.Marshal(map[string]any{
+				"key": "runVm",
+				"input": map[string]any{
+					"runtime":       entityType,
+					"machineId":     input.MachineId,
+					"entityId":      input.EntityId,
+					"imageName":     imageName,
+					"containerName": containerName,
+					"standalone":    true,
+					"vmId":          vmId,
+					"imageRef":      strings.ReplaceAll(input.MachineId, "@", "_") + "/" + entity.ImageName,
+					"inputFiles":    params,
+				},
+			})
+			a.App.Tools().Vmm().VmCallback(string(msg))
+		}, false)
+		return map[string]any{"vmId": vmId}, nil
+	}
+	if entityType != "wasm" && entityType != "javascript" && entityType != "elpify" {
+		return nil, errors.New("invalid entity type")
+	}
+	data, _ := json.Marshal(params)
 	future.Async(func() {
-		a.App.Tools().Docker().SaRContainer(input.MachineId, "main", "main")
-		a.App.Tools().Docker().RunContainer(input.MachineId, "", "main", "main", map[string]string{}, true)
+		msg, _ := json.Marshal(map[string]any{
+			"key": "runVm",
+			"input": map[string]any{
+				"runtime":    entityType,
+				"machineId":  input.MachineId,
+				"entityId":   input.EntityId,
+				"standalone": true,
+				"vmId":       vmId,
+				"data":       string(data),
+			},
+		})
+		a.App.Tools().Vmm().VmCallback(string(msg))
 	}, false)
-	return map[string]any{}, nil
+	return map[string]any{"vmId": vmId}, nil
 }
 
-// StopMachine /apps/stopMachine check [ true false false ] access [ true false false false POST ]
-func (a *Actions) StopMachine(state state.IState, input inputs_machiner.RunMachineInput) (any, error) {
+// StopProgramEntity /machines/stopProgramEntity check [ true false false ] access [ true false false false POST ]
+func (a *Actions) StopProgramEntity(state state.IState, input inputs_machiner.RunMachineInput) (any, error) {
 	trx := state.Trx()
 	if !trx.HasObj("User", input.MachineId) {
 		return nil, errors.New("machine does not exist")
 	}
 	program := model.Program{MachineId: input.MachineId}.Pull(trx)
+	entity := model.Entity{ProgramId: program.AppId, EntityId: input.EntityId}.Pull(trx)
+	if entity.EntityId == "" {
+		return nil, errors.New("entity does not exist")
+	}
+	entityType := strings.ToLower(strings.TrimSpace(entity.EntityType))
 	machine := model.Machine{Id: program.AppId}.Pull(trx)
 	if machine.OwnerId != state.Info().UserId() {
 		return nil, errors.New("you are not owner of this machine")
 	}
+	vmId := trx.GetLink("vmStandaloneRunId::" + program.MachineId + "::" + input.EntityId)
+	if vmId == "" {
+		return nil, errors.New("entity is not running")
+	}
 	trx.DelKey("link::machineStatus::" + program.MachineId)
-	a.App.Tools().Docker().SaRContainer(input.MachineId, "main", "main")
+	trx.DelKey("link::vmStandaloneRunId::" + program.MachineId + "::" + input.EntityId)
+	imageName := trx.GetLink("vmStandaloneImageName::" + program.MachineId + "::" + input.EntityId)
+	containerName := trx.GetLink("vmStandaloneContainerName::" + program.MachineId + "::" + input.EntityId)
+	trx.DelKey("link::vmStandaloneImageName::" + program.MachineId + "::" + input.EntityId)
+	trx.DelKey("link::vmStandaloneContainerName::" + program.MachineId + "::" + input.EntityId)
+	stopInput := map[string]any{
+		"runtime":    entityType,
+		"machineId":  input.MachineId,
+		"entityId":   input.EntityId,
+		"standalone": true,
+		"vmId":       vmId,
+	}
+	if entityType == "docker" {
+		if imageName == "" || containerName == "" {
+			return nil, errors.New("entity runtime links are not found")
+		}
+		stopInput["imageName"] = imageName
+		stopInput["containerName"] = containerName
+	}
+	msg, _ := json.Marshal(map[string]any{
+		"key":   "terminateVm",
+		"input": stopInput,
+	})
+	a.App.Tools().Vmm().VmCallback(string(msg))
 	return map[string]any{}, nil
 }
 
@@ -348,8 +431,15 @@ func (a *Actions) Deploy(state state.IState, input inputs_machiner.DeployInput) 
 		return nil, err
 	}
 	entityPathForLink := ""
+	entityModel := model.Entity{
+		ProgramId:  program.AppId,
+		EntityId:   input.EntityId,
+		EntityType: input.EntityType,
+		ImageName:  "",
+	}
 	if input.EntityType == "docker" {
-		imageName := input.EntityId
+		imageName := uuid.NewString()
+		entityModel.ImageName = imageName
 		files := map[string]any{}
 		if input.Metadata != nil {
 			filesRaw, ok := input.Metadata["files"]
@@ -411,14 +501,15 @@ func (a *Actions) Deploy(state state.IState, input inputs_machiner.DeployInput) 
 			a.App.Tools().Elpis().Assign(program.MachineId)
 		}
 	}
+	entityModel.Push(trx)
 	trx.PutLink("vmEntityPath::"+program.MachineId+"::"+input.EntityId, entityPathForLink)
 	trx.PutLink("vmEntityType::"+program.MachineId+"::"+input.EntityId, input.EntityType)
 	trx.PutLink("vmEntityDownloadable::"+program.MachineId+"::"+input.EntityId, strconv.FormatBool(input.Downloadable))
 	return outputs_machiner.PlugInput{}, nil
 }
 
-// ListApps /apps/list check [ true false false ] access [ true false false false GET ]
-func (a *Actions) ListApps(state state.IState, input inputs_machiner.ListInput) (any, error) {
+// ListPrograms /programs/list check [ true false false ] access [ true false false false GET ]
+func (a *Actions) ListPrograms(state state.IState, input inputs_machiner.ListInput) (any, error) {
 	trx := state.Trx()
 	machines, err := model.Machine{}.All(trx, input.Offset, input.Count)
 	if err != nil {
@@ -456,8 +547,8 @@ func (a *Actions) ListApps(state state.IState, input inputs_machiner.ListInput) 
 	return map[string]any{"apps": result}, nil
 }
 
-// ListMachs /machines/list check [ true false false ] access [ true false false false GET ]
-func (a *Actions) ListMachs(state state.IState, input inputs_machiner.ListInput) (any, error) {
+// ListMachines /machines/list check [ true false false ] access [ true false false false GET ]
+func (a *Actions) ListMachines(state state.IState, input inputs_machiner.ListInput) (any, error) {
 	trx := state.Trx()
 	machines, err := model.User{}.All(trx, input.Offset, input.Count, map[string]string{"type": "machine"})
 	if err != nil {
@@ -467,8 +558,8 @@ func (a *Actions) ListMachs(state state.IState, input inputs_machiner.ListInput)
 	return map[string]any{"machines": machines}, nil
 }
 
-// ListAppMachs /machines/listAppMachines check [ true false false ] access [ true false false false GET ]
-func (a *Actions) ListAppMachs(state state.IState, input inputs_machiner.ListAppMachsInput) (any, error) {
+// ListProgramMachines /machines/listProgramMachines check [ true false false ] access [ true false false false GET ]
+func (a *Actions) ListProgramMachines(state state.IState, input inputs_machiner.ListAppMachsInput) (any, error) {
 	trx := state.Trx()
 	machines, err := model.User{}.List(trx, "appMachines::"+input.AppId+"::", map[string]string{})
 	if err != nil {

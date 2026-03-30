@@ -102,9 +102,8 @@ impl DockerVmController {
         if machine_id.is_empty() {
             return Err("machineId is required".to_string());
         }
-        let (image_name, container_name, standalone) = extract_docker_identity(packet);
-        let container_id =
-            docker_container_id(machine_id, &image_name, &container_name, standalone);
+        let (image_name, container_name, _standalone, vm_id) = extract_docker_identity(packet);
+        let container_id = docker_container_id(machine_id, &image_name, &container_name, &vm_id);
         let image_ref = packet["imageRef"]
             .as_str()
             .map(|s| s.to_string())
@@ -161,9 +160,13 @@ impl DockerVmController {
         if machine_id.is_empty() {
             return Err("machineId is required".to_string());
         }
-        let (image_name, container_name, standalone) = extract_docker_identity(packet);
-        let container_id =
-            docker_container_id(machine_id, &image_name, &container_name, standalone);
+        let image_name = packet["imageName"].as_str().unwrap_or("main").to_string();
+        let container_name = packet["containerName"]
+            .as_str()
+            .unwrap_or("main")
+            .to_string();
+        let vm_id = packet["vmId"].as_str().unwrap_or("").to_string();
+        let container_id = docker_container_id(machine_id, &image_name, &container_name, &vm_id);
         self.stop_and_remove_if_exists(&container_id)?;
         Ok(json!({
             "ok": true,
@@ -175,7 +178,7 @@ impl DockerVmController {
 
     fn exec_vm(&self, packet: &JsonValue) -> Result<JsonValue, String> {
         let machine_id = packet["machineId"].as_str().unwrap_or("");
-        let (image_name, container_name, standalone) = extract_docker_identity(packet);
+        let (image_name, container_name, _standalone, vm_id) = extract_docker_identity(packet);
         let command = packet["command"].as_str().unwrap_or("");
         if machine_id.is_empty() {
             return Err("machineId is required".to_string());
@@ -183,8 +186,7 @@ impl DockerVmController {
         if command.is_empty() {
             return Err("command is required".to_string());
         }
-        let container_id =
-            docker_container_id(machine_id, &image_name, &container_name, standalone);
+        let container_id = docker_container_id(machine_id, &image_name, &container_name, &vm_id);
         let create_res = self.with_async(self.docker.create_exec(
             &container_id,
             CreateExecOptions {
@@ -233,7 +235,7 @@ impl DockerVmController {
 
     fn copy_to_vm(&self, packet: &JsonValue) -> Result<JsonValue, String> {
         let machine_id = packet["machineId"].as_str().unwrap_or("");
-        let (image_name, container_name, standalone) = extract_docker_identity(packet);
+        let (image_name, container_name, _standalone, vm_id) = extract_docker_identity(packet);
         let file_name = packet["fileName"].as_str().unwrap_or("");
         let content = packet["content"].as_str().unwrap_or("");
         let target_path = packet["targetPath"].as_str().unwrap_or("/app/input");
@@ -243,8 +245,7 @@ impl DockerVmController {
         if file_name.is_empty() {
             return Err("fileName is required".to_string());
         }
-        let container_id =
-            docker_container_id(machine_id, &image_name, &container_name, standalone);
+        let container_id = docker_container_id(machine_id, &image_name, &container_name, &vm_id);
         let mut files = HashMap::new();
         files.insert(file_name.to_string(), content.as_bytes().to_vec());
         self.upload_files(&container_id, target_path, &files)?;
@@ -347,10 +348,10 @@ fn docker_container_id(
     machine_id: &str,
     image_name: &str,
     container_name: &str,
-    standalone: bool,
+    vm_id: &str,
 ) -> String {
-    if standalone {
-        return format!("{}_main_main", machine_id.replace('@', "_"));
+    if !vm_id.is_empty() {
+        return format!("{}_{}", machine_id.replace('@', "_"), vm_id);
     }
     format!(
         "{}_{}_{}",
@@ -364,18 +365,16 @@ fn docker_image_ref(machine_id: &str, image_name: &str) -> String {
     format!("{}/{}", machine_id.replace('@', "_"), image_name)
 }
 
-fn extract_docker_identity(packet: &JsonValue) -> (String, String, bool) {
+fn extract_docker_identity(packet: &JsonValue) -> (String, String, bool, String) {
     let standalone = packet["standalone"].as_bool().unwrap_or(false)
         || packet["isStandalone"].as_bool().unwrap_or(false);
-    if standalone {
-        return ("main".to_string(), "main".to_string(), true);
-    }
     let image_name = packet["imageName"].as_str().unwrap_or("main").to_string();
     let container_name = packet["containerName"]
         .as_str()
         .unwrap_or("main")
         .to_string();
-    (image_name, container_name, false)
+    let vm_id = packet["vmId"].as_str().unwrap_or("").to_string();
+    (image_name, container_name, standalone, vm_id)
 }
 
 fn build_tar(files: &HashMap<String, Vec<u8>>) -> Result<Vec<u8>, String> {

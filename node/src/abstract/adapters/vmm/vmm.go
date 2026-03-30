@@ -10,5 +10,5 @@ type IVmm interface {
 	ExecuteChainTrxsGroup(trxs []*worker.Trx)
 	ExecuteChainEffects(effects string)
 	CloseKVDB()
-	WasmCallback(dataRaw string) (string, int64)
+	VmCallback(dataRaw string) (string, int64)
 }
