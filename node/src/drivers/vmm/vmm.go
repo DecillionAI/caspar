@@ -148,7 +148,7 @@ func (wm *Vmm) BuildVmImage(machineId string, imageName string, dockerfilePath s
 	wm.aeSocket <- string(str)
 }
 
-// WasmCallback is implemented in hostcall_global.go to keep host-call routing
+// VmCallback is implemented in hostcall_global.go to keep host-call routing
 // separated from runtime bootstrapping logic in this file.
 
 func (wm *Vmm) handleRunDocker(input map[string]any, reqId int64) (string, int64) {
@@ -529,11 +529,46 @@ func (wm *Vmm) handleRunVM(input map[string]any, reqId int64) (string, int64) {
 		targetRuntime = "wasm"
 	}
 	if targetRuntime == "wasm" || targetRuntime == "javascript" || targetRuntime == "elpify" {
+		standalone, _ := checkField(input, "standalone", false)
+		if standalone {
+			data, _ := checkField(input, "data", "{}")
+			astPath, vmType := wm.resolveVmExecutionTarget(targetMachineId, entityId)
+			str, _ := json.Marshal(map[string]any{
+				"type":      "runVm",
+				"machineId": targetMachineId,
+				"input":     data,
+				"astPath":   astPath,
+				"vmType":    vmType,
+			})
+			wm.aeSocket <- string(str)
+			return "{}", reqId
+		}
 		data, _ := checkField(input, "data", "{}")
 		wm.RunVmEntity(targetMachineId, targetPointId, data, entityId)
 		return "{}", reqId
 	}
 	if targetRuntime == "docker" {
+		standalone, _ := checkField(input, "standalone", false)
+		if standalone {
+			imageName, _ := checkField(input, "imageName", "main")
+			containerName, _ := checkField(input, "containerName", "main")
+			vmId, _ := checkField(input, "vmId", "")
+			packet := map[string]any{
+				"type":          "runVm",
+				"runtime":       "docker",
+				"machineId":     targetMachineId,
+				"imageName":     imageName,
+				"containerName": containerName,
+				"standalone":    true,
+				"vmId":          vmId,
+			}
+			if inputFiles, ok := input["inputFiles"]; ok {
+				packet["inputFiles"] = inputFiles
+			}
+			str, _ := json.Marshal(packet)
+			wm.aeSocket <- string(str)
+			return "{}", reqId
+		}
 		return wm.handleRunDocker(input, reqId)
 	}
 	return "unsupported runtime", reqId
@@ -652,6 +687,21 @@ func (wm *Vmm) handleTerminateVM(input map[string]any, reqId int64) (string, int
 	targetRuntime = normalizeRuntime(targetRuntime)
 	targetMachineId, _ := checkField(input, "machineId", "")
 	if targetRuntime == "docker" {
+		vmId, _ := checkField(input, "vmId", "")
+		if vmId != "" {
+			imageName, _ := checkField(input, "imageName", "main")
+			containerName, _ := checkField(input, "containerName", "main")
+			str, _ := json.Marshal(map[string]any{
+				"type":          "terminateVm",
+				"runtime":       "docker",
+				"machineId":     targetMachineId,
+				"imageName":     imageName,
+				"containerName": containerName,
+				"vmId":          vmId,
+			})
+			wm.aeSocket <- string(str)
+			return "{}", reqId
+		}
 		imageName, _ := checkField(input, "imageName", "main")
 		containerName, _ := checkField(input, "containerName", "main")
 		wm.docker.SaRContainer(targetMachineId, imageName, containerName)
@@ -711,7 +761,7 @@ func NewVmm(core core.ICore, storageRoot string, storage storage.IStorage, kvDbP
 			msg, _ := s.Recv(0)
 			log.Printf("Received %s\n", msg)
 			future.Async(func() {
-				res, reqId := wm.WasmCallback(msg)
+				res, reqId := wm.VmCallback(msg)
 				result, _ := json.Marshal(map[string]any{
 					"type":      "apiResponse",
 					"requestId": reqId,

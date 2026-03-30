@@ -137,22 +137,22 @@ Source: `node/src/shell/api/actions/*`
 
 ### Apps + Machines
 
-- `POST /apps/create`
-- `POST /apps/deleteApp`
-- `POST /apps/updateApp`
-- `GET /apps/myCreatedApps`
+- `POST /programs/create`
+- `POST /programs/delete`
+- `POST /programs/update`
+- `GET /programs/myCreated`
 - `POST /machines/create`
-- `POST /apps/deleteMachine`
-- `POST /apps/updateMachine`
+- `POST /machines/delete`
+- `POST /machines/update`
 - `POST /machines/signal`
-- `POST /apps/runMachine`
-- `POST /apps/stopMachine`
+- `POST /machines/runProgramEntity`
+- `POST /machines/stopProgramEntity`
 - `POST /machines/readBuildLogs`
 - `POST /machines/readMachineBuilds`
 - `POST /machines/deploy`
-- `GET /apps/list`
+- `GET /programs/list`
 - `GET /machines/list`
-- `GET /machines/listAppMachines`
+- `GET /machines/listProgramMachines`
 
 ### Storage (action routes)
 

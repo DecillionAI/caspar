@@ -1,7 +1,9 @@
 package inputs_machiner
 
 type RunMachineInput struct {
-	MachineId string `json:"machineId" validate:"required"`
+	MachineId string            `json:"machineId" validate:"required"`
+	EntityId  string            `json:"entityId" validate:"required"`
+	Params    map[string]string `json:"params"`
 }
 
 func (d RunMachineInput) GetData() any {
