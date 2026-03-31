@@ -12,14 +12,14 @@ func TestMachineInputsImplementInterface(t *testing.T) {
 	var _ input.IInput = CreateAppInput{}
 	var _ input.IInput = CreateMachineInput{}
 	var _ input.IInput = DeleteAppInput{}
-	var _ input.IInput = DeleteMachineInput{}
+	var _ input.IInput = DeleteProgramInput{}
 	var _ input.IInput = DeployInput{}
 	var _ input.IInput = ListInput{}
 	var _ input.IInput = MachineBuildsInput{}
-	var _ input.IInput = RunMachineInput{}
+	var _ input.IInput = RunProgramEntityInput{}
 	var _ input.IInput = SignalInput{}
 	var _ input.IInput = UpdateAppInput{}
-	var _ input.IInput = UpdateMachineInput{}
+	var _ input.IInput = UpdateProgramInput{}
 }
 
 func TestMachineInputOriginsAndPointIds(t *testing.T) {
@@ -34,12 +34,12 @@ func TestMachineInputOriginsAndPointIds(t *testing.T) {
 		{CreateAppInput{}, "global"},
 		{CreateMachineInput{}, "global"},
 		{DeleteAppInput{}, "global"},
-		{DeleteMachineInput{}, "global"},
+		{DeleteProgramInput{}, "global"},
 		{DeployInput{}, "global"},
 		{MachineBuildsInput{}, "global"},
-		{RunMachineInput{}, "global"},
+		{RunProgramEntityInput{}, "global"},
 		{UpdateAppInput{}, "global"},
-		{UpdateMachineInput{}, "global"},
+		{UpdateProgramInput{}, "global"},
 	}
 	for i, c := range cases {
 		if c.in.GetPointId() != "" {
