@@ -201,12 +201,12 @@ func (a *Actions) MyCreatedMachines(state state.IState, input inputs_machiner.Li
 	return map[string]any{"machines": result}, nil
 }
 
+func (a *Actions) MyCreatedPrograms(state state.IState, input inputs_machiner.ListInput) (any, error) {
+	return a.MyCreatedMachines(state, input)
+}
+
 // CreateMachine /programs/create check [ true false false ] access [ true false false false POST ]
 func (a *Actions) CreateProgram(state state.IState, input inputs_machiner.CreateMachineInput) (any, error) {
-	var (
-		user    model.User
-		session model.Session
-	)
 	trx := state.Trx()
 	if !trx.HasObj("Machine", input.AppId) {
 		return nil, errors.New("machine not found")
@@ -215,18 +215,17 @@ func (a *Actions) CreateProgram(state state.IState, input inputs_machiner.Create
 	if machine.OwnerId != state.Info().UserId() {
 		return nil, errors.New("you are not owner of machine")
 	}
-	program := model.Program{Id: a.App.Tools().Storage().GenId(trx, input.Origin()), MachineId: machine.Id, Path: input.Path, Runtime: input.Runtime, Comment: input.Comment}
+	program := model.Program{MachineId: a.App.Tools().Storage().GenId(trx, input.Origin()), AppId: machine.Id, Path: input.Path, Runtime: input.Runtime, Comment: input.Comment}
 	machine.MachinesCount++
 	machine.Push(trx)
 	program.Push(trx)
-	trx.PutJson("MachineMeta::"+program.MachineId, "metadata", map[string]any{}, true)
-	trx.PutIndex("Machine", "id", "appId", user.Id, []byte(machine.Id))
+	trx.PutJson("ProgMeta::"+program.MachineId, "metadata", map[string]any{}, true)
 	trx.PutLink("machinePrograms::"+machine.Id+"::"+program.MachineId, "true")
-	return outputs_machiner.CreateOutput{User: user}, nil
+	return map[string]any{"program": program}, nil
 }
 
 // DeleteMachine /programs/delete check [ true false false ] access [ true false false false POST ]
-func (a *Actions) DeleteProgram(state state.IState, input inputs_machiner.DeleteMachineInput) (any, error) {
+func (a *Actions) DeleteProgram(state state.IState, input inputs_machiner.DeleteProgramInput) (any, error) {
 	trx := state.Trx()
 	if !trx.HasObj("Program", input.ProgramId) {
 		return nil, errors.New("program does not exist")
@@ -241,16 +240,16 @@ func (a *Actions) DeleteProgram(state state.IState, input inputs_machiner.Delete
 }
 
 // UpdateMachine /machines/update check [ true false false ] access [ true false false false POST ]
-func (a *Actions) UpdateProgram(state state.IState, input inputs_machiner.UpdateMachineInput) (any, error) {
+func (a *Actions) UpdateProgram(state state.IState, input inputs_machiner.UpdateProgramInput) (any, error) {
 	trx := state.Trx()
 	if !trx.HasObj("Program", input.ProgramId) {
 		return nil, errors.New("program does not exist")
 	}
-	program := model.Program{Id: input.ProgramId}.Pull(trx)
+	program := model.Program{MachineId: input.ProgramId}.Pull(trx)
 	program.Path = input.Path
 	program.Push(trx)
 	if input.Metadata != nil {
-		trx.PutJson("ProgMeta::"+program.ProgramId, "metadata", input.Metadata, true)
+		trx.PutJson("ProgMeta::"+program.MachineId, "metadata", input.Metadata, true)
 	}
 	return map[string]any{}, nil
 }
@@ -258,23 +257,26 @@ func (a *Actions) UpdateProgram(state state.IState, input inputs_machiner.Update
 // Signal /machines/signal check [ true false false ] access [ true false false false POST ]
 func (a *Actions) Signal(state state.IState, input inputs_machiner.SignalInput) (any, error) {
 	trx := state.Trx()
-	program := model.Program{Id: input.ProgramId}.Pull(trx)
 	user := model.User{Id: state.Info().UserId()}.Pull(trx)
 	var p = updates_points.Send{Action: "single", User: user, Data: input.Data}
 	future.Async(func() {
-		a.App.Tools().Signaler().SignalUser("points/signal", program.MachineId+"_"+input.VmTag, p, true)
+		a.App.Tools().Signaler().SignalUser("points/signal", input.MachineId+"_"+input.VmTag, p, true)
 	}, false)
 	return map[string]any{}, nil
 }
 
 // RunProgramEntity /machines/runProgramEntity check [ true false false ] access [ true false false false POST ]
-func (a *Actions) RunProgramEntity(state state.IState, input inputs_machiner.RunMachineInput) (any, error) {
+func (a *Actions) RunProgramEntity(state state.IState, input inputs_machiner.RunProgramEntityInput) (any, error) {
 	trx := state.Trx()
-	if !trx.HasObj("Program", input.ProgramId) {
+	programId := input.ProgramId
+	if programId == "" {
+		programId = input.MachineId
+	}
+	if !trx.HasObj("Program", programId) {
 		return nil, errors.New("program does not exist")
 	}
-	program := model.Program{Id: input.PtogramId}.Pull(trx)
-	entity := model.Entity{ProgramId: program.Id, EntityId: input.EntityId}.Pull(trx)
+	program := model.Program{MachineId: programId}.Pull(trx)
+	entity := model.Entity{ProgramId: program.MachineId, EntityId: input.EntityId}.Pull(trx)
 	if entity.EntityId == "" {
 		return nil, errors.New("entity does not exist")
 	}
@@ -291,7 +293,7 @@ func (a *Actions) RunProgramEntity(state state.IState, input inputs_machiner.Run
 	}
 	trx.PutLink("VmInstance::"+program.MachineId+"::"+input.EntityId+"::"+vmId, "true")
 	if entityType == "docker" {
-		imageName := model.Entity{Id: input.EntityId}.Pull(trx).ImageName
+		imageName := model.Entity{ProgramId: program.MachineId, EntityId: input.EntityId}.Pull(trx).ImageName
 		containerName := uuid.NewString()
 		trx.PutLink("VmContainerName::"+program.MachineId+"::"+input.EntityId+"::"+vmId, containerName)
 		future.Async(func() {
@@ -335,13 +337,17 @@ func (a *Actions) RunProgramEntity(state state.IState, input inputs_machiner.Run
 }
 
 // StopProgramEntity /machines/stopProgramEntity check [ true false false ] access [ true false false false POST ]
-func (a *Actions) StopProgramEntity(state state.IState, input inputs_machiner.RunMachineInput) (any, error) {
+func (a *Actions) StopProgramEntity(state state.IState, input inputs_machiner.RunProgramEntityInput) (any, error) {
 	trx := state.Trx()
-	if !trx.HasObj("Program", input.ProgramId) {
+	programId := input.ProgramId
+	if programId == "" {
+		programId = input.MachineId
+	}
+	if !trx.HasObj("Program", programId) {
 		return nil, errors.New("program does not exist")
 	}
-	program := model.Program{Id: input.ProgramId}.Pull(trx)
-	entity := model.Entity{ProgramId: program.Id, EntityId: input.EntityId}.Pull(trx)
+	program := model.Program{MachineId: programId}.Pull(trx)
+	entity := model.Entity{ProgramId: program.MachineId, EntityId: input.EntityId}.Pull(trx)
 	if entity.EntityId == "" {
 		return nil, errors.New("entity does not exist")
 	}
@@ -358,10 +364,10 @@ func (a *Actions) StopProgramEntity(state state.IState, input inputs_machiner.Ru
 	trx.DelKey("link::vmStandaloneImageName::" + program.MachineId + "::" + input.EntityId)
 	trx.DelKey("link::vmStandaloneContainerName::" + program.MachineId + "::" + input.EntityId)
 	stopInput := map[string]any{
-		"runtime":    entityType,
-		"machineId":  input.MachineId,
-		"entityId":   input.EntityId,
-		"vmId":       vmId,
+		"runtime":   entityType,
+		"machineId": input.MachineId,
+		"entityId":  input.EntityId,
+		"vmId":      vmId,
 	}
 	if entityType == "docker" {
 		if imageName == "" || containerName == "" {
@@ -398,16 +404,17 @@ func (a *Actions) ReadMachineBuilds(state state.IState, input inputs_machiner.Ma
 }
 
 // Deploy /machines/deploy check [ true false false ] access [ true false false false POST ]
-func (a *Actions) DeployEntity(state state.IState, input inputs_machiner.DeployInput) (any, error) {
+func (a *Actions) Deploy(state state.IState, input inputs_machiner.DeployInput) (any, error) {
 	trx := state.Trx()
-	if !trx.HasObj("Program", input.ProgramId) {
+	programId := input.MachineId
+	if !trx.HasObj("Program", programId) {
 		return nil, errors.New("program not found")
 	}
-	program := model.Program{Id: input.ProgramId}.Pull(trx)
-	if !trx.HasObj("Machine", program.MachineId) {
+	program := model.Program{MachineId: programId}.Pull(trx)
+	if !trx.HasObj("Machine", program.AppId) {
 		return nil, errors.New("machine not found")
 	}
-	machine := model.Machine{Id: program.MachineId}.Pull(trx)
+	machine := model.Machine{Id: program.AppId}.Pull(trx)
 	if machine.OwnerId != state.Info().UserId() {
 		return nil, errors.New("access to vm denied")
 	}
@@ -418,9 +425,8 @@ func (a *Actions) DeployEntity(state state.IState, input inputs_machiner.DeployI
 	if err != nil {
 		return nil, err
 	}
-	entityPathForLink := ""
 	entityModel := model.Entity{
-		ProgramId:  program.Id,
+		ProgramId:  program.MachineId,
 		EntityId:   input.EntityId,
 		EntityType: input.EntityType,
 		ImageName:  "",
@@ -466,7 +472,6 @@ func (a *Actions) DeployEntity(state state.IState, input inputs_machiner.DeployI
 		future.Async(func() {
 			a.App.Tools().Vmm().BuildVmImage(program.MachineId, imageName, dockerfileFolderPath)
 		}, false)
-		entityPathForLink = dockerfileFolderPath + "/Dockerfile"
 	} else {
 		fileName := "module.wasm"
 		if input.EntityType == "elpify" {
@@ -475,18 +480,14 @@ func (a *Actions) DeployEntity(state state.IState, input inputs_machiner.DeployI
 			fileName = "module.js"
 		}
 		entityFolderPath := fmt.Sprintf("%s%s%s/entities/%s", a.App.Tools().Storage().StorageRoot(), pluginsTemplateName, program.MachineId, input.EntityId)
-		entityPath := entityFolderPath + "/" + fileName
 		err2 := a.App.Tools().File().SaveDataToGlobalStorage(entityFolderPath, data, fileName, true)
 		if err2 != nil {
 			return nil, err2
 		}
-		entityPathForLink = entityPath
 		program.Push(trx)
-		a.App.Tools().Vmm().Assign(program.Id)
+		a.App.Tools().Vmm().Assign(program.MachineId)
 	}
-	entityModel.EntityType = input.entityType
-	entityModel.EntityPath = entityPathForLink
-	entityModel.downloadable = strconv.FormatBool(input.Downloadable)
+	entityModel.EntityType = input.EntityType
 	entityModel.Push(trx)
 	return outputs_machiner.PlugInput{}, nil
 }
@@ -533,7 +534,7 @@ func (a *Actions) ListMachines(state state.IState, input inputs_machiner.ListInp
 // ListMachines /programs/list check [ true false false ] access [ true false false false GET ]
 func (a *Actions) ListPrograms(state state.IState, input inputs_machiner.ListInput) (any, error) {
 	trx := state.Trx()
-	machines, err := model.Program{}.All(trx, input.Offset, input.Count, map[string]string{"type": "machine"})
+	machines, err := model.Program{}.All(trx, input.Offset, input.Count)
 	if err != nil {
 		log.Println(err)
 		return nil, err
