@@ -1,45 +1,45 @@
 # Caspar Protocol 🌐
 
-A decentralized universal protocol built on:
-- a customized **Babble/Hashgraph** foundation
-- **federation-first** cross-origin interoperability
-- multi-runtime compute (`wasm`, `elpis`, `docker`) for programmable points/apps/machines
+Caspar is a decentralized protocol stack built around:
 
-This repository contains the node implementation in `node/`.
+- a customized **Babble/Hashgraph** consensus layer
+- **federation-first** cross-origin interoperability
+- multi-runtime compute (`wasm`, `elpis`, `docker`, `javascript`, `elpify`, `elpian`)
+
+This repository contains the primary node implementation in `node/`.
 
 ## Why Caspar ✨
 
-- **Hashgraph-backed ordering**: deterministic consensus flow via the customized Babble stack.
-- **Federated state operations**: actions can execute locally, on-chain, or remotely via federation.
-- **Signed action model**: request signatures are verified per user public key.
-- **Real-time signaling**: live updates for users/groups over TLS sockets.
-- **Programmable runtime layer**: deploy and run machine code in multiple runtimes.
-- **Storage + entities + streams**: binary/file/object workflows for user/point/app assets.
+- **Hashgraph-backed ordering** for distributed request consistency.
+- **Federated execution model** for local + remote-origin actions.
+- **Signed request protocol** over TLS TCP/WS.
+- **Real-time signaling** for users and point groups.
+- **Programmable runtime layer** for machine/program deployment.
+- **Entity + stream gateways** for user/point/app binary workflows.
 
 ## System Snapshot 🧩
 
 ```text
-Clients (TCP/WS TLS, signed packets)
-   -> Action Router (secure actions)
-      -> Core State + Guards + Transactions
-         -> Hashgraph Chain (custom Babble)
-         -> Federation Bridge (cross-origin requests/updates)
-         -> Runtime Drivers (Wasm | Elpis | Docker)
-         -> Storage (Badger + QuestDB/PG wire)
-         -> Entity/Stream HTTPS Gateways
+Clients (TLS TCP/WS, signed packets)
+  -> Action Router + Guards
+    -> Core Transaction Layer
+      -> Hashgraph Chain
+      -> Federation Bridge
+      -> Runtime Drivers (Wasm | Elpis | Docker)
+      -> Storage (Badger + QuestDB/PG wire paths)
+      -> HTTPS Entity/Stream APIs
 ```
 
-## Protocol Interfaces 📡
+## Interface Surface 📡
 
-- **Client action transport**: TLS `tcp` + `ws` binary protocol.
-- **Federation transport**: TLS TCP between origins.
-- **Action key format**: path-like keys (example: `/points/signal`).
-- **Secondary HTTPS gateways**:
+- **Action protocol**: TLS `tcp` + `ws` binary packet interface.
+- **Federation transport**: TLS TCP origin-to-origin messaging.
+- **Hashgraph service API**: chain stats/blocks/graph/peers endpoints.
+- **HTTPS gateways**:
   - entity API (`ENTITY_API_PORT`)
-  - VM stream gateway (`VM_API_PORT`)
-- **Hashgraph service API** (Babble service): stats/blocks/graph/peers endpoints.
+  - VM stream API (`VM_API_PORT`)
 
-See full details in `docs/API_REFERENCE.md`.
+For complete protocol details, see `docs/API_REFERENCE.md`.
 
 ## Quick Start 🚀
 
@@ -48,32 +48,42 @@ cd node
 cp sample.env .env
 ```
 
-Then configure `.env` values, TLS certs, and Firebase service account as documented in `docs/GETTING_STARTED.md`.
-If you run the binary directly, make sure supporting services (QuestDB + appengine) are running too.
+Then configure `.env` and required runtime files:
 
-Important env additions in current code path:
-- `ROOT_NODE`: seed/free-node root used by election/bootstrap logic.
-- `VM_EXEC_COST_PER_SECOND`: optional non-negative execution pricing value used by runtime accounting.
+- certs at `/app/certs/fullchain.pem` and `/app/certs/privkey.pem`
+- Firebase credentials at `/app/serviceAccounts.json`
 
-## Main Features
+Build + run (direct mode):
 
-- **Users**: login/authentication, profile metadata, transfer/mint, lock/consume token flows.
-- **Points**: create/join/leave, role/access policies, members, signaling, history.
-- **Invites**: create/cancel/accept/decline + point/user invite lists.
-- **Apps/Machines**: app lifecycle, machine lifecycle, deploy/build/log/run/stop.
-- **Storage**: point file IO, entity upload/download (user/point/app), stream relay.
-- **Chain ops**: create work chains, submit base transactions, register origins.
-- **PC tools**: VM command execution endpoints.
+```bash
+cd node/appengine && cargo build
+cd ../ && CGO_ENABLED=1 go build -o kasper .
+./kasper
+```
 
-## Docs
+Direct mode typically requires your supporting services to be available (for example QuestDB and appengine).
 
-- `docs/GETTING_STARTED.md` - setup, dependencies, environment, run flow
-- `docs/API_REFERENCE.md` - binary packet protocol + route catalog
-- `docs/ARCHITECTURE.md` - internals of core, chain, federation, runtime, storage
+## Route Naming Note ⚠️
 
-## Important Runtime Notes ⚠️
+Current API naming is historical and intentionally preserved:
 
-- The node expects certs at `/app/certs/fullchain.pem` and `/app/certs/privkey.pem`.
-- Firebase login initialization expects `/app/serviceAccounts.json`.
-- QuestDB is used via PostgreSQL wire protocol (`localhost:8812` in code path).
-- A pprof server is started on `0.0.0.0:9999`.
+- `/machines/*` routes manage **Machine** resources.
+- `/programs/*` routes manage **Program** resources attached to machines.
+
+Use `docs/API_REFERENCE.md` as the source-of-truth route catalog.
+
+## Main Feature Domains
+
+- **Users**: login/auth, metadata, mint/transfer, lock/consume token.
+- **Points**: create/join/leave, membership/access, signaling, history.
+- **Invites**: create/cancel/accept/decline + list endpoints.
+- **Machines/Programs**: create/update/delete, deploy, run/stop, logs.
+- **Storage/Entities**: uploads/downloads for user/point/app scope.
+- **Chain Ops**: create shard/work chains, register nodes, submit base trx.
+- **PC Tools**: command execution endpoints.
+
+## Documentation
+
+- `docs/GETTING_STARTED.md` — prerequisites, env vars, build/run, troubleshooting.
+- `docs/API_REFERENCE.md` — packet protocol, statuses, routes, APIs.
+- `docs/ARCHITECTURE.md` — core internals, chain/federation/runtime/storage layers.

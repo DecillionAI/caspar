@@ -144,6 +144,8 @@ After successful `authenticate`, queued user signals can be replayed.
 
 ### Machines and Programs
 
+> Naming note: in current code, `/machines/*` actions operate on **Machine** models and `/programs/*` actions operate on **Program** models attached to a machine.
+
 - `POST /machines/create`
 - `POST /machines/delete`
 - `POST /machines/update`
