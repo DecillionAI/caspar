@@ -1,163 +1,137 @@
 # Architecture 🧠
 
-## 1) Design Goals
+## 1) System Goals
 
-- **Decentralized consensus** via customized Babble/Hashgraph stack.
-- **Federated operations** across origins without central gateway dependence.
-- **Programmable protocol surface** through apps/machines/runtimes.
-- **Signed, policy-guarded actions** for user/point scoped authorization.
+- **Decentralized ordering/consensus** with a customized Babble/Hashgraph stack.
+- **Federation-first interoperability** across origins.
+- **Programmable execution** across multiple runtimes (`wasm`, `elpis`, `docker`, and related toolchains).
+- **Signed action pipeline** with guard-based authorization checks.
 
-## 2) Core Building Blocks
+## 2) High-Level Runtime Graph
 
-### Core (`module/core`)
+```text
+TLS TCP/WS Clients
+  -> Action Router + Guarded Actions
+    -> Core State Transactions
+      -> Hashgraph Chain Pipeline
+      -> Federation Bridge
+      -> Runtime Drivers
+      -> Storage + Entity/Stream APIs
+```
 
-`Core` orchestrates:
-- action registry and secure execution
-- transactional state mutations
-- chain message/request/response lifecycle
-- executor election coordination
-- runtime dispatch for app transactions
+## 3) Core Layer (`node/src/core/module/core`)
 
-Key flow:
-1. action is parsed and guard-checked
-2. state transaction opens (`ModifyState...`)
-3. action mutates state + produces updates
-4. updates may be signaled locally/federated
-5. chain callbacks reconcile distributed responses
+`Core` coordinates:
 
-### Action Layer
+- action registry and invocation
+- guarded transaction lifecycle (`state` + `trx`)
+- asynchronous updates/signals
+- chain callback reconciliation
+- election/validator selection helpers
 
-Actions are registered via generated pluggers (`src/shell/api/pluggers/*`).
-Action metadata is extracted from function comments and converted to path keys (example `/users/create`).
+Typical action flow:
 
-Secure actions support protocol-specific parsers for:
-- `tcp`
-- `chain`
-- `fed`
+1. protocol handler parses packet and resolves action path
+2. security checks validate user/signature/context
+3. transaction opens and mutates state
+4. local/federated updates are emitted
+5. optional chain callback reconciliation finalizes distributed result
 
-## 3) Consensus Layer (Customized Babble/Hashgraph) ⛓️
+## 4) Action and Plugger Layer
 
-Location: `src/drivers/network/chain/*`
+Actions are grouped under:
 
-- Hashgraph DAG + block projection inherited from Babble architecture.
-- Work chains + shard chains can be created dynamically.
-- A pipeline callback processes committed transactions and routes by type:
-  - `baseRequest`
-  - `appRequest`
-  - `response`
-  - `message`
-  - `election`
+- `node/src/shell/api/actions/*`
 
-### Executor election
+Pluggers wire those actions into core:
 
-Core periodically triggers an election flow (`choose-validator`) and updates `executors` used for distributed response agreement.
+- `node/src/shell/api/pluggers/*`
+- `node/src/shell/api/main/api.go` (`PlugAll`)
 
-### Chain callback reconciliation
+This is the source of truth for what endpoints exist at runtime.
 
-For distributed requests:
-- responses are collected from expected executors
-- payload/effects must agree before callback completion
-- DB effects can be replayed on non-executing nodes
+## 5) Consensus Layer (`node/src/drivers/network/chain`)
 
-## 4) Federation Layer 🌍
+The chain stack provides:
 
-Location: `src/drivers/network/federation/*`
+- hashgraph event DAG
+- block projection
+- peer/gossip transport
+- service endpoints (`/stats`, `/graph`, `/peers`, etc.)
+- transaction routing by type (`baseRequest`, `appRequest`, `response`, `message`, `election`)
+
+Work-chain operations exposed by actions currently include create, create-shard, create-from-point, register-node, and submit-base-trx.
+
+## 6) Federation Layer (`node/src/drivers/network/federation`)
 
 Federation handles cross-origin:
-- requests
-- responses
-- updates
 
-Important behaviors:
-- target origin is resolved and checked against known chain peers
-- callbacks include timeout handling (120s in request-by-callback path)
-- point/member updates can be materialized locally after federated events
+- action requests
+- action responses
+- async updates/signals
 
-## 5) Networking
+Key behaviors:
 
-### Client Transport
+- remote origin resolution and known-peer checks
+- callback timeout handling
+- local state materialization for remote updates when required
 
-- TLS TCP server
-- TLS WS server
-- identical action semantics over both
+## 7) Runtime/Execution Layer
 
-### Federation Transport
+### Wasm
 
-- TLS TCP transport for origin-to-origin packets
+- machine assignment and execution hooks
+- signal and chain execution integration
 
-### Service API
+### Elpis
 
-Babble-style HTTP service exposes chain stats/graph/peers/blocks.
+- C/C++ callback bridge for runtime execution paths
 
-## 6) Runtime & Compute Layer ⚙️
+### Docker
 
-### Wasm driver
+- build/deploy/run/stop/exec support
+- machine endpoint proxy integration
+- build logs + runtime signaling integration
 
-- assignment to machine listeners
-- off-chain signal execution
-- on-chain transaction group execution
-- chain effect application hooks
-
-### Elpis driver
-
-- C/C++ bridge callbacks
-- machine signal handling via runtime callback interface
-
-### Docker driver
-
-- image build/deploy
-- container run/stop/exec
-- dynamic nginx proxy config for active machine endpoints
-- VM stream gateway integration
-
-## 7) State & Storage
+## 8) State and Storage
 
 ### KV state
 
-- Badger-backed key/value + indexes + links model
-- transactional operations through `trx` abstraction
+- Badger-backed object/link/index model
+- transaction abstraction in `abstract/models/trx`
 
-### Time-series / logs
+### Logs/time-series
 
-- QuestDB via PostgreSQL wire driver
-- point signal logs + build logs
+- QuestDB via PostgreSQL wire usage patterns
 
-### Entity files
+### Entity storage
 
-- global and point scoped file storage
-- optional image post-processing (thumbnail/compression)
+- user/point/app entity upload/download
+- stream relay endpoints for larger payload flow
 
-## 8) Real-time Signaling 🔔
+## 9) Networking Interfaces
 
-Signaler supports:
-- user-targeted signals
-- group (point) signals
-- federation forwarding for foreign members
-- queued delivery after re-authentication
+- TLS TCP action server
+- TLS WS action server
+- federation TCP transport
+- chain gossip + service HTTP
+- HTTPS entity + VM stream gateways
 
-## 9) Security Model
+## 10) Security Model
 
-- packet signatures verified with stored user public keys (RSA-PSS)
-- guard checks include:
-  - identity
-  - membership/access to point
-  - context-specific permissions
-- server keypair generated/loaded from storage keys directory
+- signature verification against stored public keys
+- route-specific guard checks (identity, membership, access policy)
+- privileged/god command path embedded in point signal handling (`/points/signal` command packets)
 
-## 10) Runtime Composition at Boot
+## 11) Boot Composition
 
-`Core.Load(...)` wires components in order:
-1. federation (phase 1)
-2. storage
-3. signaler
-4. security
-5. network
-6. file
-7. docker
-8. wasm
-9. elpis
-10. federation (phase 2 fill)
-11. firecracker control
+At startup, app wiring loads adapters/tools, then installs all pluggers/actions, then starts:
 
-Then chain pipeline + asynchronous chain submission loop are started.
+- pprof (`0.0.0.0:9999`)
+- TCP/WS/Federation/Chain listeners
+- API and signaling loops
 
+For exact startup sequence and env usage, use:
+
+- `node/main.go`
+- `node/src/shell/kasper.go`
