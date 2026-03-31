@@ -111,6 +111,7 @@ dependencies = [
  "bollard",
  "cfg-if",
  "crossbeam",
+ "elpian_vm",
  "elpify-lang",
  "futures-util",
  "num-derive 0.3.3",
@@ -760,6 +761,16 @@ dependencies = [
  "sec1",
  "subtle",
  "zeroize",
+]
+
+[[package]]
+name = "elpian_vm"
+version = "0.1.0"
+dependencies = [
+ "once_cell",
+ "serde",
+ "serde_json",
+ "wasm-bindgen",
 ]
 
 [[package]]

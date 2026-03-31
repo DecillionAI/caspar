@@ -27,6 +27,32 @@ type Actions struct {
 	App core.ICore
 }
 
+func normalizeEntityType(entityType string) string {
+	return strings.ToLower(strings.TrimSpace(entityType))
+}
+
+func isSupportedEntityType(entityType string) bool {
+	switch normalizeEntityType(entityType) {
+	case "docker", "wasm", "elpify", "javascript", "elpian":
+		return true
+	default:
+		return false
+	}
+}
+
+func entityRuntimeFileName(entityType string) string {
+	switch normalizeEntityType(entityType) {
+	case "elpify":
+		return "module.masm"
+	case "javascript":
+		return "module.js"
+	case "elpian":
+		return "module.elpian.json"
+	default:
+		return "module.wasm"
+	}
+}
+
 func Install(a *Actions, extra ...any) error {
 	a.App.ModifyState(true, func(trx trx.ITrx) error {
 		programs, err := model.Program{}.All(trx, -1, -1)
@@ -34,7 +60,7 @@ func Install(a *Actions, extra ...any) error {
 			panic(err)
 		}
 		for _, program := range programs {
-			if program.Runtime == "wasm" || program.Runtime == "elpify" || program.Runtime == "javascript" {
+			if program.Runtime == "wasm" || program.Runtime == "elpify" || program.Runtime == "javascript" || program.Runtime == "elpian" {
 				a.App.Tools().Vmm().Assign(program.MachineId)
 				if pointId := trx.GetLink("vmAlarmPointId::" + program.MachineId); pointId != "" {
 					future.Async(func() {
@@ -280,7 +306,7 @@ func (a *Actions) RunProgramEntity(state state.IState, input inputs_machiner.Run
 	if entity.EntityId == "" {
 		return nil, errors.New("entity does not exist")
 	}
-	entityType := strings.ToLower(strings.TrimSpace(entity.EntityType))
+	entityType := normalizeEntityType(entity.EntityType)
 	machine := model.Machine{Id: program.MachineId}.Pull(trx)
 	if machine.OwnerId != state.Info().UserId() {
 		return nil, errors.New("you are not owner of this machine")
@@ -315,7 +341,7 @@ func (a *Actions) RunProgramEntity(state state.IState, input inputs_machiner.Run
 		}, false)
 		return map[string]any{"vmId": vmId}, nil
 	}
-	if entityType != "wasm" && entityType != "javascript" && entityType != "elpify" {
+	if !isSupportedEntityType(entityType) || entityType == "docker" {
 		return nil, errors.New("invalid entity type")
 	}
 	data, _ := json.Marshal(params)
@@ -351,7 +377,7 @@ func (a *Actions) StopProgramEntity(state state.IState, input inputs_machiner.Ru
 	if entity.EntityId == "" {
 		return nil, errors.New("entity does not exist")
 	}
-	entityType := strings.ToLower(strings.TrimSpace(entity.EntityType))
+	entityType := normalizeEntityType(entity.EntityType)
 	machine := model.Machine{Id: program.MachineId}.Pull(trx)
 	if machine.OwnerId != state.Info().UserId() {
 		return nil, errors.New("you are not owner of this machine")
@@ -418,8 +444,8 @@ func (a *Actions) Deploy(state state.IState, input inputs_machiner.DeployInput) 
 	if machine.OwnerId != state.Info().UserId() {
 		return nil, errors.New("access to vm denied")
 	}
-	if input.EntityType != "docker" && input.EntityType != "wasm" && input.EntityType != "elpify" && input.EntityType != "javascript" {
-		return nil, errors.New("invalid entityType, expected one of docker|wasm|elpify|javascript")
+	if !isSupportedEntityType(input.EntityType) {
+		return nil, errors.New("invalid entityType, expected one of docker|wasm|elpify|javascript|elpian")
 	}
 	data, err := base64.StdEncoding.DecodeString(input.Payload)
 	if err != nil {
@@ -473,12 +499,7 @@ func (a *Actions) Deploy(state state.IState, input inputs_machiner.DeployInput) 
 			a.App.Tools().Vmm().BuildVmImage(program.MachineId, imageName, dockerfileFolderPath)
 		}, false)
 	} else {
-		fileName := "module.wasm"
-		if input.EntityType == "elpify" {
-			fileName = "module.masm"
-		} else if input.EntityType == "javascript" {
-			fileName = "module.js"
-		}
+		fileName := entityRuntimeFileName(input.EntityType)
 		entityFolderPath := fmt.Sprintf("%s%s%s/entities/%s", a.App.Tools().Storage().StorageRoot(), pluginsTemplateName, program.MachineId, input.EntityId)
 		err2 := a.App.Tools().File().SaveDataToGlobalStorage(entityFolderPath, data, fileName, true)
 		if err2 != nil {

@@ -9,6 +9,7 @@ debug = "full"
 
 [dependencies]
 elpify-lang = { path = "crates/elpify-lang" }
+elpian_vm = { path = "crates/elpian-vm" }
 rocksdb = "0.24.0"
 once_cell = "1.18"
 crossbeam = "0.8"
@@ -64,4 +65,5 @@ members = [
     "crates/wasmedge-macro",
     "crates/async-wasi",
     "crates/elpify-lang",
+    "crates/elpian-vm",
 ]
