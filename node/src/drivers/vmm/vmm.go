@@ -78,6 +78,11 @@ func normalizeRuntime(runtime string) string {
 	return strings.ToLower(strings.TrimSpace(runtime))
 }
 
+func isManagedRuntime(runtime string) bool {
+	runtime = normalizeRuntime(runtime)
+	return runtime == "wasm" || runtime == "javascript" || runtime == "elpify" || runtime == "elpian"
+}
+
 func (wm *Vmm) resolveVmExecutionTarget(machineId string, entityId string) (string, string) {
 	astPath := wm.app.Tools().Storage().StorageRoot() + "/machines/" + machineId + "/module"
 	vmType := "wasm"
@@ -528,7 +533,7 @@ func (wm *Vmm) handleRunVM(input map[string]any, reqId int64) (string, int64) {
 	if targetRuntime == "" {
 		targetRuntime = "wasm"
 	}
-	if targetRuntime == "wasm" || targetRuntime == "javascript" || targetRuntime == "elpify" {
+	if isManagedRuntime(targetRuntime) {
 		standalone, _ := checkField(input, "standalone", false)
 		if standalone {
 			data, _ := checkField(input, "data", "{}")
@@ -707,7 +712,7 @@ func (wm *Vmm) handleTerminateVM(input map[string]any, reqId int64) (string, int
 		wm.docker.SaRContainer(targetMachineId, imageName, containerName)
 		return "{}", reqId
 	}
-	if targetRuntime == "wasm" || targetRuntime == "javascript" || targetRuntime == "elpify" {
+	if isManagedRuntime(targetRuntime) {
 		wm.TerminateVm(targetMachineId)
 		return "{}", reqId
 	}

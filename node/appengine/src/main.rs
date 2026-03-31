@@ -8,6 +8,7 @@ use bollard::exec::{CreateExecOptions, StartExecResults};
 use bollard::image::BuildImageOptions;
 use bollard::models::HostConfig;
 use bollard::Docker;
+use elpian_vm::api as elpian_api;
 use elpify_lang::{
     execute_masm_file_with_proof, stack_outputs_from_ints, verify_execution, ExecutionEngine,
     TaskInput,
@@ -583,6 +584,15 @@ fn main() {
                         }) {
                             log(format!("failed to schedule elpify task: {}", e));
                         }
+                    } else if runtime == VmRuntime::Elpian {
+                        if let Err(e) =
+                            execute_elpian_task(&machine_id, ast_path.clone(), input.clone())
+                        {
+                            log(format!(
+                                "elpian task failed for machine {}: {}",
+                                machine_id, e
+                            ));
+                        }
                     } else {
                         thread::spawn(move || {
                             let inp1 = input.clone();
@@ -1078,6 +1088,7 @@ pub struct ManagedVmHandle {
 enum VmRuntime {
     Wasm,
     Elpify,
+    Elpian,
 }
 
 struct ElpifyTask {
@@ -1329,6 +1340,8 @@ fn detect_vm_runtime(packet: &JsonValue, ast_path: &str) -> VmRuntime {
     let vm_hint = packet["vmType"].as_str().unwrap_or("").to_lowercase();
     if vm_hint == "elpify" || vm_hint == "masm" || ast_path.ends_with(".masm") {
         VmRuntime::Elpify
+    } else if vm_hint == "elpian" || vm_hint == "elpian_vm" || ast_path.ends_with(".elpian.json") {
+        VmRuntime::Elpian
     } else {
         VmRuntime::Wasm
     }
@@ -1504,6 +1517,47 @@ fn execute_elpify_task(
         "elpify vm executed machine={} masm={} inputs={:?} output={}",
         machine_id, masm_path, inputs, output
     ));
+    Ok(())
+}
+
+fn execute_elpian_task(
+    machine_id: &str,
+    ast_path: String,
+    input_raw: String,
+) -> Result<(), String> {
+    let ast_source = std::fs::read_to_string(&ast_path)
+        .map_err(|e| format!("failed to read elpian AST file {}: {}", ast_path, e))?;
+
+    if !elpian_api::create_vm_from_ast(machine_id.to_string(), ast_source) {
+        return Err("failed to create elpian VM from AST".to_string());
+    }
+
+    let input_json: JsonValue = serde_json::from_str(&input_raw).unwrap_or_else(|_| json!({}));
+    let payload = if input_json.get("data").is_some() {
+        input_json["data"].clone()
+    } else {
+        input_json
+    };
+
+    let mut result = elpian_api::execute_vm_func_with_input(
+        machine_id.to_string(),
+        "main".to_string(),
+        payload.to_string(),
+        0,
+    );
+
+    while result.has_host_call {
+        let call_data: JsonValue = serde_json::from_str(&result.host_call_data)
+            .map_err(|e| format!("invalid elpian host call payload: {}", e))?;
+        let host_res = json!({"value": wasm_send(call_data)}).to_string();
+        result = elpian_api::continue_execution(machine_id.to_string(), host_res);
+    }
+
+    log(format!(
+        "elpian vm executed machine={} ast={} result={}",
+        machine_id, ast_path, result.result_value
+    ));
+    let _ = elpian_api::destroy_vm(machine_id.to_string());
     Ok(())
 }
 
@@ -1811,8 +1865,12 @@ pub fn host_call(
         }
         "lockResource" => {
             let runtime = req["input"]["runtime"].as_str().unwrap_or("wasm");
-            if runtime != "wasm" && runtime != "docker" && runtime != "javascript" {
-                json!({"ok": false, "error": "lock API is only available for wasm, docker and javascript runtimes"})
+            if runtime != "wasm"
+                && runtime != "docker"
+                && runtime != "javascript"
+                && runtime != "elpian"
+            {
+                json!({"ok": false, "error": "lock API is only available for wasm, docker, javascript and elpian runtimes"})
                     .to_string()
             } else {
                 let resource_id = req["input"]["resourceId"].as_str().unwrap_or("");
@@ -1827,8 +1885,12 @@ pub fn host_call(
         }
         "unlockResource" => {
             let runtime = req["input"]["runtime"].as_str().unwrap_or("wasm");
-            if runtime != "wasm" && runtime != "docker" && runtime != "javascript" {
-                json!({"ok": false, "error": "unlock API is only available for wasm, docker and javascript runtimes"})
+            if runtime != "wasm"
+                && runtime != "docker"
+                && runtime != "javascript"
+                && runtime != "elpian"
+            {
+                json!({"ok": false, "error": "unlock API is only available for wasm, docker, javascript and elpian runtimes"})
                     .to_string()
             } else {
                 let resource_id = req["input"]["resourceId"].as_str().unwrap_or("");
@@ -3097,5 +3159,26 @@ mod tests {
     fn noop_callback_returns_json_shape() {
         let out = noop_callback(json!({"x": 1}));
         assert_eq!(out, "{}");
+    }
+
+    #[test]
+    fn detect_vm_runtime_handles_elpian_variants() {
+        let hint_packet = json!({"vmType": "elpian"});
+        assert_eq!(
+            detect_vm_runtime(&hint_packet, "module.wasm"),
+            VmRuntime::Elpian
+        );
+
+        let ext_packet = json!({"vmType": ""});
+        assert_eq!(
+            detect_vm_runtime(&ext_packet, "module.elpian.json"),
+            VmRuntime::Elpian
+        );
+
+        let legacy_packet = json!({"vmType": "elpify"});
+        assert_eq!(
+            detect_vm_runtime(&legacy_packet, "module.masm"),
+            VmRuntime::Elpify
+        );
     }
 }

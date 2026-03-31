@@ -392,7 +392,7 @@ func (c *Core) runChainMessage(packet chain.ChainMessage) {
 			runtimeType = vm.Runtime
 			return nil
 		})
-		if runtimeType == "wasm" || runtimeType == "docker" || runtimeType == "javascript" || runtimeType == "elpify" {
+		if runtimeType == "wasm" || runtimeType == "docker" || runtimeType == "javascript" || runtimeType == "elpify" || runtimeType == "elpian" {
 			listener, found := c.Tools().Signaler().Listeners().Get(machineId)
 			if found && listener != nil {
 				payload := append([]byte(nil), packet.Payload...)
@@ -403,7 +403,7 @@ func (c *Core) runChainMessage(packet chain.ChainMessage) {
 			}
 		}
 		future.Async(func() {
-			if runtimeType == "wasm" || runtimeType == "javascript" || runtimeType == "elpify" {
+			if runtimeType == "wasm" || runtimeType == "javascript" || runtimeType == "elpify" || runtimeType == "elpian" {
 				c.Tools().Vmm().RunVm(machineId, packet.PointId, string(packet.Payload))
 			}
 		}, false)
