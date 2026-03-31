@@ -1,18 +1,23 @@
 # API Reference 📡
 
-This project uses a **signed binary action protocol** over TLS TCP/WS for core actions, plus HTTPS gateways for entity/stream operations.
+This node exposes three interfaces:
+
+1. **Signed binary action protocol** over TLS TCP and TLS WebSocket.
+2. **HTTPS entity/stream gateways** for file/entity transfer.
+3. **Hashgraph service HTTP API** for network and chain observability.
+
+All route names below are aligned with the current action declarations in `node/src/shell/api/actions/*`.
 
 ## 1) Action Protocol (TCP + WS)
 
-### Request framing
-
-For TCP, packets are length-prefixed:
+### TCP frame format
 
 ```text
-[4 bytes length (big-endian)] [request-packet]
+[4 bytes body_len (big-endian)]
+[body]
 ```
 
-Request packet layout:
+`body` is:
 
 ```text
 [4 bytes signature_len]
@@ -20,28 +25,25 @@ Request packet layout:
 [4 bytes user_id_len]
 [user_id bytes]
 [4 bytes path_len]
-[path bytes]                 # ex: /points/signal
+[path bytes]               # e.g. /points/signal
 [4 bytes request_id_len]
 [request_id bytes]
-[payload bytes]              # JSON of the action input
+[payload bytes]            # JSON action input
 ```
 
-WS handler currently expects the same packet body format (with 4 leading bytes stripped in server handler path).
+### WS behavior
 
-### Acknowledgement
+WS uses the same packet body semantics as TCP request packets, handled by the same action processing pipeline.
 
-Client ACK frame is a single byte:
+### ACK byte
+
+Client ACK frame is one byte:
 
 ```text
 0x01
 ```
 
-### Server frame types
-
-- `0x01` -> update frame
-- `0x02` -> response frame
-
-Response frame layout:
+### Server response frame
 
 ```text
 0x02
@@ -51,30 +53,35 @@ Response frame layout:
 [json response bytes]
 ```
 
-## 2) Response/Error Status Codes
+### Server update frame
+
+```text
+0x01
+...update payload...
+```
+
+## 2) Status Codes
 
 | Code | Meaning |
 |---|---|
 | `0` | success |
 | `1` | action not found |
-| `2` | input parsing/validation error |
+| `2` | input parse/validation error |
 | `3` | action execution error |
 | `4` | authentication/authorization failure |
 
-## 3) Authentication Flow 🔐
+## 3) Authentication Commands
 
-Special command paths:
+Special command paths handled by the network layer:
 
 - `authenticate`
-  - verifies signature, binds socket to user listener, restores queued messages
 - `logout`
-  - removes user listener after signature verification
 
-Regular action paths are route keys like `/users/create`, `/points/signal`, etc.
+After successful `authenticate`, queued user signals can be replayed.
 
-## 4) Core Action Routes
+## 4) Action Routes (Current)
 
-Source: `node/src/shell/api/actions/*`
+> Methods/routes listed from current action comments and plugger wiring.
 
 ### Auth
 
@@ -101,16 +108,16 @@ Source: `node/src/shell/api/actions/*`
 
 ### Points
 
-- `POST /points/addApp`
-- `POST /points/listApps`
-- `POST /points/updateMachine`
-- `POST /points/removeApp`
 - `POST /points/addMachine`
+- `POST /points/listMachines`
+- `POST /points/updateProgram`
 - `POST /points/removeMachine`
+- `POST /points/addProgram`
+- `POST /points/removeProgram`
 - `POST /points/addMember`
 - `POST /points/updateMember`
 - `POST /points/updateMemberAccess`
-- `POST /points/updateMachineAccess`
+- `POST /points/updateProgramAccess`
 - `POST /points/getDefaultAccess`
 - `POST /points/readMembers`
 - `POST /points/removeMember`
@@ -135,26 +142,27 @@ Source: `node/src/shell/api/actions/*`
 - `POST /invites/accept`
 - `POST /invites/decline`
 
-### Apps + Machines
+### Machines and Programs
 
-- `POST /programs/create`
-- `POST /programs/delete`
-- `POST /programs/update`
-- `GET /programs/myCreated`
+> Naming note: in current code, `/machines/*` actions operate on **Machine** models and `/programs/*` actions operate on **Program** models attached to a machine.
+
 - `POST /machines/create`
 - `POST /machines/delete`
 - `POST /machines/update`
+- `GET /machines/myCreated`
 - `POST /machines/signal`
 - `POST /machines/runProgramEntity`
 - `POST /machines/stopProgramEntity`
 - `POST /machines/readBuildLogs`
 - `POST /machines/readMachineBuilds`
 - `POST /machines/deploy`
-- `GET /programs/list`
 - `GET /machines/list`
 - `GET /machines/listProgramMachines`
+- `POST /programs/create`
+- `POST /programs/delete`
+- `GET /programs/list`
 
-### Storage (action routes)
+### Storage
 
 - `POST /storage/upload`
 - `POST /storage/uploadUserEntity`
@@ -167,9 +175,10 @@ Source: `node/src/shell/api/actions/*`
 ### Chain
 
 - `POST /chains/create`
+- `POST /chains/createShard`
 - `POST /chains/createFromPoint`
-- `POST /chains/registerNode`
 - `POST /chains/submitBaseTrx`
+- `POST /chains/registerNode`
 
 ### PC + Dummy
 
@@ -179,9 +188,9 @@ Source: `node/src/shell/api/actions/*`
 - `GET /api/time`
 - `GET /api/ping`
 
-## 5) HTTPS Entity/Stream APIs
+## 5) HTTPS Entity + Stream APIs
 
-Entity server (`ENTITY_API_PORT`) registers:
+Entity server (bound by `ENTITY_API_PORT`) registers:
 
 - `/storage/downloadUserEntity`
 - `/storage/uploadUserEntity`
@@ -192,15 +201,13 @@ Entity server (`ENTITY_API_PORT`) registers:
 - `/stream/get`
 - `/stream/send`
 
-VM gateway (`VM_API_PORT`) registers:
+VM gateway (bound by `VM_API_PORT`) registers:
 
 - `/stream/send`
 
-These endpoints also verify signatures and may proxy across origins.
-
 ## 6) Hashgraph Service API
 
-Default service handlers include:
+Default handlers include:
 
 - `/stats`
 - `/block/{index}`
@@ -211,26 +218,17 @@ Default service handlers include:
 - `/validators/{index}`
 - `/history`
 
-## 7) Input Schemas
+## 7) Input Schema Sources
 
-Action inputs are implemented in:
+Authoritative request models are in:
 
 - `node/src/shell/api/inputs/users`
 - `node/src/shell/api/inputs/points`
 - `node/src/shell/api/inputs/machine`
-
-`POST /machines/deploy` accepts:
-
-- `machineId` (string, required)
-- `entityId` (string, required)
-- `entityType` (string, required): one of `javascript`, `elpify`, `wasm`, `docker`
-- `downloadable` (boolean): whether this machine entity can be downloaded through storage entity APIs
-- `payload` (base64 string, required): dockerfile/module/program source payload
-- `metadata` (object, optional): docker build metadata (for example extra files, image naming)
 - `node/src/shell/api/inputs/invites`
 - `node/src/shell/api/inputs/storage`
 - `node/src/shell/api/inputs/chain`
 - `node/src/shell/api/inputs/auth`
 - `node/src/shell/api/inputs/pc`
 
-Use those files as authoritative schema definitions (JSON fields + validation tags).
+For machine deploy payloads, use `node/src/shell/api/inputs/machine/deploy.go` as the contract source.
