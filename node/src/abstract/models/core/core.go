@@ -41,4 +41,5 @@ type ICore interface {
 	ModifyStateSecurly(readonly bool, info info.IInfo, fn func(state.IState) error)
 	SignPacket(data []byte) string
 	SignPacketAsOwner(data []byte) string
+	ExecutionCostPerSecond() int64
 }

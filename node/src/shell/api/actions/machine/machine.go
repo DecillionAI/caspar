@@ -9,6 +9,7 @@ import (
 	"kasper/src/abstract/models/trx"
 	"kasper/src/abstract/state"
 	inputs_machiner "kasper/src/shell/api/inputs/machine"
+	inputs_users "kasper/src/shell/api/inputs/users"
 	"kasper/src/shell/api/model"
 	outputs_machiner "kasper/src/shell/api/outputs/plugin"
 	updates_points "kasper/src/shell/api/updates/points"
@@ -16,6 +17,7 @@ import (
 	"log"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -24,7 +26,9 @@ import (
 const pluginsTemplateName = "/machines/"
 
 type Actions struct {
-	App core.ICore
+	App             core.ICore
+	vmBillingLock   sync.Mutex
+	lastBillingHour int64
 }
 
 func normalizeEntityType(entityType string) string {
@@ -51,6 +55,229 @@ func entityRuntimeFileName(entityType string) string {
 	default:
 		return "module.wasm"
 	}
+}
+
+func toInt64(raw any) (int64, bool) {
+	switch v := raw.(type) {
+	case int:
+		return int64(v), true
+	case int64:
+		return v, true
+	case float64:
+		return int64(v), true
+	default:
+		return 0, false
+	}
+}
+
+func (a *Actions) vmHourlyCost() int64 {
+	cost := a.App.ExecutionCostPerSecond() * 3600
+	if cost <= 0 {
+		return 1
+	}
+	return cost
+}
+
+func (a *Actions) validateAndBuildVmBilling(trx trx.ITrx, payerId string, lockId string, paymentSignatures []string) (map[string]any, error) {
+	if lockId == "" {
+		return nil, errors.New("paymentLockId is required for standalone vm execution")
+	}
+	payment, err := trx.GetJson("Json::User::"+payerId, "lockedTokens."+lockId)
+	if err != nil {
+		return nil, errors.New("payment lock not found")
+	}
+	target, _ := payment["userId"].(string)
+	if target != a.App.OwnerId() {
+		return nil, errors.New("payment lock target is invalid")
+	}
+	stepsRaw, ok := payment["steps"].([]any)
+	if !ok || len(stepsRaw) == 0 {
+		return nil, errors.New("payment lock does not include steps")
+	}
+	if len(paymentSignatures) != len(stepsRaw) {
+		return nil, errors.New("paymentSignatures count must match lock steps count")
+	}
+	hourlyCost := a.vmHourlyCost()
+	stepUnlocks := make([]int64, len(stepsRaw))
+	for i, rawStep := range stepsRaw {
+		step, ok := rawStep.(map[string]any)
+		if !ok {
+			return nil, errors.New("invalid payment lock step")
+		}
+		stepAmount, ok := toInt64(step["amount"])
+		if !ok || stepAmount != hourlyCost {
+			return nil, errors.New("payment lock step amount must match vm hourly cost")
+		}
+		unlockAt, ok := toInt64(step["unlockAt"])
+		if !ok || unlockAt <= 0 {
+			return nil, errors.New("payment lock step unlockAt is invalid")
+		}
+		stepUnlocks[i] = unlockAt
+		if i > 0 && (stepUnlocks[i]-stepUnlocks[i-1] != int64(time.Hour/time.Millisecond)) {
+			return nil, errors.New("payment lock steps must be one-hour apart")
+		}
+		signPayload := []byte(fmt.Sprintf("%s:%d:%d:%d:%s", lockId, i, unlockAt, stepAmount, a.App.OwnerId()))
+		if success, _, _ := a.App.Tools().Security().AuthWithSignature(payerId, signPayload, paymentSignatures[i]); !success {
+			return nil, errors.New("payment signature verification failed")
+		}
+	}
+	return map[string]any{
+		"payerUserId":    payerId,
+		"lockId":         lockId,
+		"hourlyCost":     hourlyCost,
+		"currentStep":    0,
+		"stepCount":      len(stepsRaw),
+		"lastChargeHour": int64(-1),
+		"signatures":     paymentSignatures,
+	}, nil
+}
+
+func (a *Actions) chargeRunningStandaloneVmsIfNeeded() {
+	a.vmBillingLock.Lock()
+	defer a.vmBillingLock.Unlock()
+	now := time.Now().UTC()
+	currentHour := now.Unix() / int64(time.Hour.Seconds())
+	if a.lastBillingHour == currentHour {
+		return
+	}
+	chargeTargets := []map[string]any{}
+	a.App.ModifyState(true, func(tx trx.ITrx) error {
+		vmLinks, err := tx.GetLinksList("VmBilling::", -1, -1)
+		if err != nil {
+			return nil
+		}
+		for _, link := range vmLinks {
+			vmId := strings.TrimPrefix(link, "VmBilling::")
+			if vmId == "" || tx.GetLink("VmStatus::"+vmId) != "running" {
+				continue
+			}
+			billing, err := tx.GetJson("Json::VmBilling::"+vmId, "payment")
+			if err != nil {
+				continue
+			}
+			nextStep, ok := toInt64(billing["currentStep"])
+			if !ok {
+				continue
+			}
+			payerId, _ := billing["payerUserId"].(string)
+			lockId, _ := billing["lockId"].(string)
+			hourlyCost, _ := toInt64(billing["hourlyCost"])
+			lastChargeHour, _ := toInt64(billing["lastChargeHour"])
+			machineId, _ := billing["machineId"].(string)
+			entityId, _ := billing["entityId"].(string)
+			signaturesRaw, _ := billing["signatures"].([]any)
+			if payerId == "" || lockId == "" || hourlyCost <= 0 || machineId == "" || entityId == "" {
+				continue
+			}
+			if lastChargeHour == currentHour {
+				continue
+			}
+			signatures := make([]string, len(signaturesRaw))
+			for i, rawSig := range signaturesRaw {
+				s, _ := rawSig.(string)
+				signatures[i] = s
+			}
+			if int(nextStep) < 0 {
+				continue
+			}
+			if int(nextStep) >= len(signatures) {
+				if lastChargeHour < currentHour {
+					chargeTargets = append(chargeTargets, map[string]any{
+						"vmId":      vmId,
+						"machineId": machineId,
+						"entityId":  entityId,
+						"stopOnly":  true,
+					})
+				}
+				continue
+			}
+			chargeTargets = append(chargeTargets, map[string]any{
+				"vmId":        vmId,
+				"payerUserId": payerId,
+				"lockId":      lockId,
+				"step":        int(nextStep),
+				"amount":      hourlyCost,
+				"signature":   signatures[nextStep],
+				"machineId":   machineId,
+				"entityId":    entityId,
+			})
+		}
+		return nil
+	})
+	for _, target := range chargeTargets {
+		if stopOnly, _ := target["stopOnly"].(bool); stopOnly {
+			a.terminateStandaloneVm(target["machineId"].(string), target["entityId"].(string), target["vmId"].(string))
+			a.App.ModifyState(false, func(tx trx.ITrx) error {
+				vmId := target["vmId"].(string)
+				tx.DelKey("link::VmStatus::" + vmId)
+				tx.DelKey("link::VmInstance::" + target["machineId"].(string) + "::" + target["entityId"].(string) + "::" + vmId)
+				tx.DelKey("link::VmBilling::" + vmId)
+				tx.DelJson("Json::VmBilling::"+vmId, "payment")
+				return nil
+			})
+			continue
+		}
+		step := target["step"].(int)
+		payload, _ := json.Marshal(inputs_users.ConsumeLockInput{
+			Type:      "pay",
+			UserId:    target["payerUserId"].(string),
+			LockId:    target["lockId"].(string),
+			Signature: target["signature"].(string),
+			Amount:    target["amount"].(int64),
+			Step:      &step,
+		})
+		consumeDone := make(chan error, 1)
+		a.App.ExecBaseRequestOnChain("/users/consumeLock", payload, a.App.SignPacketAsOwner(payload), a.App.OwnerId(), "", func(_ []byte, code int, err error) {
+			if err != nil || code >= 400 {
+				if err == nil {
+					err = errors.New("hourly vm payment consume failed")
+				}
+				consumeDone <- err
+				return
+			}
+			consumeDone <- nil
+		})
+		err := <-consumeDone
+		a.App.ModifyState(false, func(tx trx.ITrx) error {
+			vmId := target["vmId"].(string)
+			if err != nil {
+				a.terminateStandaloneVm(target["machineId"].(string), target["entityId"].(string), vmId)
+				tx.DelKey("link::VmStatus::" + vmId)
+				tx.DelKey("link::VmInstance::" + target["machineId"].(string) + "::" + target["entityId"].(string) + "::" + vmId)
+				tx.DelKey("link::VmBilling::" + vmId)
+				tx.DelJson("Json::VmBilling::"+vmId, "payment")
+			} else if billing, e := tx.GetJson("Json::VmBilling::"+vmId, "payment"); e == nil {
+				billing["currentStep"] = int64(step + 1)
+				billing["lastChargeHour"] = currentHour
+				tx.PutJson("Json::VmBilling::"+vmId, "payment", billing, true)
+			}
+			return nil
+		})
+	}
+	a.lastBillingHour = currentHour
+}
+
+func (a *Actions) terminateStandaloneVm(machineId string, entityId string, vmId string) {
+	a.App.ModifyState(true, func(tx trx.ITrx) error {
+		entity := model.Entity{ProgramId: machineId, EntityId: entityId}.Pull(tx)
+		entityType := normalizeEntityType(entity.EntityType)
+		stopInput := map[string]any{
+			"runtime":   entityType,
+			"machineId": machineId,
+			"entityId":  entityId,
+			"vmId":      vmId,
+		}
+		if entityType == "docker" {
+			stopInput["imageName"] = entity.ImageName
+			stopInput["containerName"] = tx.GetLink("VmContainerName::" + machineId + "::" + entityId + "::" + vmId)
+		}
+		msg, _ := json.Marshal(map[string]any{
+			"key":   "terminateVm",
+			"input": stopInput,
+		})
+		a.App.Tools().Vmm().VmCallback(string(msg))
+		return nil
+	})
 }
 
 func Install(a *Actions, extra ...any) error {
@@ -102,6 +329,19 @@ func Install(a *Actions, extra ...any) error {
 		}
 		return nil
 	})
+	future.Async(func() {
+		for {
+			time.Sleep(15 * time.Second)
+			func() {
+				defer func() {
+					if err := recover(); err != nil {
+						log.Println(err)
+					}
+				}()
+				a.chargeRunningStandaloneVmsIfNeeded()
+			}()
+		}
+	}, false)
 	return nil
 }
 
@@ -313,6 +553,15 @@ func (a *Actions) RunProgramEntity(state state.IState, input inputs_machiner.Run
 	}
 	vmId := uuid.NewString()
 	trx.PutLink("VmStatus::"+vmId, "running")
+	billingData, billingErr := a.validateAndBuildVmBilling(trx, state.Info().UserId(), input.PaymentLockId, input.PaymentSignatures)
+	if billingErr != nil {
+		return nil, billingErr
+	}
+	billingData["machineId"] = input.MachineId
+	billingData["entityId"] = input.EntityId
+	billingData["vmId"] = vmId
+	trx.PutLink("VmBilling::"+vmId, "true")
+	trx.PutJson("Json::VmBilling::"+vmId, "payment", billingData, true)
 	params := input.Params
 	if params == nil {
 		params = map[string]string{}
@@ -385,6 +634,8 @@ func (a *Actions) StopProgramEntity(state state.IState, input inputs_machiner.Ru
 	vmId := input.VmId
 	trx.DelKey("link::VmStatus::" + vmId)
 	trx.DelKey("link::VmInstance::" + program.MachineId + "::" + input.EntityId + "::" + vmId)
+	trx.DelKey("link::VmBilling::" + vmId)
+	trx.DelJson("Json::VmBilling::"+vmId, "payment")
 	imageName := entity.ImageName
 	containerName := trx.GetLink("VmContainerName::" + program.MachineId + "::" + input.EntityId + "::" + vmId)
 	trx.DelKey("link::vmStandaloneImageName::" + program.MachineId + "::" + input.EntityId)

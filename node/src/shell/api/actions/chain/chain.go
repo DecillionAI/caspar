@@ -12,6 +12,19 @@ import (
 	"strings"
 )
 
+func asInt64(raw any) (int64, bool) {
+	switch v := raw.(type) {
+	case int:
+		return int64(v), true
+	case int64:
+		return v, true
+	case float64:
+		return int64(v), true
+	default:
+		return 0, false
+	}
+}
+
 type Actions struct {
 	App core.ICore
 }
@@ -32,16 +45,26 @@ func (a *Actions) consumeChainCreationLock(state state.IState, lockId *string, l
 		return errors.New("lock not found")
 	}
 	typ, _ := payment["type"].(string)
-	amountRaw, ok := payment["amount"].(float64)
-	if typ != "pay" || !ok || amountRaw <= 0 {
+	stepsRaw, ok := payment["steps"].([]any)
+	if typ != "pay" || !ok || len(stepsRaw) == 0 {
 		return errors.New("invalid lock payment")
 	}
+	firstStep, ok := stepsRaw[0].(map[string]any)
+	if !ok {
+		return errors.New("invalid lock payment step")
+	}
+	amountRaw, ok := asInt64(firstStep["amount"])
+	if !ok || amountRaw <= 0 {
+		return errors.New("invalid lock payment step amount")
+	}
+	step := 0
 	payload, err := json.Marshal(inputs_users.ConsumeLockInput{
 		Type:      "pay",
 		UserId:    state.Info().UserId(),
 		LockId:    *lockId,
 		Signature: *lockSignature,
-		Amount:    int64(amountRaw),
+		Amount:    amountRaw,
+		Step:      &step,
 	})
 	if err != nil {
 		return err

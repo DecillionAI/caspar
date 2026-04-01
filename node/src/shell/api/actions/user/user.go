@@ -24,6 +24,26 @@ import (
 	"google.golang.org/api/option"
 )
 
+type lockedTokenStep struct {
+	Amount     int64 `json:"amount"`
+	UnlockAt   int64 `json:"unlockAt"`
+	Consumed   bool  `json:"consumed"`
+	ConsumedAt int64 `json:"consumedAt,omitempty"`
+}
+
+func asInt64(raw any) (int64, bool) {
+	switch v := raw.(type) {
+	case int:
+		return int64(v), true
+	case int64:
+		return v, true
+	case float64:
+		return int64(v), true
+	default:
+		return 0, false
+	}
+}
+
 type Actions struct {
 	App           core.ICore
 	OauthCtx      context.Context
@@ -115,20 +135,49 @@ func (a *Actions) CheckSign(state state.IState, input inputsusers.CheckSignInput
 // LockToken /users/lockToken check [ true false false ] access [ true false false false POST ]
 func (a *Actions) LockToken(state state.IState, input inputsusers.LockTokenInput) (any, error) {
 	user := models.User{Id: state.Info().UserId()}.Pull(state.Trx())
-	if user.Balance < input.Amount {
-		return nil, errors.New("your balance is not enough")
+
+	steps := make([]lockedTokenStep, 0, len(input.Steps))
+	if len(input.Steps) > 0 {
+		for i, step := range input.Steps {
+			if step.Amount <= 0 {
+				return nil, fmt.Errorf("step %d amount must be greater than zero", i)
+			}
+			if step.UnlockAt <= 0 {
+				return nil, fmt.Errorf("step %d unlockAt must be a unix timestamp in milliseconds", i)
+			}
+			steps = append(steps, lockedTokenStep{Amount: step.Amount, UnlockAt: step.UnlockAt})
+		}
+	} else {
+		if input.Amount <= 0 {
+			return nil, errors.New("amount must be greater than zero")
+		}
+		if input.UnlockAt <= 0 {
+			return nil, errors.New("unlockAt must be a unix timestamp in milliseconds")
+		}
+		steps = append(steps, lockedTokenStep{Amount: input.Amount, UnlockAt: input.UnlockAt})
 	}
-	if input.UnlockAt <= 0 {
-		return nil, errors.New("unlockAt must be a unix timestamp in milliseconds")
+
+	totalAmount := int64(0)
+	for _, step := range steps {
+		totalAmount += step.Amount
+	}
+	if user.Balance < totalAmount {
+		return nil, errors.New("your balance is not enough")
 	}
 	lockId := crypto.SecureUniqueString()
 	if input.Type == "pay" {
 		if !state.Trx().HasObj("User", input.Target) {
 			return nil, errors.New("target user not acceptable")
 		}
-		user.Balance -= input.Amount
+		user.Balance -= totalAmount
 		user.Push(state.Trx())
-		state.Trx().PutJson("Json::User::"+state.Info().UserId(), "lockedTokens."+lockId, map[string]any{"type": "pay", "amount": input.Amount, "userId": input.Target, "unlockAt": input.UnlockAt}, true)
+		state.Trx().PutJson("Json::User::"+state.Info().UserId(), "lockedTokens."+lockId, map[string]any{
+			"type":            "pay",
+			"amount":          totalAmount,
+			"remainingAmount": totalAmount,
+			"userId":          input.Target,
+			"steps":           steps,
+		}, true)
 	} else {
 		return nil, errors.New("unknown lock type")
 	}
@@ -144,34 +193,88 @@ func (a *Actions) ConsumeLock(state state.IState, input inputsusers.ConsumeLockI
 		}
 		sender := models.User{Id: input.UserId}.Pull(state.Trx())
 		if payment, err := state.Trx().GetJson("Json::User::"+sender.Id, "lockedTokens."+input.LockId); err == nil {
-			unlockAtRaw, ok := payment["unlockAt"].(float64)
-			if !ok {
-				return nil, errors.New("lock does not include unlockAt")
+			stepsRaw, ok := payment["steps"].([]any)
+			if !ok || len(stepsRaw) == 0 {
+				return nil, errors.New("lock does not include steps")
 			}
-			unlockAt := int64(unlockAtRaw)
-			if time.Now().UnixMilli() < unlockAt {
-				return nil, errors.New("lock is not consumable yet")
+			stepIndex := -1
+			if input.Step != nil {
+				stepIndex = *input.Step
 			}
-			signPayload := []byte(fmt.Sprintf("%s:%d", input.LockId, unlockAt))
+			now := time.Now().UnixMilli()
+			parsedSteps := make([]map[string]any, len(stepsRaw))
+			parsedAmounts := make([]int64, len(stepsRaw))
+			parsedUnlocks := make([]int64, len(stepsRaw))
+			for i, rawStep := range stepsRaw {
+				stepMap, ok := rawStep.(map[string]any)
+				if !ok {
+					return nil, errors.New("invalid lock step")
+				}
+				parsedSteps[i] = stepMap
+				stepAmount, ok := asInt64(stepMap["amount"])
+				if !ok || stepAmount <= 0 {
+					return nil, errors.New("invalid lock step amount")
+				}
+				unlockAt, ok := asInt64(stepMap["unlockAt"])
+				if !ok || unlockAt <= 0 {
+					return nil, errors.New("invalid lock step unlockAt")
+				}
+				parsedAmounts[i] = stepAmount
+				parsedUnlocks[i] = unlockAt
+				if stepIndex == -1 {
+					consumed, _ := stepMap["consumed"].(bool)
+					if !consumed && now >= unlockAt && stepAmount == input.Amount {
+						stepIndex = i
+					}
+				}
+			}
+			if stepIndex < 0 || stepIndex >= len(parsedSteps) {
+				return nil, errors.New("lock step not found")
+			}
+			selectedStep := parsedSteps[stepIndex]
+			selectedAmount := parsedAmounts[stepIndex]
+			selectedUnlockAt := parsedUnlocks[stepIndex]
+			if now < selectedUnlockAt {
+				return nil, errors.New("lock step is not consumable yet")
+			}
+			if consumed, _ := selectedStep["consumed"].(bool); consumed {
+				return nil, errors.New("lock step already consumed")
+			}
+			if input.Amount != selectedAmount {
+				return nil, errors.New("amount of payment not matched")
+			}
+			signPayload := []byte(fmt.Sprintf("%s:%d:%d:%d:%s", input.LockId, stepIndex, selectedUnlockAt, selectedAmount, receiver.Id))
 			if success, _, _ := a.App.Tools().Security().AuthWithSignature(input.UserId, signPayload, input.Signature); success {
 				if typ, ok := payment["type"].(string); ok && (typ == "pay") {
-					if amount, ok := payment["amount"].(float64); ok && (int64(amount) == input.Amount) {
-						if target, ok := payment["userId"].(string); ok && (target == receiver.Id) {
-							sender.Balance -= input.Amount
-							sender.Push(state.Trx())
-							receiver.Balance += input.Amount
-							receiver.Push(state.Trx())
-							state.Trx().DelJson("Json::User::"+sender.Id, "lockedTokens."+input.LockId)
-							return map[string]any{"success": true}, nil
-						} else {
-							return nil, errors.New("you are not target")
+					if target, ok := payment["userId"].(string); ok && (target == receiver.Id) {
+						selectedStep["consumed"] = true
+						selectedStep["consumedAt"] = now
+						receiver.Balance += input.Amount
+						receiver.Push(state.Trx())
+						remainingAmount := int64(0)
+						for i := range parsedSteps {
+							consumed, _ := parsedSteps[i]["consumed"].(bool)
+							if !consumed {
+								remainingAmount += parsedAmounts[i]
+							}
 						}
-					} else {
-						return nil, errors.New("amount of payment not matched")
+						if remainingAmount == 0 {
+							state.Trx().DelJson("Json::User::"+sender.Id, "lockedTokens."+input.LockId)
+						} else {
+							totalAmount, ok := asInt64(payment["amount"])
+							if !ok {
+								return nil, errors.New("invalid lock total amount")
+							}
+							payment["steps"] = parsedSteps
+							payment["remainingAmount"] = remainingAmount
+							payment["consumedAmount"] = totalAmount - remainingAmount
+							state.Trx().PutJson("Json::User::"+sender.Id, "lockedTokens."+input.LockId, payment, true)
+						}
+						return map[string]any{"success": true, "step": stepIndex, "remainingAmount": remainingAmount}, nil
 					}
-				} else {
-					return nil, errors.New("type is not payment")
+					return nil, errors.New("you are not target")
 				}
+				return nil, errors.New("type is not payment")
 			} else {
 				return nil, errors.New("signature not verified")
 			}

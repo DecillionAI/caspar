@@ -6,6 +6,7 @@ type ConsumeLockInput struct {
 	LockId    string `json:"lockId" validate:"required"`
 	Signature string `json:"signature" validate:"required"`
 	Amount    int64  `json:"amount" validate:"required"`
+	Step      *int   `json:"step,omitempty"`
 }
 
 func (d ConsumeLockInput) GetData() any {
