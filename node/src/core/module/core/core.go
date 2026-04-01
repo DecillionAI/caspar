@@ -295,6 +295,10 @@ func (c *Core) SignPacketAsOwner(data []byte) string {
 	return base64.StdEncoding.EncodeToString(signature)
 }
 
+func (c *Core) ExecutionCostPerSecond() int64 {
+	return c.executionCostPerSecond
+}
+
 func (c *Core) PlantChainTrigger(count int, userId string, tag string, machineId string, pointId string, attachment string) {
 	c.triggerLock.Lock()
 	defer c.triggerLock.Unlock()

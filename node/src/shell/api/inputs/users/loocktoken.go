@@ -1,10 +1,16 @@
 package inputs_users
 
 type LockTokenInput struct {
-	Amount   int64  `json:"amount" validate:"required"`
-	Type     string `json:"type" validate:"required"`
-	Target   string `json:"target" validate:"required"`
-	UnlockAt int64  `json:"unlockAt" validate:"required"`
+	Amount   int64                `json:"amount,omitempty"`
+	Type     string               `json:"type" validate:"required"`
+	Target   string               `json:"target" validate:"required"`
+	UnlockAt int64                `json:"unlockAt,omitempty"`
+	Steps    []LockTokenStepInput `json:"steps,omitempty"`
+}
+
+type LockTokenStepInput struct {
+	Amount   int64 `json:"amount" validate:"required"`
+	UnlockAt int64 `json:"unlockAt" validate:"required"`
 }
 
 func (d LockTokenInput) GetData() any {
