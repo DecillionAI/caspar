@@ -21,14 +21,7 @@ import (
 	"net/http/pprof"
 )
 
-import "C"
-
 var KasperApp kasper.Kasper
-
-//export elpisCallback
-func elpisCallback(dataRaw *C.char) *C.char {
-	return C.CString(KasperApp.Tools().Elpis().ElpisCallback(C.GoString(dataRaw)))
-}
 
 var exit = make(chan int, 1)
 
@@ -42,7 +35,7 @@ func main() {
 		router.Handle("/debug/pprof/symbol", http.HandlerFunc(pprof.Symbol))
 		router.Handle("/debug/pprof/trace", http.HandlerFunc(pprof.Trace))
 		router.Handle("/debug/pprof/{cmd}", http.HandlerFunc(pprof.Index))
-		
+
 		err := http.ListenAndServe("0.0.0.0:9999", router)
 		log.Println("pprof server listen failed: " + err.Error())
 	}()

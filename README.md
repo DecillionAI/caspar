@@ -4,7 +4,7 @@ Caspar is a decentralized protocol stack built around:
 
 - a customized **Babble/Hashgraph** consensus layer
 - **federation-first** cross-origin interoperability
-- multi-runtime compute (`wasm`, `elpis`, `docker`, `javascript`, `elpify`, `elpian`)
+- multi-runtime compute (`wasm`, `docker`, `javascript`, `elpify`, `elpian`)
 
 This repository contains the primary node implementation in `node/`.
 
@@ -25,7 +25,7 @@ Clients (TLS TCP/WS, signed packets)
     -> Core Transaction Layer
       -> Hashgraph Chain
       -> Federation Bridge
-      -> Runtime Drivers (Wasm | Elpis | Docker)
+      -> Runtime Drivers (Wasm | Docker)
       -> Storage (Badger + QuestDB/PG wire paths)
       -> HTTPS Entity/Stream APIs
 ```

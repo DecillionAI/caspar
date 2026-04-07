@@ -4,7 +4,7 @@
 
 - **Decentralized ordering/consensus** with a customized Babble/Hashgraph stack.
 - **Federation-first interoperability** across origins.
-- **Programmable execution** across multiple runtimes (`wasm`, `elpis`, `docker`, and related toolchains).
+- **Programmable execution** across multiple runtimes (`wasm`, `docker`, and related toolchains).
 - **Signed action pipeline** with guard-based authorization checks.
 
 ## 2) High-Level Runtime Graph
@@ -82,10 +82,6 @@ Key behaviors:
 
 - machine assignment and execution hooks
 - signal and chain execution integration
-
-### Elpis
-
-- C/C++ callback bridge for runtime execution paths
 
 ### Docker
 

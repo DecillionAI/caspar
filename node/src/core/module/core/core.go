@@ -9,7 +9,6 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"kasper/src/abstract/adapters/docker"
-	"kasper/src/abstract/adapters/elpis"
 	"kasper/src/abstract/adapters/file"
 	"kasper/src/abstract/adapters/firectl"
 	"kasper/src/abstract/adapters/network"
@@ -63,7 +62,6 @@ type Tools struct {
 	network  network.INetwork
 	file     file.IFile
 	vmm      vmm.IVmm
-	elpis    elpis.IElpis
 	docker   docker.IDocker
 	firectl  firectl.IFirectl
 }
@@ -90,10 +88,6 @@ func (t *Tools) File() file.IFile {
 
 func (t *Tools) Vmm() vmm.IVmm {
 	return t.vmm
-}
-
-func (t *Tools) Elpis() elpis.IElpis {
-	return t.elpis
 }
 
 func (t *Tools) Docker() docker.IDocker {
@@ -251,17 +245,11 @@ func (c *Core) IpAddr() string {
 }
 
 func (c *Core) AppPendingTrxs() {
-	elpisTrxs := []*worker.Trx{}
 	wasmTrxs := []*worker.Trx{}
 	for _, trx := range c.appPendingTrxs {
-		if trx.Runtime == "elpis" {
-			elpisTrxs = append(elpisTrxs, trx)
-		} else if trx.Runtime == "wasm" {
+		if trx.Runtime == "wasm" {
 			wasmTrxs = append(wasmTrxs, trx)
 		}
-	}
-	if len(elpisTrxs) > 0 {
-		c.Tools().Elpis().ExecuteChainTrxsGroup(elpisTrxs)
 	}
 	if len(wasmTrxs) > 0 {
 		c.Tools().Vmm().ExecuteChainTrxsGroup(wasmTrxs)
@@ -585,7 +573,6 @@ func (c *Core) Load(gods []string, args map[string]interface{}) {
 	dFile := driver_file.NewFileTool(sroot)
 	var dDocker docker.IDocker
 	dVmm := driver_vmm.NewVmm(c, sroot, dstorage, adbPath, dDocker, dFile)
-	var dElpis elpis.IElpis
 	dnFederation.SecondStageForFill(dstorage, dFile, dsignaler)
 	dFirectl := driver_firectl.NewFireCtl()
 
@@ -609,7 +596,6 @@ func (c *Core) Load(gods []string, args map[string]interface{}) {
 		docker:   dDocker,
 		firectl:  dFirectl,
 		vmm:      dVmm,
-		elpis:    dElpis,
 	}
 
 	if cpsRaw := os.Getenv("VM_EXEC_COST_PER_SECOND"); cpsRaw != "" {
