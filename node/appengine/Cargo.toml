@@ -28,6 +28,8 @@ timedmap = "1.0.2"
 bollard = "0.19.3"
 futures-util = "0.3"
 tar = "0.4"
+base64 = "0.22"
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls"] }
 
 [workspace.dependencies]
 async-wasi = { path = "crates/async-wasi", version = "0.2.0" }

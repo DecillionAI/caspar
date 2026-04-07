@@ -1,4 +1,6 @@
 use blockingqueue::BlockingQueue;
+use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
+use base64::Engine;
 use bollard::container::{
     Config as DockerConfig, CreateContainerOptions, LogOutput, RemoveContainerOptions,
     StartContainerOptions, StopContainerOptions, UploadToContainerOptions,
@@ -15,6 +17,8 @@ use elpify_lang::{
 };
 use futures_util::stream::TryStreamExt;
 use once_cell::sync::Lazy;
+use reqwest::blocking::Client;
+use reqwest::Method;
 use rocksdb::{
     Options, ReadOptions, TransactionDB, TransactionDBOptions, TransactionOptions, WriteOptions,
 };
@@ -476,6 +480,77 @@ fn run_docker_db_op(machine_id: &str, input: &JsonValue) -> Result<String, Strin
     }
 }
 
+fn perform_http_request(input: &JsonValue) -> Result<String, String> {
+    let mut url = input["url"].as_str().unwrap_or("").to_string();
+    if url.is_empty() {
+        return Err("url is required".to_string());
+    }
+
+    let mut method = input["method"]
+        .as_str()
+        .unwrap_or("")
+        .trim()
+        .to_uppercase();
+    if method.is_empty() {
+        if let Some((prefixed_method, rest_url)) = url.split_once('|') {
+            method = prefixed_method.trim().to_uppercase();
+            url = rest_url.to_string();
+        } else {
+            method = "POST".to_string();
+        }
+    }
+
+    let http_method =
+        Method::from_bytes(method.as_bytes()).map_err(|e| format!("invalid http method: {}", e))?;
+
+    let mut request = Client::new().request(http_method, url);
+
+    match &input["headers"] {
+        JsonValue::Object(headers_obj) => {
+            for (k, v) in headers_obj {
+                if let Some(value) = v.as_str() {
+                    request = request.header(k, value);
+                } else {
+                    request = request.header(k, v.to_string());
+                }
+            }
+        }
+        JsonValue::String(headers_raw) => {
+            if !headers_raw.trim().is_empty() {
+                let parsed_headers: JsonValue = serde_json::from_str(headers_raw)
+                    .map_err(|e| format!("invalid headers json: {}", e))?;
+                if let Some(headers_obj) = parsed_headers.as_object() {
+                    for (k, v) in headers_obj {
+                        if let Some(value) = v.as_str() {
+                            request = request.header(k, value);
+                        } else {
+                            request = request.header(k, v.to_string());
+                        }
+                    }
+                } else {
+                    return Err("headers must be a JSON object".to_string());
+                }
+            }
+        }
+        JsonValue::Null => {}
+        _ => return Err("headers must be a JSON object or stringified JSON object".to_string()),
+    }
+
+    if let Some(body) = input["body"].as_str() {
+        request = request.body(body.to_string());
+    } else if !input["body"].is_null() {
+        request = request.body(input["body"].to_string());
+    }
+
+    let response = request
+        .send()
+        .map_err(|e| format!("http request failed: {}", e))?;
+    let bytes = response
+        .bytes()
+        .map_err(|e| format!("failed to read response body: {}", e))?;
+    Ok(BASE64_STANDARD.encode(bytes))
+}
+
 fn handle_unified_host_call(packet: &JsonValue) -> String {
     let machine_id = packet["machineId"].as_str().unwrap_or("");
     let op = packet["op"]
@@ -522,6 +597,10 @@ fn handle_unified_host_call(packet: &JsonValue) -> String {
                 Err(err) => json!({"ok": false, "error": err}).to_string(),
             }
         }
+        "httpPost" | "httpRequest" => match perform_http_request(&input) {
+            Ok(res) => res,
+            Err(err) => json!({"ok": false, "error": err}).to_string(),
+        },
         _ => {
             let packet = json!({
                 "key": op,
@@ -1941,6 +2020,10 @@ pub fn host_call(
                 Err(err) => json!({"ok": false, "error": err}).to_string(),
             }
         }
+        "httpPost" | "httpRequest" => match perform_http_request(&req["input"]) {
+            Ok(res) => res,
+            Err(err) => json!({"ok": false, "error": err}).to_string(),
+        },
         _ => {
             let key = req["key"].as_str().unwrap_or("");
             let packet = if key.is_empty() {

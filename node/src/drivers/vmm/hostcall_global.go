@@ -34,8 +34,6 @@ func (wm *Vmm) VmCallback(dataRaw string) (string, int64) {
 		return wm.handleExecDocker(input, reqId)
 	case "copyToDocker", "copyToVm":
 		return wm.handleCopyToDocker(input, reqId)
-	case "httpPost":
-		return wm.handleHTTPPost(input, reqId)
 	case "checkTokenValidity":
 		return wm.handleCheckTokenValidity(input, reqId)
 	case "plantTrigger":

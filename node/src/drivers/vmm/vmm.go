@@ -1,12 +1,9 @@
 package vmm
 
 import (
-	"bytes"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"kasper/src/abstract/adapters/docker"
 	"kasper/src/abstract/adapters/file"
 	"kasper/src/abstract/adapters/signaler"
@@ -23,7 +20,6 @@ import (
 	updates_points "kasper/src/shell/api/updates/points"
 	"kasper/src/shell/utils/future"
 	"log"
-	"net/http"
 	"os"
 	"strings"
 	"time"
@@ -339,57 +335,6 @@ func (wm *Vmm) handleCopyToDocker(input map[string]any, reqId int64) (string, in
 		return err.Error(), reqId
 	}
 	return "", reqId
-}
-
-func (wm *Vmm) handleHTTPPost(input map[string]any, reqId int64) (string, int64) {
-	url, err := checkField(input, "url", "")
-	if err != nil {
-		println(err)
-		return err.Error(), reqId
-	}
-	method, _ := checkField(input, "method", "")
-	if method == "" {
-		method = strings.Split(url, "|")[0]
-		url = url[len(method)+1:]
-	}
-	headers, err := checkField(input, "headers", "")
-	if err != nil {
-		println(err)
-		return err.Error(), reqId
-	}
-	body, err := checkField(input, "body", "")
-	if err != nil {
-		println(err)
-		return err.Error(), reqId
-	}
-	req, err := http.NewRequest(method, url, bytes.NewBuffer([]byte(body)))
-	if err != nil {
-		println("Error creating request:" + err.Error())
-		return err.Error(), reqId
-	}
-	heads := map[string]string{}
-	err = json.Unmarshal([]byte(headers), &heads)
-	if err != nil {
-		println(err)
-		return err.Error(), reqId
-	}
-	for k, v := range heads {
-		req.Header.Set(k, v)
-	}
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		println("Request failed:" + err.Error())
-		return err.Error(), reqId
-	}
-	defer resp.Body.Close()
-	println("Response status:" + resp.Status)
-	bodyBytes, err := io.ReadAll(resp.Body)
-	if err != nil {
-		println("Error reading response body:" + err.Error())
-		return err.Error(), reqId
-	}
-	return base64.StdEncoding.EncodeToString(bodyBytes), reqId
 }
 
 func (wm *Vmm) handleCheckTokenValidity(input map[string]any, reqId int64) (string, int64) {
