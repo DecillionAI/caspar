@@ -2,7 +2,6 @@ package tools
 
 import (
 	"kasper/src/abstract/adapters/docker"
-	"kasper/src/abstract/adapters/elpis"
 	"kasper/src/abstract/adapters/file"
 	"kasper/src/abstract/adapters/firectl"
 	"kasper/src/abstract/adapters/network"
@@ -19,7 +18,6 @@ type ITools interface {
 	Network() network.INetwork
 	File() file.IFile
 	Vmm() vmm.IVmm
-	Elpis() elpis.IElpis
 	Docker() docker.IDocker
 	Firectl() firectl.IFirectl
 }
