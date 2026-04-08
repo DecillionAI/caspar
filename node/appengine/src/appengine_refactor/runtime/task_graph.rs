@@ -136,6 +136,18 @@ pub fn host_call(
             Ok(res) => res,
             Err(err) => json!({"ok": false, "error": err}).to_string(),
         },
+        "elpifyProof" | "verifyProgramExecution" => {
+            let masm_path = req["input"]["masmPath"].as_str().unwrap_or("").to_string();
+            let inputs = parse_u64_array_field(&req["input"], "inputs");
+            let outputs = parse_u64_array_field(&req["input"], "outputs");
+            let proof_bytes = parse_u8_array_field(&req["input"], "proof");
+
+            match verify_program_execution_from_packet(&masm_path, &inputs, &outputs, &proof_bytes)
+            {
+                Ok(security) => json!({"ok": true, "security": security}).to_string(),
+                Err(err) => json!({"ok": false, "error": err}).to_string(),
+            }
+        }
         _ => {
             let key = req["key"].as_str().unwrap_or("");
             let packet = if key.is_empty() {
@@ -696,4 +708,3 @@ pub fn trx_get_by_prefix(
 
     Ok(vec![WasmValue::from_i64(c)])
 }
-
