@@ -116,7 +116,7 @@ fn main() {
                     };
             } else if packet["type"] == "hostCall" {
                 response_payload = handle_unified_host_call(&packet);
-            } else if packet["type"] == "verifyProgramExecution" {
+            } else if packet["type"] == "verifyProgramExecution" || packet["type"] == "elpifyProof" {
                 let masm_path = packet["masmPath"].as_str().unwrap_or("").to_string();
                 let inputs = parse_u64_array_field(&packet, "inputs");
                 let outputs = parse_u64_array_field(&packet, "outputs");
@@ -176,4 +176,3 @@ fn main() {
     receiver_handler.join().unwrap();
     sender_handler.join().unwrap();
 }
-

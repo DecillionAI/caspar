@@ -161,6 +161,18 @@ fn handle_unified_host_call(packet: &JsonValue) -> String {
             Ok(res) => res,
             Err(err) => json!({"ok": false, "error": err}).to_string(),
         },
+        "elpifyProof" | "verifyProgramExecution" => {
+            let masm_path = input["masmPath"].as_str().unwrap_or("").to_string();
+            let inputs = parse_u64_array_field(&input, "inputs");
+            let outputs = parse_u64_array_field(&input, "outputs");
+            let proof_bytes = parse_u8_array_field(&input, "proof");
+
+            match verify_program_execution_from_packet(&masm_path, &inputs, &outputs, &proof_bytes)
+            {
+                Ok(security) => json!({"ok": true, "security": security}).to_string(),
+                Err(err) => json!({"ok": false, "error": err}).to_string(),
+            }
+        }
         _ => {
             let packet = json!({
                 "key": op,
@@ -178,4 +190,3 @@ where
     let controller = DockerVmController::new()?;
     f(&controller)
 }
-
