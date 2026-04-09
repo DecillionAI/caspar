@@ -8,27 +8,14 @@ import (
 	action_auth "kasper/src/shell/api/actions/auth"
 	plugger_auth "kasper/src/shell/api/pluggers/auth"
 
-	action_chain "kasper/src/shell/api/actions/chain"
 	action_creature "kasper/src/shell/api/actions/creature"
-	plugger_chain "kasper/src/shell/api/pluggers/chain"
 	plugger_creature "kasper/src/shell/api/pluggers/creature"
 
 	action_dummy "kasper/src/shell/api/actions/dummy"
 	plugger_dummy "kasper/src/shell/api/pluggers/dummy"
 
-	action_invite "kasper/src/shell/api/actions/invite"
-	plugger_invite "kasper/src/shell/api/pluggers/invite"
-
-	action_pc "kasper/src/shell/api/actions/pc"
 	action_program "kasper/src/shell/api/actions/program"
-	plugger_pc "kasper/src/shell/api/pluggers/pc"
 	plugger_program "kasper/src/shell/api/pluggers/program"
-
-	action_point "kasper/src/shell/api/actions/point"
-	plugger_point "kasper/src/shell/api/pluggers/point"
-
-	action_storage "kasper/src/shell/api/actions/storage"
-	plugger_storage "kasper/src/shell/api/pluggers/storage"
 
 	action_user "kasper/src/shell/api/actions/user"
 	plugger_user "kasper/src/shell/api/pluggers/user"
@@ -53,11 +40,6 @@ func PlugAll(core core.ICore, modelExtender map[string]map[string]iaction.Extend
 	PlugThePlugger(core, p_auth)
 	p_auth.Install(a_auth, modelExtender)
 
-	a_chain := &action_chain.Actions{App: core}
-	p_chain := plugger_chain.New(a_chain, core)
-	PlugThePlugger(core, p_chain)
-	p_chain.Install(a_chain, modelExtender)
-
 	a_creature := &action_creature.Actions{App: core}
 	p_creature := plugger_creature.New(a_creature, core)
 	PlugThePlugger(core, p_creature)
@@ -68,30 +50,10 @@ func PlugAll(core core.ICore, modelExtender map[string]map[string]iaction.Extend
 	PlugThePlugger(core, p_dummy)
 	p_dummy.Install(a_dummy, modelExtender)
 
-	a_invite := &action_invite.Actions{App: core}
-	p_invite := plugger_invite.New(a_invite, core)
-	PlugThePlugger(core, p_invite)
-	p_invite.Install(a_invite, modelExtender)
-
-	a_pc := &action_pc.Actions{App: core}
-	p_pc := plugger_pc.New(a_pc, core)
-	PlugThePlugger(core, p_pc)
-	p_pc.Install(a_pc, modelExtender)
-
 	a_program := &action_program.Actions{App: core}
 	p_program := plugger_program.New(a_program, core)
 	PlugThePlugger(core, p_program)
 	p_program.Install(a_program, modelExtender)
-
-	a_point := &action_point.Actions{App: core}
-	p_point := plugger_point.New(a_point, core)
-	PlugThePlugger(core, p_point)
-	p_point.Install(a_point, modelExtender)
-
-	a_storage := &action_storage.Actions{App: core}
-	p_storage := plugger_storage.New(a_storage, core)
-	PlugThePlugger(core, p_storage)
-	p_storage.Install(a_storage, modelExtender)
 
 	a_user := &action_user.Actions{App: core}
 	p_user := plugger_user.New(a_user, core)

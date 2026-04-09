@@ -46,6 +46,62 @@ func (wm *Vmm) VmCallback(dataRaw string) (string, int64) {
 		return wm.handleTerminateVM(input, reqId)
 	case "sendMessageOnChain":
 		return wm.handleSendMessageOnChain(input, reqId)
+	case "createCreature":
+		return wm.handleCreatureCrud("create", input, reqId)
+	case "updateCreature":
+		return wm.handleCreatureCrud("update", input, reqId)
+	case "deleteCreature":
+		return wm.handleCreatureCrud("delete", input, reqId)
+	case "getCreature":
+		return wm.handleCreatureCrud("get", input, reqId)
+	case "listCreatures":
+		return wm.handleCreatureCrud("list", input, reqId)
+	case "createResourceStore", "createVmOwnedStore":
+		return wm.handleResourceStoreCrud("create", input, reqId)
+	case "updateResourceStore", "updateVmOwnedStore":
+		return wm.handleResourceStoreCrud("update", input, reqId)
+	case "deleteResourceStore", "deleteVmOwnedStore":
+		return wm.handleResourceStoreCrud("delete", input, reqId)
+	case "getResourceStore", "getVmOwnedStore":
+		return wm.handleResourceStoreCrud("get", input, reqId)
+	case "listResourceStores", "listVmOwnedStores":
+		return wm.handleResourceStoreCrud("list", input, reqId)
+	case "createResourceEntity":
+		return wm.handleResourceEntityCreate(input, reqId)
+	case "deleteResourceEntity":
+		return wm.handleResourceEntityDelete(input, reqId)
+	case "createWorkchain":
+		return wm.handleVmChainRequest("createWorkchain", input, reqId)
+	case "deleteWorkchain":
+		return wm.handleVmChainRequest("deleteWorkchain", input, reqId)
+	case "createSubchain":
+		return wm.handleVmChainRequest("createSubchain", input, reqId)
+	case "deleteSubchain":
+		return wm.handleVmChainRequest("deleteSubchain", input, reqId)
+	case "execShellAction":
+		return wm.handleExecShellAction(input, reqId)
+	case "microGenId":
+		return wm.handleMicroHostAction("genId", input, reqId)
+	case "microGetLink":
+		return wm.handleMicroHostAction("getLink", input, reqId)
+	case "microPutLink":
+		return wm.handleMicroHostAction("putLink", input, reqId)
+	case "microDelKey":
+		return wm.handleMicroHostAction("delKey", input, reqId)
+	case "microGetJson":
+		return wm.handleMicroHostAction("getJson", input, reqId)
+	case "microPutJson":
+		return wm.handleMicroHostAction("putJson", input, reqId)
+	case "microGetByPrefix":
+		return wm.handleMicroHostAction("getByPrefix", input, reqId)
+	case "microHasAccessToPoint":
+		return wm.handleMicroHostAction("hasAccessToPoint", input, reqId)
+	case "microSignalUser":
+		return wm.handleMicroHostAction("signalUser", input, reqId)
+	case "microSignalGroup":
+		return wm.handleMicroHostAction("signalGroup", input, reqId)
+	case "microJoinGroup":
+		return wm.handleMicroHostAction("joinGroup", input, reqId)
 	case "log":
 		_, err := checkField(input, "text", "")
 		if err != nil {
