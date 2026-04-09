@@ -17,6 +17,7 @@ import (
 	inputs_points "kasper/src/shell/api/inputs/points"
 	inputs_users "kasper/src/shell/api/inputs/users"
 	"kasper/src/shell/api/model"
+	model "kasper/src/shell/api/model"
 	updates_points "kasper/src/shell/api/updates/points"
 	"kasper/src/shell/utils/future"
 	"log"
@@ -42,7 +43,7 @@ func (wm *Vmm) Assign(machineId string) {
 		Signal: func(key string, a any) {
 			astPath, vmType := wm.resolveVmExecutionTarget(machineId, "")
 			data := string(a.([]byte))
-			if key == "points/signal" {
+			if key == "creatures/signal" {
 				str, _ := json.Marshal(map[string]any{
 					"type":      "runVm",
 					"machineId": machineId,
@@ -112,7 +113,7 @@ func (wm *Vmm) RunVmEntity(machineId string, pointId string, data string, entity
 	isMemberOfPoint := false
 	wm.app.ModifyState(true, func(trx trx.ITrx) error {
 		point.Pull(trx)
-		isMemberOfPoint = (trx.GetLink("memberof::"+machineId+"::"+pointId) == "true")
+		isMemberOfPoint = (trx.GetLink("hasaccess::"+machineId+"::"+pointId) == "true")
 		return nil
 	})
 	if !isMemberOfPoint {
@@ -165,7 +166,7 @@ func (wm *Vmm) handleRunDocker(input map[string]any, reqId int64) (string, int64
 	}
 	found := false
 	wm.app.ModifyState(true, func(trx trx.ITrx) error {
-		if trx.GetLink("member::"+pointId+"::"+machineId) == "true" {
+		if trx.GetLink("hasaccess::"+machineId+"::"+pointId) == "true" {
 			found = true
 		}
 		return nil

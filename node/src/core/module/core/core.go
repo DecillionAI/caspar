@@ -389,7 +389,7 @@ func (c *Core) runChainMessage(packet chain.ChainMessage) {
 			if found && listener != nil {
 				payload := append([]byte(nil), packet.Payload...)
 				future.Async(func() {
-					listener.Signal("points/signal", payload)
+					listener.Signal("creatures/signal", payload)
 				}, false)
 				continue
 			}

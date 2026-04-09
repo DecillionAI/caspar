@@ -12,9 +12,30 @@ type Guard struct {
 	IsInTopic bool `json:"isInTopic"`
 }
 
+func (g *Guard) optionalIdentity(app core.ICore, packet []byte, signature string, userId string, pointId string) (bool, *model.Info) {
+	if userId == "" && signature == "" {
+		return true, model.NewInfo("", "")
+	}
+	if userId == "" || signature == "" {
+		return false, &model.Info{}
+	}
+	identified, _, isGod := app.Tools().Security().AuthWithSignature(userId, packet, signature)
+	if !identified {
+		return false, &model.Info{}
+	}
+	if !g.IsInSpace {
+		return true, model.NewGodInfo(userId, "", isGod)
+	}
+	hasAccess := app.Tools().Security().HasAccessToPoint(userId, pointId)
+	if !hasAccess {
+		return false, &model.Info{}
+	}
+	return true, model.NewGodInfo(userId, pointId, isGod)
+}
+
 func (g *Guard) CheckValidity(app core.ICore, packet []byte, signature string, userId string, pointId string, insider ...bool) (bool, *model.Info) {
 	if !g.IsUser {
-		return true, model.NewInfo("", "")
+		return g.optionalIdentity(app, packet, signature, userId, pointId)
 	}
 	if len(insider) > 0 && insider[0] && (signature == "#appletsign") {
 		typ := ""
@@ -49,7 +70,7 @@ func (g *Guard) CheckValidity(app core.ICore, packet []byte, signature string, u
 
 func (g *Guard) CheckValidityForChain(app core.ICore, packet []byte, signature string, userId string, pointId string) (bool, *model.Info) {
 	if !g.IsUser {
-		return true, model.NewInfo("", "")
+		return g.optionalIdentity(app, packet, signature, userId, pointId)
 	}
 	if signature == "#appletsign" {
 		typ := ""
@@ -84,7 +105,14 @@ func (g *Guard) CheckValidityForChain(app core.ICore, packet []byte, signature s
 
 func (g *Guard) CheckIdentity(app core.ICore, packet []byte, signature string, userId string) bool {
 	if !g.IsUser {
-		return true
+		if userId == "" && signature == "" {
+			return true
+		}
+		if userId == "" || signature == "" {
+			return false
+		}
+		identified, _, _ := app.Tools().Security().AuthWithSignature(userId, packet, signature)
+		return identified
 	}
 	identified, _, _ := app.Tools().Security().AuthWithSignature(userId, packet, signature)
 	return identified

@@ -152,8 +152,8 @@ func (a *Actions) Accept(state state.IState, input inputsinvites.AcceptInput) (a
 	trx.DelKey("link::invite::" + input.PointId + "::" + state.Info().UserId())
 	trx.DelKey("link::inviteto::" + state.Info().UserId() + "::" + input.PointId)
 	trx.DelKey("link::invitetime::" + input.PointId + "::" + state.Info().UserId())
-	trx.PutLink("member::"+input.PointId+"::"+state.Info().UserId(), "true")
-	trx.PutLink("memberof::"+state.Info().UserId()+"::"+input.PointId, "true")
+	trx.PutLink("onaccess::"+input.PointId+"::"+state.Info().UserId(), "true")
+	trx.PutLink("hasaccess::"+state.Info().UserId()+"::"+input.PointId, "true")
 	a.App.Tools().Signaler().JoinGroup(input.PointId, state.Info().UserId())
 	admins, err := trx.GetLinksList("admin::"+input.PointId+"::", -1, -1)
 	if err != nil {

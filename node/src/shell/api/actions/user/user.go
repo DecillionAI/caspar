@@ -95,6 +95,8 @@ func (a *Actions) Transfer(state state.IState, input inputsusers.TransferInput) 
 	toUser.Balance += input.Amount
 	user.Push(state.Trx())
 	toUser.Push(state.Trx())
+	models.Creature{Id: user.Id, TypeName: user.Typ, Username: user.Username, PublicKey: user.PublicKey, ChainId: "main", SubchainId: "main", OwnerId: "free", Balance: user.Balance}.Push(state.Trx())
+	models.Creature{Id: toUser.Id, TypeName: toUser.Typ, Username: toUser.Username, PublicKey: toUser.PublicKey, ChainId: "main", SubchainId: "main", OwnerId: "free", Balance: toUser.Balance}.Push(state.Trx())
 	return map[string]any{}, nil
 }
 
@@ -111,6 +113,7 @@ func (a *Actions) Mint(state state.IState, input inputsusers.MintInput) (any, er
 	toUser := models.User{Id: toUserId}.Pull(state.Trx())
 	toUser.Balance += input.Amount
 	toUser.Push(state.Trx())
+	models.Creature{Id: toUser.Id, TypeName: toUser.Typ, Username: toUser.Username, PublicKey: toUser.PublicKey, ChainId: "main", SubchainId: "main", OwnerId: "free", Balance: toUser.Balance}.Push(state.Trx())
 	return map[string]any{}, nil
 }
 
@@ -369,6 +372,16 @@ func (a *Actions) Create(state state.IState, input inputsusers.CreateInput) (any
 	user = models.User{Id: a.App.Tools().Storage().GenId(trx, input.Origin()), Typ: "human", Balance: 1000000000000000, PublicKey: input.PublicKey, Username: input.Username + "@" + state.Source()}
 	session = models.Session{Id: a.App.Tools().Storage().GenId(trx, input.Origin()), UserId: user.Id}
 	user.Push(trx)
+	models.Creature{
+		Id:         user.Id,
+		TypeName:   user.Typ,
+		Username:   user.Username,
+		PublicKey:  user.PublicKey,
+		ChainId:    "main",
+		SubchainId: "main",
+		OwnerId:    "free",
+		Balance:    user.Balance,
+	}.Push(trx)
 	session.Push(trx)
 
 	for _, v := range a.modelExtender["user"] {
@@ -395,8 +408,8 @@ func (a *Actions) Create(state state.IState, input inputsusers.CreateInput) (any
 
 	point := models.Point{Id: a.App.Tools().Storage().GenId(trx, "global"), Tag: "home", IsPublic: false, PersHist: true, ParentId: ""}
 	point.Push(trx)
-	trx.PutLink("memberof::"+user.Id+"::"+point.Id, "true")
-	trx.PutLink("member::"+point.Id+"::"+user.Id, "true")
+	trx.PutLink("hasaccess::"+user.Id+"::"+point.Id, "true")
+	trx.PutLink("onaccess::"+point.Id+"::"+user.Id, "true")
 	trx.PutLink("admin::"+point.Id+"::"+user.Id, "true")
 	trx.PutLink("adminof::"+user.Id+"::"+point.Id, "true")
 	trx.PutJson("PointMeta::"+point.Id, "metadata", map[string]any{"public": map[string]any{"profile": map[string]any{"title": "Home", "avatar": "avatar"}}}, false)

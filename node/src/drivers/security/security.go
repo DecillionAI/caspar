@@ -159,7 +159,7 @@ func (sm *Security) HasAccessToPoint(userId string, pointId string) bool {
 	}
 	found := false
 	sm.app.ModifyState(true, func(trx trx.ITrx) error {
-		if trx.GetLink("memberof::"+userId+"::"+pointId) == "true" {
+		if trx.GetLink("hasaccess::"+userId+"::"+pointId) == "true" {
 			found = true
 		}
 		return nil
