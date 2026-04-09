@@ -8,7 +8,7 @@ import (
 	"kasper/src/abstract/models/core"
 	"kasper/src/abstract/models/trx"
 	"kasper/src/abstract/state"
-	inputs_machiner "kasper/src/shell/api/inputs/machine"
+	inputs_machiner "kasper/src/shell/api/inputs/program"
 	inputs_users "kasper/src/shell/api/inputs/users"
 	"kasper/src/shell/api/model"
 	outputs_machiner "kasper/src/shell/api/outputs/plugin"
