@@ -131,3 +131,37 @@ func LockResource(resourceID string, ownerID string) string {
 func UnlockResource(resourceID string, ownerID string) string {
 	return call("unlockResource", fmt.Sprintf(`{"runtime":"wasm","resourceId":%s,"ownerId":%s}`, quote(resourceID), quote(ownerID)))
 }
+
+func CreateCreature(input string) string { return call("createCreature", input) }
+func UpdateCreature(input string) string { return call("updateCreature", input) }
+func DeleteCreature(input string) string { return call("deleteCreature", input) }
+func GetCreature(input string) string    { return call("getCreature", input) }
+func ListCreatures(input string) string  { return call("listCreatures", input) }
+
+func CreateResourceStore(input string) string { return call("createResourceStore", input) }
+func UpdateResourceStore(input string) string { return call("updateResourceStore", input) }
+func DeleteResourceStore(input string) string { return call("deleteResourceStore", input) }
+func GetResourceStore(input string) string    { return call("getResourceStore", input) }
+func ListResourceStores(input string) string  { return call("listResourceStores", input) }
+
+func CreateResourceEntity(input string) string { return call("createResourceEntity", input) }
+func DeleteResourceEntity(input string) string { return call("deleteResourceEntity", input) }
+
+func CreateWorkchain(input string) string { return call("createWorkchain", input) }
+func DeleteWorkchain(input string) string { return call("deleteWorkchain", input) }
+func CreateSubchain(input string) string  { return call("createSubchain", input) }
+func DeleteSubchain(input string) string  { return call("deleteSubchain", input) }
+
+func ExecShellAction(input string) string { return call("execShellAction", input) }
+
+func MicroGenId(input string) string            { return call("microGenId", input) }
+func MicroGetLink(input string) string          { return call("microGetLink", input) }
+func MicroPutLink(input string) string          { return call("microPutLink", input) }
+func MicroDelKey(input string) string           { return call("microDelKey", input) }
+func MicroGetJson(input string) string          { return call("microGetJson", input) }
+func MicroPutJson(input string) string          { return call("microPutJson", input) }
+func MicroGetByPrefix(input string) string      { return call("microGetByPrefix", input) }
+func MicroHasAccessToPoint(input string) string { return call("microHasAccessToPoint", input) }
+func MicroSignalUser(input string) string       { return call("microSignalUser", input) }
+func MicroSignalGroup(input string) string      { return call("microSignalGroup", input) }
+func MicroJoinGroup(input string) string        { return call("microJoinGroup", input) }
