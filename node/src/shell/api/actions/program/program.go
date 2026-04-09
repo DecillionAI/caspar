@@ -345,142 +345,7 @@ func Install(a *Actions, extra ...any) error {
 	return nil
 }
 
-// CreateProgram /machines/create check [ true false false ] access [ true false false false POST ]
-func (a *Actions) CreateMachine(state state.IState, input inputs_machiner.CreateAppInput) (any, error) {
-	trx := state.Trx()
-	if trx.HasIndex("Machine", "username", "id", input.Username) {
-		return nil, errors.New("app username already exists")
-	}
-	shardChainId := "shard-main"
-	if input.ShardChainId != nil && *input.ShardChainId != "" {
-		shardChainId = *input.ShardChainId
-	}
-	machine := model.Machine{Id: a.App.Tools().Storage().GenId(trx, input.Origin()), MachinesCount: 0, Username: input.Username, OwnerId: state.Info().UserId(), ChainId: input.ChainId, ShardChainId: shardChainId}
-	machine.Push(trx)
-	model.Creature{
-		Id:         machine.Id,
-		TypeName:   "vm",
-		Username:   machine.Username,
-		ChainId:    machine.ChainId,
-		SubchainId: machine.ShardChainId,
-		OwnerId:    machine.OwnerId,
-		Balance:    0,
-	}.Push(trx)
-	trx.PutJson("CreatMeta::"+machine.Id, "metadata", input.Metadata, false)
-	profile, err := trx.GetJson("CreatMeta::"+machine.Id, "metadata.public.profile")
-	if err != nil {
-		log.Println(err)
-		return nil, err
-	}
-	if profile["title"] == nil {
-		return nil, errors.New("title can not be empty")
-	}
-	if profile["desc"] == nil {
-		return nil, errors.New("description can not be empty")
-	}
-	if profile["avatar"] == nil {
-		return nil, errors.New("avatar can not be empty")
-	}
-	trx.PutLink("ownerof::"+state.Info().UserId()+"::"+machine.Id, "true")
-	trx.PutIndex("Machine", "title", "id", machine.Id+"->"+profile["title"].(string), []byte(machine.Id))
-	a.App.Tools().Network().Chain().NotifyNewMachineCreated(input.ChainId, machine.Id)
-	return map[string]any{"machine": machine}, nil
-}
-
-// DeleteProgram /machines/delete check [ true false false ] access [ true false false false POST ]
-func (a *Actions) DeleteMachine(state state.IState, input inputs_machiner.DeleteAppInput) (any, error) {
-	trx := state.Trx()
-	if !trx.HasObj("Machine", input.AppId) {
-		return nil, errors.New("machine does not exist")
-	}
-	profile, err := trx.GetJson("CreatMeta::"+input.AppId, "metadata.public.profile")
-	if err == nil {
-		trx.DelIndex("Machine", "title", "id", input.AppId+"->"+profile["title"].(string))
-	} else {
-		log.Println(err)
-	}
-	model.Machine{Id: input.AppId}.Delete(trx)
-	trx.DelKey("link::ownerof::" + state.Info().UserId() + "::" + input.AppId)
-	return map[string]any{}, nil
-}
-
-// UpdateProgram /machines/update check [ true false false ] access [ true false false false POST ]
-func (a *Actions) UpdateMachine(state state.IState, input inputs_machiner.UpdateAppInput) (any, error) {
-	trx := state.Trx()
-	if !trx.HasObj("Machine", input.AppId) {
-		return nil, errors.New("machine does not exist")
-	}
-	profile, err := trx.GetJson("CreatMeta::"+input.AppId, "metadata.public.profile")
-	if err == nil {
-		trx.DelIndex("Machine", "title", "id", input.AppId+"->"+profile["title"].(string))
-	} else {
-		log.Println(err)
-	}
-	trx.PutJson("CreatMeta::"+input.AppId, "metadata", input.Metadata, true)
-	profile, err = trx.GetJson("CreatMeta::"+input.AppId, "metadata.public.profile")
-	if err != nil {
-		log.Println(err)
-		return nil, err
-	}
-	if profile["title"] == nil {
-		return nil, errors.New("title can not be empty")
-	}
-	if profile["desc"] == nil {
-		return nil, errors.New("description can not be empty")
-	}
-	if profile["avatar"] == nil {
-		return nil, errors.New("avatar can not be empty")
-	}
-	trx.PutIndex("Machine", "title", "id", input.AppId+"->"+profile["title"].(string), []byte(input.AppId))
-	return map[string]any{}, nil
-}
-
-// MyCreatedPrograms /machines/myCreated check [ true false false ] access [ true false false false GET ]
-func (a *Actions) MyCreatedMachines(state state.IState, input inputs_machiner.ListInput) (any, error) {
-	trx := state.Trx()
-	machines, err := model.Machine{}.List(trx, "ownerof::"+state.Info().UserId()+"::")
-	if err != nil {
-		log.Println(err)
-		return nil, err
-	}
-	result := []map[string]any{}
-	for _, machine := range machines {
-		profile, err := trx.GetJson("CreatMeta::"+machine.Id, "metadata.public.profile")
-		if err != nil {
-			log.Println(err)
-			result = append(result, map[string]any{
-				"id":            machine.Id,
-				"chainId":       machine.ChainId,
-				"shardChainId":  machine.ShardChainId,
-				"username":      machine.Username,
-				"ownerId":       machine.OwnerId,
-				"programsCount": machine.MachinesCount,
-				"title":         "untitled",
-				"avatar":        "",
-				"desc":          "",
-			})
-			continue
-		}
-		result = append(result, map[string]any{
-			"id":            machine.Id,
-			"chainId":       machine.ChainId,
-			"shardChainId":  machine.ShardChainId,
-			"username":      machine.Username,
-			"ownerId":       machine.OwnerId,
-			"programsCount": machine.MachinesCount,
-			"title":         profile["title"],
-			"avatar":        profile["avatar"],
-			"desc":          profile["desc"],
-		})
-	}
-	return map[string]any{"machines": result}, nil
-}
-
-func (a *Actions) MyCreatedPrograms(state state.IState, input inputs_machiner.ListInput) (any, error) {
-	return a.MyCreatedMachines(state, input)
-}
-
-// CreateMachine /programs/create check [ true false false ] access [ true false false false POST ]
+// CreateProgram /programs/create check [ true false false ] access [ true false false false POST ]
 func (a *Actions) CreateProgram(state state.IState, input inputs_machiner.CreateMachineInput) (any, error) {
 	trx := state.Trx()
 	if !trx.HasObj("Machine", input.AppId) {
@@ -499,7 +364,7 @@ func (a *Actions) CreateProgram(state state.IState, input inputs_machiner.Create
 	return map[string]any{"program": program}, nil
 }
 
-// DeleteMachine /programs/delete check [ true false false ] access [ true false false false POST ]
+// DeleteProgram /programs/delete check [ true false false ] access [ true false false false POST ]
 func (a *Actions) DeleteProgram(state state.IState, input inputs_machiner.DeleteProgramInput) (any, error) {
 	trx := state.Trx()
 	if !trx.HasObj("Program", input.ProgramId) {
@@ -514,7 +379,7 @@ func (a *Actions) DeleteProgram(state state.IState, input inputs_machiner.Delete
 	return map[string]any{}, nil
 }
 
-// UpdateMachine /machines/update check [ true false false ] access [ true false false false POST ]
+// UpdateProgram /machines/update check [ true false false ] access [ true false false false POST ]
 func (a *Actions) UpdateProgram(state state.IState, input inputs_machiner.UpdateProgramInput) (any, error) {
 	trx := state.Trx()
 	if !trx.HasObj("Program", input.ProgramId) {
@@ -526,17 +391,6 @@ func (a *Actions) UpdateProgram(state state.IState, input inputs_machiner.Update
 	if input.Metadata != nil {
 		trx.PutJson("ProgMeta::"+program.MachineId, "metadata", input.Metadata, true)
 	}
-	return map[string]any{}, nil
-}
-
-// Signal /machines/signal check [ true false false ] access [ true false false false POST ]
-func (a *Actions) Signal(state state.IState, input inputs_machiner.SignalInput) (any, error) {
-	trx := state.Trx()
-	user := model.User{Id: state.Info().UserId()}.Pull(trx)
-	var p = updates_points.Send{Action: "single", User: user, Data: input.Data}
-	future.Async(func() {
-		a.App.Tools().Signaler().SignalUser("creatures/signal", input.MachineId+"_"+input.VmTag, p, true)
-	}, false)
 	return map[string]any{}, nil
 }
 
