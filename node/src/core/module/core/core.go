@@ -415,7 +415,7 @@ func (c *Core) consumePayLockOnChain(pay *chain.ChainPayPacket) bool {
 	})
 	sign := c.SignPacketAsOwner(inp)
 	res := make(chan bool, 1)
-	c.ExecBaseRequestOnChain("/users/consumeLock", inp, sign, c.ownerId, "", func(b []byte, i int, err error) {
+	c.ExecBaseRequestOnChain("/creatures/consumeLock", inp, sign, c.ownerId, "", func(b []byte, i int, err error) {
 		if err != nil || i >= 400 {
 			res <- false
 			return

@@ -238,7 +238,7 @@ func (wm *Vmm) handleRunDocker(input map[string]any, reqId int64) (string, int64
 	})
 	sign := wm.app.SignPacketAsOwner(inp)
 	resChan := make(chan bool)
-	wm.app.ExecBaseRequestOnChain("/users/consumeLock", inp, sign, wm.app.OwnerId(), "", func(b []byte, i int, err error) {
+	wm.app.ExecBaseRequestOnChain("/creatures/consumeLock", inp, sign, wm.app.OwnerId(), "", func(b []byte, i int, err error) {
 		if err != nil {
 			println(err)
 			resChan <- false

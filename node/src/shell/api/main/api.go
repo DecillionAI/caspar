@@ -16,9 +16,6 @@ import (
 
 	action_program "kasper/src/shell/api/actions/program"
 	plugger_program "kasper/src/shell/api/pluggers/program"
-
-	action_user "kasper/src/shell/api/actions/user"
-	plugger_user "kasper/src/shell/api/pluggers/user"
 )
 
 func PlugThePlugger(core core.ICore, plugger interface{}) {
@@ -54,10 +51,5 @@ func PlugAll(core core.ICore, modelExtender map[string]map[string]iaction.Extend
 	p_program := plugger_program.New(a_program, core)
 	PlugThePlugger(core, p_program)
 	p_program.Install(a_program, modelExtender)
-
-	a_user := &action_user.Actions{App: core}
-	p_user := plugger_user.New(a_user, core)
-	PlugThePlugger(core, p_user)
-	p_user.Install(a_user, modelExtender)
 
 }
