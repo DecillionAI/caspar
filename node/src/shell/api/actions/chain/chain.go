@@ -120,7 +120,7 @@ func (a *Actions) CreateShard(state state.IState, input inputs_chain.CreateShard
 
 // CreateFromPoint /chains/createFromPoint check [ true true false ] access [ true false false false POST ]
 func (a *Actions) CreateFromPoint(state state.IState, input inputs_chain.CreateFromPointInput) (any, error) {
-	members, err := state.Trx().GetLinksList("member::"+state.Info().PointId()+"::", -1, -1)
+	members, err := state.Trx().GetLinksList("onaccess::"+state.Info().PointId()+"::", -1, -1)
 	if err != nil {
 		return nil, err
 	}

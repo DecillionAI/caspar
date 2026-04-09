@@ -126,8 +126,8 @@ func (fed *FedNet) HandlePacket(socket *Socket, channelId string, payload packet
 					}
 					if pointId != "" {
 						fed.app.ModifyState(false, func(trx trx.ITrx) error {
-							trx.PutLink("member::"+pointId+"::"+userId, "true")
-							trx.PutLink("memberof::"+pointId+"::"+userId, "true")
+							trx.PutLink("onaccess::"+pointId+"::"+userId, "true")
+							trx.PutLink("hasaccess::"+userId+"::"+pointId, "true")
 							return nil
 						})
 						fed.signaler.JoinGroup(pointId, userId)
@@ -141,8 +141,8 @@ func (fed *FedNet) HandlePacket(socket *Socket, channelId string, payload packet
 					}
 					fed.app.ModifyState(false, func(trx trx.ITrx) error {
 						spaceOut.Point.Pull(trx)
-						trx.PutLink("member::"+spaceOut.Point.Id+"::"+cb.UserId, "true")
-						trx.PutLink("memberof::"+cb.UserId+"::"+spaceOut.Point.Id, "true")
+						trx.PutLink("onaccess::"+spaceOut.Point.Id+"::"+cb.UserId, "true")
+						trx.PutLink("hasaccess::"+cb.UserId+"::"+spaceOut.Point.Id, "true")
 						return nil
 					})
 					fed.signaler.JoinGroup(spaceOut.Point.Id, cb.UserId)
@@ -192,8 +192,8 @@ func (fed *FedNet) HandlePacket(socket *Socket, channelId string, payload packet
 					return
 				}
 				fed.app.ModifyState(false, func(trx trx.ITrx) error {
-					trx.PutLink("member::"+tc.PointId+"::"+tc.User.Id, "true")
-					trx.PutLink("memberof::"+tc.User.Id+"::"+tc.PointId, "true")
+					trx.PutLink("onaccess::"+tc.PointId+"::"+tc.User.Id, "true")
+					trx.PutLink("hasaccess::"+tc.User.Id+"::"+tc.PointId, "true")
 					return nil
 				})
 			} else if key == "points/removeMember" {
@@ -204,8 +204,8 @@ func (fed *FedNet) HandlePacket(socket *Socket, channelId string, payload packet
 					return
 				}
 				fed.app.ModifyState(false, func(trx trx.ITrx) error {
-					trx.DelKey("link::member::" + tc.PointId + "::" + tc.User.Id)
-					trx.DelKey("link::memberof::" + tc.User.Id + "::" + tc.PointId)
+					trx.DelKey("link::onaccess::" + tc.PointId + "::" + tc.User.Id)
+					trx.DelKey("link::hasaccess::" + tc.User.Id + "::" + tc.PointId)
 					return nil
 				})
 			} else if key == "points/updateMember" {
@@ -227,8 +227,8 @@ func (fed *FedNet) HandlePacket(socket *Socket, channelId string, payload packet
 					return
 				}
 				fed.app.ModifyState(false, func(trx trx.ITrx) error {
-					trx.PutLink("member::"+tc.PointId+"::"+tc.User.Id, "true")
-					trx.PutLink("memberof::"+tc.User.Id+"::"+tc.PointId, "true")
+					trx.PutLink("onaccess::"+tc.PointId+"::"+tc.User.Id, "true")
+					trx.PutLink("hasaccess::"+tc.User.Id+"::"+tc.PointId, "true")
 					return nil
 				})
 			}

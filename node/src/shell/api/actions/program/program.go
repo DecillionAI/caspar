@@ -1,4 +1,4 @@
-package actions_machine
+package actions_program
 
 import (
 	"encoding/base64"

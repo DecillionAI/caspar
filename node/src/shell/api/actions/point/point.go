@@ -34,6 +34,16 @@ type Actions struct {
 	modelExtender map[string]map[string]action.ExtendedField
 }
 
+func putAccessLinks(tx trx.ITrx, creatureId string, pointId string) {
+	tx.PutLink("hasaccess::"+creatureId+"::"+pointId, "true")
+	tx.PutLink("onaccess::"+pointId+"::"+creatureId, "true")
+}
+
+func delAccessLinks(tx trx.ITrx, creatureId string, pointId string) {
+	tx.DelKey("link::hasaccess::" + creatureId + "::" + pointId)
+	tx.DelKey("link::onaccess::" + pointId + "::" + creatureId)
+}
+
 func Install(a *Actions, params ...any) error {
 	a.Locks = cmap.New[*LockHolder]()
 	a.OneToOneLocks = cmap.New[*LockHolder]()
@@ -201,8 +211,7 @@ func (a *Actions) AddMachine(state state.IState, input inputs_points.AddMachineI
 		uniqueMacs[fn.UserId] = append(uniqueMacs[fn.UserId], programMeta.Identifier)
 	}
 	for uniMacId, _ := range uniqueMacs {
-		trx.PutLink("member::"+state.Info().PointId()+"::"+uniMacId, "true")
-		trx.PutLink("memberof::"+uniMacId+"::"+state.Info().PointId(), "true")
+		putAccessLinks(trx, uniMacId, state.Info().PointId())
 		a.App.Tools().Signaler().JoinGroup(state.Info().PointId(), uniMacId)
 	}
 	trx.PutLink("pointMachine::"+state.Info().PointId()+"::"+programModel.Id, "true")
@@ -346,8 +355,7 @@ func (a *Actions) RemoveMachine(state state.IState, input inputs_points.RemoveMa
 	macArr := strings.Split(trx.GetLink("pointMachinePrograms::"+state.Info().PointId()+"::"+programModel.Id), ",")
 	for _, program := range programs {
 		if slices.Contains(macArr, program.Id) {
-			trx.DelKey("link::member::" + state.Info().PointId() + "::" + program.Id)
-			trx.DelKey("link::memberof::" + program.Id + "::" + state.Info().PointId())
+			delAccessLinks(trx, program.Id, state.Info().PointId())
 			trx.DelJson("PointAccess::"+state.Info().PointId()+"::"+program.Id, "metadata")
 			a.App.Tools().Signaler().LeaveGroup(state.Info().PointId(), program.Id)
 		}
@@ -419,8 +427,7 @@ func (a *Actions) AddProgram(state state.IState, input inputs_points.AddProgramI
 		trx.PutJson("PointAccess::"+state.Info().PointId()+"::"+fn.UserId, "metadata", acc, false)
 	}
 	trx.PutJson("FnMeta::"+state.Info().PointId()+"::"+fn.ProgramId+"::"+fn.UserId+"::"+input.ProgramMeta.Identifier, "metadata", input.ProgramMeta.Metadata, true)
-	trx.PutLink("member::"+state.Info().PointId()+"::"+input.ProgramMeta.ProgramId, "true")
-	trx.PutLink("memberof::"+input.ProgramMeta.ProgramId+"::"+state.Info().PointId(), "true")
+	putAccessLinks(trx, input.ProgramMeta.ProgramId, state.Info().PointId())
 	trx.PutLink("pointMachineProgram::"+state.Info().PointId()+"::"+input.MachineId+"::"+input.ProgramMeta.ProgramId+"::"+input.ProgramMeta.Identifier, "true")
 	a.App.Tools().Signaler().JoinGroup(state.Info().PointId(), input.ProgramMeta.ProgramId)
 	future.Async(func() {
@@ -464,8 +471,7 @@ func (a *Actions) RemoveProgram(state state.IState, input inputs_points.RemovePr
 	trx.DelJson("FnMeta::"+state.Info().PointId()+"::"+fn.ProgramId+"::"+fn.UserId+"::"+input.Identifier, "metadata")
 	trx.DelKey("link::pointMachineProgram::" + state.Info().PointId() + "::" + input.MachineId + "::" + input.ProgramId + "::" + input.Identifier)
 	if arr, err := trx.GetLinksList("pointMachineProgram::"+state.Info().PointId()+"::"+input.MachineId+"::"+input.ProgramId+"::", 0, 100); err == nil && len(arr) == 0 {
-		trx.DelKey("link::member::" + state.Info().PointId() + "::" + input.ProgramId)
-		trx.DelKey("link::memberof::" + input.ProgramId + "::" + state.Info().PointId())
+		delAccessLinks(trx, input.ProgramId, state.Info().PointId())
 		trx.DelJson("PointAccess::"+state.Info().PointId()+"::"+input.ProgramId, "metadata")
 		a.App.Tools().Signaler().LeaveGroup(state.Info().PointId(), input.ProgramId)
 	}
@@ -494,11 +500,10 @@ func (a *Actions) AddMember(state state.IState, input inputs_points.AddMemberInp
 	if point.Tag == "home" {
 		return nil, errors.New("home is not extendable")
 	}
-	if trx.GetLink("member::"+state.Info().PointId()+"::"+input.UserId) == "true" {
+	if trx.GetLink("onaccess::"+state.Info().PointId()+"::"+input.UserId) == "true" {
 		return nil, errors.New("membership already exists")
 	}
-	trx.PutLink("member::"+state.Info().PointId()+"::"+input.UserId, "true")
-	trx.PutLink("memberof::"+input.UserId+"::"+state.Info().PointId(), "true")
+	putAccessLinks(trx, input.UserId, state.Info().PointId())
 	trx.PutJson("PointAccess::"+state.Info().PointId()+"::"+input.UserId, "metadata", access, false)
 	acc := map[string]bool{}
 	for k, v := range access {
@@ -614,7 +619,7 @@ func (a *Actions) ReadMembers(state state.IState, input inputs_points.ReadMember
 		}
 	}
 	trx := state.Trx()
-	members, err := model.User{}.List(trx, "member::"+state.Info().PointId()+"::", map[string]string{"type": "human"})
+	members, err := model.User{}.List(trx, "onaccess::"+state.Info().PointId()+"::", map[string]string{"type": "human"})
 	if err != nil {
 		return nil, err
 	}
@@ -667,7 +672,7 @@ func (a *Actions) RemoveMember(state state.IState, input inputs_points.RemoveMem
 	locker, _ := a.Locks.Get(state.Info().PointId())
 	locker.Lock.Lock()
 	defer locker.Lock.Unlock()
-	if trx.GetLink("member::"+state.Info().PointId()+"::"+input.UserId) != "true" {
+	if trx.GetLink("onaccess::"+state.Info().PointId()+"::"+input.UserId) != "true" {
 		return nil, errors.New("member not found")
 	}
 	user := model.User{Id: input.UserId}.Pull(trx)
@@ -678,11 +683,10 @@ func (a *Actions) RemoveMember(state state.IState, input inputs_points.RemoveMem
 	if point.Tag == "home" {
 		return nil, errors.New("home is not extendable")
 	}
-	if trx.GetLink("member::"+state.Info().PointId()+"::"+input.UserId) != "true" {
+	if trx.GetLink("onaccess::"+state.Info().PointId()+"::"+input.UserId) != "true" {
 		return nil, errors.New("membership does exist")
 	}
-	trx.DelKey("link::member::" + state.Info().PointId() + "::" + input.UserId)
-	trx.DelKey("link::memberof::" + input.UserId + "::" + state.Info().PointId())
+	delAccessLinks(trx, input.UserId, state.Info().PointId())
 	trx.DelJson("PointAccess::"+state.Info().PointId()+"::"+input.UserId, "metadata")
 	point.MemberCount--
 	point.Push(trx)
@@ -745,16 +749,14 @@ func (a *Actions) Create(state state.IState, input inputs_points.CreateInput) (a
 	}
 	point := model.Point{Id: a.App.Tools().Storage().GenId(trx, orig), MemberCount: int32(len(input.Members)), Tag: input.Tag, IsPublic: *input.IsPublic, PersHist: *input.PersHist, ParentId: input.ParentId}
 	point.Push(trx)
-	trx.PutLink("memberof::"+state.Info().UserId()+"::"+point.Id, "true")
-	trx.PutLink("member::"+point.Id+"::"+state.Info().UserId(), "true")
+	putAccessLinks(trx, state.Info().UserId(), point.Id)
 	trx.PutLink("admin::"+point.Id+"::"+state.Info().UserId(), "true")
 	trx.PutLink("adminof::"+state.Info().UserId()+"::"+point.Id, "true")
 	if input.Members != nil {
 		for userId, isAdmin := range input.Members {
 			user := model.User{Id: userId}.Pull(trx)
 			if user.Typ == "human" {
-				trx.PutLink("memberof::"+userId+"::"+point.Id, "true")
-				trx.PutLink("member::"+point.Id+"::"+userId, "true")
+				putAccessLinks(trx, userId, point.Id)
 				trx.PutJson("PointAccess::"+point.Id+"::"+userId, "metadata", access, false)
 				if isAdmin {
 					trx.PutLink("admin::"+point.Id+"::"+userId, "true")
@@ -774,8 +776,7 @@ func (a *Actions) Create(state state.IState, input inputs_points.CreateInput) (a
 					trx.PutJson("PointAccess::"+point.Id+"::"+program.MachineId, "metadata", acc, false)
 				}
 				trx.PutJson("FnMeta::"+point.Id+"::"+program.AppId+"::"+program.MachineId+"::"+"0", "metadata", meta, true)
-				trx.PutLink("member::"+point.Id+"::"+program.MachineId, "true")
-				trx.PutLink("memberof::"+program.MachineId+"::"+point.Id, "true")
+				putAccessLinks(trx, program.MachineId, point.Id)
 				trx.PutLink("pointMachineProgram::"+point.Id+"::"+program.AppId+"::"+program.MachineId+"::"+"0", "true")
 				if isAdmin {
 					trx.PutLink("admin::"+point.Id+"::"+userId, "true")
@@ -893,11 +894,11 @@ func (a *Actions) Delete(state state.IState, input inputs_points.DeleteInput) (a
 		}
 	}
 	point.Delete(trx)
-	members, _ := trx.GetLinksList("member::"+point.Id+"::", 0, 0)
+	members, _ := trx.GetLinksList("onaccess::"+point.Id+"::", 0, 0)
 	usersList := []string{}
 	for _, member := range members {
 		parts := strings.Split(member, "::")
-		trx.DelKey("link::memberof::" + parts[2] + "::" + parts[1])
+		delAccessLinks(trx, parts[2], parts[1])
 		trx.DelKey("link::" + member)
 		trx.DelJson("PointAccess::"+parts[2]+"::"+parts[1], "metadata")
 		usersList = append(usersList, parts[1])
@@ -971,7 +972,7 @@ func (a *Actions) Get(state state.IState, input inputs_points.GetInput) (any, er
 		}
 		return outputs_points.GetOutput{Point: result}, nil
 	}
-	if trx.GetLink("member::"+input.PointId+"::"+state.Info().UserId()) != "true" {
+	if trx.GetLink("onaccess::"+input.PointId+"::"+state.Info().UserId()) != "true" {
 		return nil, errors.New("access to private point denied")
 	}
 	lastPacket := map[string]any{}
@@ -1011,7 +1012,7 @@ func (a *Actions) Get(state state.IState, input inputs_points.GetInput) (any, er
 // Read /points/read check [ true false false ] access [ true false false false GET ]
 func (a *Actions) Read(state state.IState, input inputs_points.ReadInput) (any, error) {
 	trx := state.Trx()
-	points, err := model.Point{}.List(trx, "memberof::"+state.Info().UserId()+"::", input.Orig == "global", map[string]string{},
+	points, err := model.Point{}.List(trx, "hasaccess::"+state.Info().UserId()+"::", input.Orig == "global", map[string]string{},
 		map[string][]string{
 			"tag": {"group", "1-to-1", "home"},
 		}, input.Offset, input.Count)
@@ -1063,11 +1064,10 @@ func (a *Actions) Join(state state.IState, input inputs_points.JoinInput) (any, 
 	if !point.IsPublic {
 		return nil, errors.New("point is private")
 	}
-	if trx.GetLink("member::"+point.Id+"::"+state.Info().UserId()) == "true" {
+	if trx.GetLink("onaccess::"+point.Id+"::"+state.Info().UserId()) == "true" {
 		return nil, errors.New("membership already eixsts")
 	}
-	trx.PutLink("member::"+point.Id+"::"+state.Info().UserId(), "true")
-	trx.PutLink("memberof::"+state.Info().UserId()+"::"+point.Id, "true")
+	putAccessLinks(trx, state.Info().UserId(), point.Id)
 	trx.PutJson("PointAccess::"+point.Id+"::"+state.Info().UserId(), "metadata", access, false)
 	point.MemberCount++
 	point.Push(trx)
@@ -1093,11 +1093,10 @@ func (a *Actions) Leave(state state.IState, input inputs_points.JoinInput) (any,
 	if !point.IsPublic {
 		return nil, errors.New("point is private")
 	}
-	if trx.GetLink("member::"+point.Id+"::"+state.Info().UserId()) != "true" {
+	if trx.GetLink("onaccess::"+point.Id+"::"+state.Info().UserId()) != "true" {
 		return nil, errors.New("membership doesn't eixst")
 	}
-	trx.DelKey("link::member::" + point.Id + "::" + state.Info().UserId())
-	trx.DelKey("link::memberof::" + state.Info().UserId() + "::" + point.Id)
+	delAccessLinks(trx, state.Info().UserId(), point.Id)
 	trx.DelJson("PointAccess::"+point.Id+"::"+state.Info().UserId(), "metadata")
 	if trx.GetLink("admin::"+point.Id+"::"+state.Info().UserId()) == "true" {
 		trx.DelKey("link::admin::" + point.Id + "::" + state.Info().UserId())
@@ -1150,18 +1149,18 @@ func (a *Actions) Signal(state state.IState, input inputs_points.SignalInput) (a
 			point.Push(trx)
 			var p = updates_points.Send{Id: packet.Id, Action: "broadcast", Point: point, User: user, Data: input.Data, Time: t}
 			future.Async(func() {
-				a.App.Tools().Signaler().SignalGroup("points/signal", point.Id, p, true, []string{state.Info().UserId()})
+				a.App.Tools().Signaler().SignalGroup("creatures/signal", point.Id, p, true, []string{state.Info().UserId()})
 			}, false)
 			return outputs_points.SignalOutput{Passed: true, Packet: packet}, nil
 		} else {
 			var p = updates_points.Send{Action: "broadcast", Point: point, User: user, Data: input.Data, Time: t, IsTemp: true}
 			future.Async(func() {
-				a.App.Tools().Signaler().SignalGroup("points/signal", point.Id, p, true, []string{state.Info().UserId()})
+				a.App.Tools().Signaler().SignalGroup("creatures/signal", point.Id, p, true, []string{state.Info().UserId()})
 			}, false)
 			return outputs_points.SignalOutput{Passed: true}, nil
 		}
 	} else if input.Type == "single" {
-		if trx.GetLink("member::"+point.Id+"::"+input.UserId) == "true" {
+		if trx.GetLink("onaccess::"+point.Id+"::"+input.UserId) == "true" {
 			if point.PersHist && !input.Temp {
 				packet := a.App.Tools().Storage().LogTimeSieries(point.Id, user.Id, input.Data, t)
 				trx.PutJson("PointMeta::"+point.Id, "metadata.public.lastPacket", packet, false)
@@ -1169,13 +1168,13 @@ func (a *Actions) Signal(state state.IState, input inputs_points.SignalInput) (a
 				point.Push(trx)
 				var p = updates_points.Send{Id: packet.Id, Action: "single", Point: point, User: user, Data: input.Data, Time: t}
 				future.Async(func() {
-					a.App.Tools().Signaler().SignalUser("points/signal", input.UserId, p, true)
+					a.App.Tools().Signaler().SignalUser("creatures/signal", input.UserId, p, true)
 				}, false)
 				return outputs_points.SignalOutput{Passed: true, Packet: packet}, nil
 			} else {
 				var p = updates_points.Send{Action: "single", Point: point, User: user, Data: input.Data, Time: t, IsTemp: true}
 				future.Async(func() {
-					a.App.Tools().Signaler().SignalUser("points/signal", input.UserId, p, true)
+					a.App.Tools().Signaler().SignalUser("creatures/signal", input.UserId, p, true)
 				}, false)
 				return outputs_points.SignalOutput{Passed: true}, nil
 			}

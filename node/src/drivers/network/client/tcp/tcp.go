@@ -414,7 +414,7 @@ func (t *Socket) processPacket(packet []byte) {
 			t.server.sockets.Set(userId, t)
 			t.userId = userId
 			var pointIds []string
-			prefix := "memberof::" + userId + "::"
+			prefix := "hasaccess::" + userId + "::"
 			t.app.ModifyState(true, func(trx trx.ITrx) error {
 				pIds, err := trx.GetLinksList(prefix, -1, -1)
 				if err != nil {

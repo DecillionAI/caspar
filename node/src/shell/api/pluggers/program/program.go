@@ -1,9 +1,9 @@
-package plugger_machine
+package plugger_program
 
 import (
 	iaction "kasper/src/abstract/models/action"
 	"kasper/src/abstract/models/core"
-	actions "kasper/src/shell/api/actions/machine"
+	actions "kasper/src/shell/api/actions/program"
 	"kasper/src/shell/utils"
 )
 
@@ -74,6 +74,6 @@ func (c *Plugger) Install(a *actions.Actions, extra ...any) *Plugger {
 }
 
 func New(actions *actions.Actions, core core.ICore) *Plugger {
-	id := "machine"
+	id := "program"
 	return &Plugger{Id: &id, Actions: actions, Core: core}
 }
