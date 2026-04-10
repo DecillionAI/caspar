@@ -25,4 +25,4 @@ Per-endpoint wasm projects:
 - `endpoints/pc/*`
 - `endpoints/chains/*`
 
-Each endpoint project is a standalone wasm-go module and reimplements endpoint behavior via micro host functions (`micro*`) such as state/json/link updates, security checks, and signaling operations.
+Each endpoint project is a standalone wasm-go module and reimplements endpoint behavior via host functions (`*`) such as state/json/link updates, security checks, and signaling operations.

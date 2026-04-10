@@ -50,25 +50,25 @@ func process(input string) string {
 		_ = json.Unmarshal([]byte(input), &p)
 	}
 	if "createShard" == "create" || "createShard" == "createFromStore" || "createShard" == "createShard" {
-		hostReq("microGenId", map[string]any{"source": "chains.createShard"})
+		hostReq("genId", map[string]any{"source": "chains.createShard"})
 	}
-	hostReq("microPutJson", map[string]any{
+	hostReq("putJson", map[string]any{
 		"key":   "Json::CreatureEndpoint::chains::createShard",
 		"path":  "lastInput",
 		"data":  p.Payload,
 		"merge": true,
 	})
 	if p.UserID != "" {
-		hostReq("microPutLink", map[string]any{"key": "creatureEndpoint::chains::createShard::lastUser", "value": p.UserID})
+		hostReq("putLink", map[string]any{"key": "creatureEndpoint::chains::createShard::lastUser", "value": p.UserID})
 	}
 	if p.StoreID != "" {
-		hostReq("microSignalGroup", map[string]any{"key": "creatures/signal", "groupId": p.StoreID, "packet": "{}", "system": true})
+		hostReq("signalGroup", map[string]any{"key": "creatures/signal", "groupId": p.StoreID, "packet": "{}", "system": true})
 	}
 	if p.UserID != "" {
-		hostReq("microSignalUser", map[string]any{"key": "creatures/signal", "userId": p.UserID, "packet": "{}", "system": true})
+		hostReq("signalUser", map[string]any{"key": "creatures/signal", "userId": p.UserID, "packet": "{}", "system": true})
 	}
 	if p.MachineID != "" && p.StoreID != "" {
-		hostReq("microHasAccessToStore", map[string]any{"machineId": p.MachineID, "storeId": p.StoreID})
+		hostReq("hasAccessToStore", map[string]any{"machineId": p.MachineID, "storeId": p.StoreID})
 	}
 	out, _ := json.Marshal(map[string]any{"ok": true, "endpoint": "/chains/createShard"})
 	hostReq("output", map[string]any{"text": string(out)})

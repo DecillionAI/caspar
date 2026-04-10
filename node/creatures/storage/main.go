@@ -49,9 +49,9 @@ func process(input string) string {
 	if input != "" {
 		_ = json.Unmarshal([]byte(input), &p)
 	}
-	hostReq("microPutJson", map[string]any{"key": "Json::CreatureNamespace::storage", "path": "lastInput", "data": p.Payload, "merge": true})
+	hostReq("putJson", map[string]any{"key": "Json::CreatureNamespace::storage", "path": "lastInput", "data": p.Payload, "merge": true})
 	if p.Path != "" {
-		hostReq("microPutLink", map[string]any{"key": "creatureNamespace::storage::lastPath", "value": p.Path})
+		hostReq("putLink", map[string]any{"key": "creatureNamespace::storage::lastPath", "value": p.Path})
 	}
 	out, _ := json.Marshal(map[string]any{"ok": true, "namespace": "storage"})
 	hostReq("output", map[string]any{"text": string(out)})

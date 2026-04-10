@@ -80,27 +80,27 @@ func (wm *Vmm) VmCallback(dataRaw string) (string, int64) {
 		return wm.handleVmChainRequest("deleteSubchain", input, reqId)
 	case "execShellAction":
 		return wm.handleExecShellAction(input, reqId)
-	case "microGenId":
+	case "genId":
 		return wm.handleMicroHostAction("genId", input, reqId)
-	case "microGetLink":
+	case "getLink":
 		return wm.handleMicroHostAction("getLink", input, reqId)
-	case "microPutLink":
+	case "putLink":
 		return wm.handleMicroHostAction("putLink", input, reqId)
-	case "microDelKey":
+	case "delKey":
 		return wm.handleMicroHostAction("delKey", input, reqId)
-	case "microGetJson":
+	case "getJson":
 		return wm.handleMicroHostAction("getJson", input, reqId)
-	case "microPutJson":
+	case "putJson":
 		return wm.handleMicroHostAction("putJson", input, reqId)
-	case "microGetByPrefix":
+	case "getByPrefix":
 		return wm.handleMicroHostAction("getByPrefix", input, reqId)
-	case "microHasAccessToStore":
+	case "hasAccessToStore":
 		return wm.handleMicroHostAction("hasAccessToStore", input, reqId)
-	case "microSignalUser":
+	case "signalUser":
 		return wm.handleMicroHostAction("signalUser", input, reqId)
-	case "microSignalGroup":
+	case "signalGroup":
 		return wm.handleMicroHostAction("signalGroup", input, reqId)
-	case "microJoinGroup":
+	case "joinGroup":
 		return wm.handleMicroHostAction("joinGroup", input, reqId)
 	case "log":
 		_, err := checkField(input, "text", "")

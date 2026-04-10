@@ -50,25 +50,25 @@ func process(input string) string {
 		_ = json.Unmarshal([]byte(input), &p)
 	}
 	if "addMachine" == "create" || "addMachine" == "createFromSpace" || "addMachine" == "createShard" {
-		hostReq("microGenId", map[string]any{"source": "spaces.addMachine"})
+		hostReq("genId", map[string]any{"source": "spaces.addMachine"})
 	}
-	hostReq("microPutJson", map[string]any{
+	hostReq("putJson", map[string]any{
 		"key":   "Json::CreatureEndpoint::spaces::addMachine",
 		"path":  "lastInput",
 		"data":  p.Payload,
 		"merge": true,
 	})
 	if p.UserID != "" {
-		hostReq("microPutLink", map[string]any{"key": "creatureEndpoint::spaces::addMachine::lastUser", "value": p.UserID})
+		hostReq("putLink", map[string]any{"key": "creatureEndpoint::spaces::addMachine::lastUser", "value": p.UserID})
 	}
 	if p.SpaceID != "" {
-		hostReq("microSignalGroup", map[string]any{"key": "creatures/signal", "groupId": p.SpaceID, "packet": "{}", "system": true})
+		hostReq("signalGroup", map[string]any{"key": "creatures/signal", "groupId": p.SpaceID, "packet": "{}", "system": true})
 	}
 	if p.UserID != "" {
-		hostReq("microSignalUser", map[string]any{"key": "creatures/signal", "userId": p.UserID, "packet": "{}", "system": true})
+		hostReq("signalUser", map[string]any{"key": "creatures/signal", "userId": p.UserID, "packet": "{}", "system": true})
 	}
 	if p.MachineID != "" && p.SpaceID != "" {
-		hostReq("microHasAccessToStore", map[string]any{"machineId": p.MachineID, "storeId": p.SpaceID})
+		hostReq("hasAccessToStore", map[string]any{"machineId": p.MachineID, "storeId": p.SpaceID})
 	}
 	out, _ := json.Marshal(map[string]any{"ok": true, "endpoint": "/spaces/addMachine"})
 	hostReq("output", map[string]any{"text": string(out)})
