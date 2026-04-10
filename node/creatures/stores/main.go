@@ -14,7 +14,7 @@ type packet struct {
 	Path    string         `json:"path"`
 	Payload map[string]any `json:"payload"`
 	UserID  string         `json:"userId,omitempty"`
-	StoreID string         `json:"storeId,omitempty"`
+	SpaceID string         `json:"spaceId,omitempty"`
 }
 
 func bytesAt(offset uint32, length uint32) []byte {
@@ -49,11 +49,11 @@ func process(input string) string {
 	if input != "" {
 		_ = json.Unmarshal([]byte(input), &p)
 	}
-	hostReq("microPutJson", map[string]any{"key": "Json::CreatureNamespace::stores", "path": "lastInput", "data": p.Payload, "merge": true})
+	hostReq("microPutJson", map[string]any{"key": "Json::CreatureNamespace::spaces", "path": "lastInput", "data": p.Payload, "merge": true})
 	if p.Path != "" {
-		hostReq("microPutLink", map[string]any{"key": "creatureNamespace::stores::lastPath", "value": p.Path})
+		hostReq("microPutLink", map[string]any{"key": "creatureNamespace::spaces::lastPath", "value": p.Path})
 	}
-	out, _ := json.Marshal(map[string]any{"ok": true, "namespace": "stores"})
+	out, _ := json.Marshal(map[string]any{"ok": true, "namespace": "spaces"})
 	hostReq("output", map[string]any{"text": string(out)})
 	return string(out)
 }
