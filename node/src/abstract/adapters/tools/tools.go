@@ -3,7 +3,6 @@ package tools
 import (
 	"kasper/src/abstract/adapters/docker"
 	"kasper/src/abstract/adapters/file"
-	"kasper/src/abstract/adapters/firectl"
 	"kasper/src/abstract/adapters/network"
 	"kasper/src/abstract/adapters/security"
 	"kasper/src/abstract/adapters/signaler"
@@ -19,5 +18,4 @@ type ITools interface {
 	File() file.IFile
 	Vmm() vmm.IVmm
 	Docker() docker.IDocker
-	Firectl() firectl.IFirectl
 }

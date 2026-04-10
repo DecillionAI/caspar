@@ -12,7 +12,6 @@ import (
 	inputs_users "kasper/src/shell/api/inputs/users"
 	"kasper/src/shell/api/model"
 	outputs_machiner "kasper/src/shell/api/outputs/plugin"
-	updates_stores "kasper/src/shell/api/updates/stores"
 	"kasper/src/shell/utils/future"
 	"log"
 	"strconv"
@@ -37,7 +36,7 @@ func normalizeEntityType(entityType string) string {
 
 func isSupportedEntityType(entityType string) bool {
 	switch normalizeEntityType(entityType) {
-	case "docker", "wasm", "elpify", "javascript", "elpian":
+	case "docker", "wasm", "elpify", "javascript", "elpian", "fire":
 		return true
 	default:
 		return false
@@ -287,7 +286,7 @@ func Install(a *Actions, extra ...any) error {
 			panic(err)
 		}
 		for _, program := range programs {
-			if program.Runtime == "wasm" || program.Runtime == "elpify" || program.Runtime == "javascript" || program.Runtime == "elpian" {
+			if program.Runtime == "wasm" || program.Runtime == "elpify" || program.Runtime == "javascript" || program.Runtime == "elpian" || program.Runtime == "fire" {
 				a.App.Tools().Vmm().Assign(program.MachineId)
 				if storeId := trx.GetLink("vmAlarmStoreId::" + program.MachineId); storeId != "" {
 					future.Async(func() {

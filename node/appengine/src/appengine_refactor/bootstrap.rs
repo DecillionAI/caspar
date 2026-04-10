@@ -24,6 +24,12 @@ fn main() {
                             Ok(res) => res.to_string(),
                             Err(err) => json!({"ok": false, "error": err}).to_string(),
                         };
+                } else if runtime == "fire" {
+                    response_payload =
+                        match with_fire_controller(|controller| controller.run_vm(&packet)) {
+                            Ok(res) => res.to_string(),
+                            Err(err) => json!({"ok": false, "error": err}).to_string(),
+                        };
                 } else {
                     let ast_path = packet["astPath"].as_str().unwrap().to_string();
                     let input = packet["input"].as_str().unwrap().to_string();
@@ -51,6 +57,15 @@ fn main() {
                                 machine_id, e
                             ));
                         }
+                    } else if runtime == VmRuntime::Fire {
+                        let fire_packet = json!({
+                            "machineId": machine_id,
+                            "vmId": packet["vmId"].as_str().unwrap_or("main"),
+                        });
+                        response_payload = match with_fire_controller(|controller| controller.run_vm(&fire_packet)) {
+                            Ok(res) => res.to_string(),
+                            Err(err) => json!({"ok": false, "error": err}).to_string(),
+                        };
                     } else {
                         thread::spawn(move || {
                             let inp1 = input.clone();
@@ -92,28 +107,56 @@ fn main() {
                             Ok(res) => res.to_string(),
                             Err(err) => json!({"ok": false, "error": err}).to_string(),
                         };
+                } else if runtime == "fire" {
+                    response_payload =
+                        match with_fire_controller(|controller| controller.terminate_vm(&packet))
+                        {
+                            Ok(res) => res.to_string(),
+                            Err(err) => json!({"ok": false, "error": err}).to_string(),
+                        };
                 } else {
                     let machine_id = packet["machineId"].as_str().unwrap().to_string();
                     terminate_managed_vm(&machine_id);
                 }
             } else if packet["type"] == "execVm" || packet["type"] == "execDocker" {
-                response_payload =
+                let runtime = packet["runtime"].as_str().unwrap_or("").to_lowercase();
+                response_payload = if runtime == "fire" {
+                    match with_fire_controller(|controller| controller.exec_vm(&packet)) {
+                        Ok(res) => res.to_string(),
+                        Err(err) => json!({"ok": false, "error": err}).to_string(),
+                    }
+                } else {
                     match with_docker_controller(|controller| controller.exec_vm(&packet)) {
                         Ok(res) => res.to_string(),
                         Err(err) => json!({"ok": false, "error": err}).to_string(),
-                    };
+                    }
+                };
             } else if packet["type"] == "copyToVm" || packet["type"] == "copyToDocker" {
-                response_payload =
+                let runtime = packet["runtime"].as_str().unwrap_or("").to_lowercase();
+                response_payload = if runtime == "fire" {
+                    match with_fire_controller(|controller| controller.copy_to_vm(&packet)) {
+                        Ok(res) => res.to_string(),
+                        Err(err) => json!({"ok": false, "error": err}).to_string(),
+                    }
+                } else {
                     match with_docker_controller(|controller| controller.copy_to_vm(&packet)) {
                         Ok(res) => res.to_string(),
                         Err(err) => json!({"ok": false, "error": err}).to_string(),
-                    };
+                    }
+                };
             } else if packet["type"] == "buildVmImage" || packet["type"] == "buildDockerImage" {
-                response_payload =
+                let runtime = packet["runtime"].as_str().unwrap_or("").to_lowercase();
+                response_payload = if runtime == "fire" {
+                    match with_fire_controller(|controller| controller.build_image(&packet)) {
+                        Ok(res) => res.to_string(),
+                        Err(err) => json!({"ok": false, "error": err}).to_string(),
+                    }
+                } else {
                     match with_docker_controller(|controller| controller.build_image(&packet)) {
                         Ok(res) => res.to_string(),
                         Err(err) => json!({"ok": false, "error": err}).to_string(),
-                    };
+                    }
+                };
             } else if packet["type"] == "hostCall" {
                 response_payload = handle_unified_host_call(&packet);
             } else if packet["type"] == "verifyProgramExecution" || packet["type"] == "elpifyProof" {

@@ -77,7 +77,7 @@ func normalizeRuntime(runtime string) string {
 
 func isManagedRuntime(runtime string) bool {
 	runtime = normalizeRuntime(runtime)
-	return runtime == "wasm" || runtime == "javascript" || runtime == "elpify" || runtime == "elpian"
+	return runtime == "wasm" || runtime == "javascript" || runtime == "elpify" || runtime == "elpian" || runtime == "fire"
 }
 
 func (wm *Vmm) resolveVmExecutionTarget(machineId string, entityId string) (string, string) {
@@ -486,6 +486,7 @@ func (wm *Vmm) handleRunVM(input map[string]any, reqId int64) (string, int64) {
 			astPath, vmType := wm.resolveVmExecutionTarget(targetMachineId, entityId)
 			str, _ := json.Marshal(map[string]any{
 				"type":      "runVm",
+				"runtime":   vmType,
 				"machineId": targetMachineId,
 				"input":     data,
 				"astPath":   astPath,
@@ -659,10 +660,23 @@ func (wm *Vmm) handleTerminateVM(input map[string]any, reqId int64) (string, int
 		return "{}", reqId
 	}
 	if isManagedRuntime(targetRuntime) {
-		wm.TerminateVm(targetMachineId)
+		str, _ := json.Marshal(map[string]any{
+			"type":      "terminateVm",
+			"runtime":   targetRuntime,
+			"machineId": targetMachineId,
+			"vmId":      checkVmId(input),
+		})
+		wm.aeSocket <- string(str)
 		return "{}", reqId
 	}
 	return "unsupported runtime", reqId
+}
+
+func checkVmId(input map[string]any) string {
+	if vmId, ok := input["vmId"].(string); ok && vmId != "" {
+		return vmId
+	}
+	return "main"
 }
 
 func checkField[T any](input map[string]any, fieldName string, defVal T) (T, error) {

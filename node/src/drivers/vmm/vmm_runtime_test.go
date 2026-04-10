@@ -3,7 +3,7 @@ package vmm
 import "testing"
 
 func TestIsManagedRuntimeIncludesElpian(t *testing.T) {
-	supported := []string{"wasm", "javascript", "elpify", "elpian", " ELPian "}
+	supported := []string{"wasm", "javascript", "elpify", "elpian", "fire", " ELPian "}
 	for _, runtime := range supported {
 		if !isManagedRuntime(runtime) {
 			t.Fatalf("runtime %q should be managed", runtime)

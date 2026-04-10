@@ -27,6 +27,7 @@ use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::io::Cursor;
 use std::ops::DerefMut;
 use std::path::Path;
+use std::process::Child;
 use std::str;
 use std::sync::atomic::AtomicI32;
 use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
@@ -44,6 +45,7 @@ use wasmedge_types::{error::CoreError, ValType};
 
 include!("appengine_refactor/globals.rs");
 include!("appengine_refactor/docker_controller.rs");
+include!("appengine_refactor/fire_controller.rs");
 include!("appengine_refactor/host_ops.rs");
 include!("appengine_refactor/bootstrap.rs");
 include!("appengine_refactor/runtime/messaging.rs");

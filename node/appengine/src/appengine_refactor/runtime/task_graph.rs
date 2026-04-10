@@ -1,5 +1,3 @@
-
-
 pub fn host_call(
     host_data: &mut HostData,
     _inst: &mut Instance,
@@ -553,7 +551,7 @@ pub fn signal_store(
     let payload = str::from_utf8(&cn_bytes_next).unwrap();
 
     let j = json!({
-        "key": "signalStore",
+        "key": "signal",
         "input": {
             "machineId": rt.machine_id,
             "type": typ,

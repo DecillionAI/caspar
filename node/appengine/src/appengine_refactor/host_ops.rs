@@ -130,29 +130,62 @@ fn handle_unified_host_call(packet: &JsonValue) -> String {
             Ok(res) => res,
             Err(err) => json!({"ok": false, "error": err}).to_string(),
         },
-        "runVm" => match with_docker_controller(|controller| controller.run_vm(&input)) {
-            Ok(res) => res.to_string(),
-            Err(err) => json!({"ok": false, "error": err}).to_string(),
-        },
-        "terminateVm" => match with_docker_controller(|controller| controller.terminate_vm(&input))
-        {
-            Ok(res) => res.to_string(),
-            Err(err) => json!({"ok": false, "error": err}).to_string(),
-        },
+        "runVm" => {
+            let runtime = input["runtime"].as_str().unwrap_or("").to_lowercase();
+            let result = if runtime == "fire" {
+                with_fire_controller(|controller| controller.run_vm(&input))
+            } else {
+                with_docker_controller(|controller| controller.run_vm(&input))
+            };
+            match result {
+                Ok(res) => res.to_string(),
+                Err(err) => json!({"ok": false, "error": err}).to_string(),
+            }
+        }
+        "terminateVm" => {
+            let runtime = input["runtime"].as_str().unwrap_or("").to_lowercase();
+            let result = if runtime == "fire" {
+                with_fire_controller(|controller| controller.terminate_vm(&input))
+            } else {
+                with_docker_controller(|controller| controller.terminate_vm(&input))
+            };
+            match result {
+                Ok(res) => res.to_string(),
+                Err(err) => json!({"ok": false, "error": err}).to_string(),
+            }
+        }
         "execVm" | "execDocker" => {
-            match with_docker_controller(|controller| controller.exec_vm(&input)) {
+            let runtime = input["runtime"].as_str().unwrap_or("").to_lowercase();
+            let result = if runtime == "fire" {
+                with_fire_controller(|controller| controller.exec_vm(&input))
+            } else {
+                with_docker_controller(|controller| controller.exec_vm(&input))
+            };
+            match result {
                 Ok(res) => res.to_string(),
                 Err(err) => json!({"ok": false, "error": err}).to_string(),
             }
         }
         "copyToVm" | "copyToDocker" => {
-            match with_docker_controller(|controller| controller.copy_to_vm(&input)) {
+            let runtime = input["runtime"].as_str().unwrap_or("").to_lowercase();
+            let result = if runtime == "fire" {
+                with_fire_controller(|controller| controller.copy_to_vm(&input))
+            } else {
+                with_docker_controller(|controller| controller.copy_to_vm(&input))
+            };
+            match result {
                 Ok(res) => res.to_string(),
                 Err(err) => json!({"ok": false, "error": err}).to_string(),
             }
         }
         "buildVmImage" | "buildDockerImage" => {
-            match with_docker_controller(|controller| controller.build_image(&input)) {
+            let runtime = input["runtime"].as_str().unwrap_or("").to_lowercase();
+            let result = if runtime == "fire" {
+                with_fire_controller(|controller| controller.build_image(&input))
+            } else {
+                with_docker_controller(|controller| controller.build_image(&input))
+            };
+            match result {
                 Ok(res) => res.to_string(),
                 Err(err) => json!({"ok": false, "error": err}).to_string(),
             }
@@ -188,5 +221,13 @@ where
     F: FnOnce(&DockerVmController) -> Result<T, String>,
 {
     let controller = DockerVmController::new()?;
+    f(&controller)
+}
+
+fn with_fire_controller<T, F>(f: F) -> Result<T, String>
+where
+    F: FnOnce(&FireVmController) -> Result<T, String>,
+{
+    let controller = FireVmController::new()?;
     f(&controller)
 }
