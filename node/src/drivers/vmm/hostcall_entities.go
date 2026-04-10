@@ -291,7 +291,7 @@ func (wm *Vmm) handleVmChainRequest(op string, input map[string]any, reqId int64
 	if op == "createWorkchain" {
 		chainId := wm.app.Tools().Network().Chain().CreateWorkChain(storeId)
 		payload, _ := json.Marshal(map[string]any{"op": op, "chainId": chainId, "storeId": storeId})
-		wm.app.SendTypedMessageOnChain("main", "chains/vm/request", "vm.chain", payload, "", wm.app.OwnerId(), receivers, "", storeId, nil, nil)
+		wm.app.Globe().SendTypedMessageOnChain("main", "chains/vm/request", "vm.chain", payload, "", wm.app.OwnerId(), receivers, "", storeId, nil, nil)
 		return fmt.Sprintf(`{"ok":true,"chainId":"%s"}`, chainId), reqId
 	}
 	if op == "createSubchain" {
@@ -307,12 +307,12 @@ func (wm *Vmm) handleVmChainRequest(op string, input map[string]any, reqId int64
 		}
 		subchainId = wm.app.Tools().Network().Chain().CreateShardChain(workChainId, subchainId, peers)
 		payload, _ := json.Marshal(map[string]any{"op": op, "workChainId": workChainId, "subchainId": subchainId, "peers": peers})
-		wm.app.SendTypedMessageOnChain("main", "chains/vm/request", "vm.chain", payload, "", wm.app.OwnerId(), receivers, "", storeId, nil, nil)
+		wm.app.Globe().SendTypedMessageOnChain("main", "chains/vm/request", "vm.chain", payload, "", wm.app.OwnerId(), receivers, "", storeId, nil, nil)
 		return fmt.Sprintf(`{"ok":true,"workChainId":"%s","subchainId":"%s"}`, workChainId, subchainId), reqId
 	}
 	if strings.HasPrefix(op, "delete") {
 		payload, _ := json.Marshal(map[string]any{"op": op, "input": input})
-		wm.app.SendTypedMessageOnChain("main", "chains/vm/request", "vm.chain", payload, "", wm.app.OwnerId(), receivers, "", storeId, nil, nil)
+		wm.app.Globe().SendTypedMessageOnChain("main", "chains/vm/request", "vm.chain", payload, "", wm.app.OwnerId(), receivers, "", storeId, nil, nil)
 		return `{"ok":true,"notified":true}`, reqId
 	}
 	return `{"ok":false,"error":"unsupported chain op"}`, reqId

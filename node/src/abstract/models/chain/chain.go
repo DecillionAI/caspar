@@ -74,6 +74,49 @@ type ChainElectionPacket struct {
 	Payload []byte
 }
 
+type ChainStakePacket struct {
+	NodeId      string `json:"nodeId"`
+	OwnerId     string `json:"ownerId"`
+	Action      string `json:"action"`
+	Amount      int64  `json:"amount"`
+	Nonce       uint64 `json:"nonce"`
+	LockSeconds int64  `json:"lockSeconds"`
+	Reason      string `json:"reason"`
+	Timestamp   int64  `json:"timestamp"`
+}
+
+type StakingNodeState struct {
+	NodeId         string `json:"nodeId"`
+	OwnerId        string `json:"ownerId"`
+	BondedStake    int64  `json:"bondedStake"`
+	PendingUnbond  int64  `json:"pendingUnbond"`
+	UnbondUnlockAt int64  `json:"unbondUnlockAt"`
+	Nonce          uint64 `json:"nonce"`
+	LastUpdatedAt  int64  `json:"lastUpdatedAt"`
+}
+
+type ValidatorSetRecord struct {
+	RoundId      string   `json:"roundId"`
+	Validators   []string `json:"validators"`
+	TotalBonded  int64    `json:"totalBonded"`
+	SelectedAt   int64    `json:"selectedAt"`
+	EligibleNode int      `json:"eligibleNode"`
+}
+
+type ElectionRound struct {
+	Id                 string            `json:"id"`
+	CommitSeed         string            `json:"commitSeed"`
+	Phase              string            `json:"phase"`
+	StartAt            int64             `json:"startAt"`
+	CommitDeadline     int64             `json:"commitDeadline"`
+	RevealDeadline     int64             `json:"revealDeadline"`
+	FinalizedAt        int64             `json:"finalizedAt"`
+	Commits            map[string]string `json:"commits"`
+	Reveals            map[string]string `json:"reveals"`
+	CommitParticipants map[string]bool   `json:"commitParticipants"`
+	SelectedValidators []string          `json:"selectedValidators"`
+}
+
 type Election struct {
 	MyNum        string
 	Participants map[string]bool

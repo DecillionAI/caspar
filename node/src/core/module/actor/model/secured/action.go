@@ -66,7 +66,7 @@ func (a *SecureAction) SecurelyAct(userId string, packetId string, packetBinary 
 		var res any
 		var sc int
 		var e error
-		a.core.ExecBaseRequestOnChain(a.Key(), packetBinary, packetSignature, userId, "", func(data []byte, resCode int, err error) {
+		a.core.Globe().SendBaseRequestOnChain(a.Key(), packetBinary, packetSignature, userId, "", func(data []byte, resCode int, err error) {
 			result := map[string]any{}
 			json.Unmarshal(data, &result)
 			res = result

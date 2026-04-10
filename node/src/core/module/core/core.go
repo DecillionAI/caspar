@@ -1,13 +1,16 @@
 package module_core
 
 import (
+	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/binary"
+	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
+	"fmt"
 	"kasper/src/abstract/adapters/docker"
 	"kasper/src/abstract/adapters/file"
 	"kasper/src/abstract/adapters/firectl"
@@ -19,6 +22,7 @@ import (
 	"kasper/src/abstract/adapters/vmm"
 	iaction "kasper/src/abstract/models/action"
 	"kasper/src/abstract/models/chain"
+	abstract_globe "kasper/src/abstract/models/globe"
 	"kasper/src/abstract/models/info"
 	"kasper/src/abstract/models/input"
 	"kasper/src/abstract/models/trx"
@@ -28,6 +32,7 @@ import (
 	actor "kasper/src/core/module/actor"
 	mainstate "kasper/src/core/module/actor/model/state"
 	module_trx "kasper/src/core/module/actor/model/trx"
+	"kasper/src/core/module/globe"
 	inputs_users "kasper/src/shell/api/inputs/users"
 	mach_model "kasper/src/shell/api/model"
 	"kasper/src/shell/utils/crypto"
@@ -45,6 +50,7 @@ import (
 
 	"log"
 	"os"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -52,7 +58,6 @@ import (
 	"time"
 
 	cryp "crypto"
-	"crypto/rand"
 )
 
 type Tools struct {
@@ -120,9 +125,12 @@ type Core struct {
 	privKey                *rsa.PrivateKey
 	messageCallbacks       map[string]*chain.MessageCallback
 	executionCostPerSecond int64
+	globe                  abstract_globe.IGlobe
 }
 
-var MAX_VALIDATOR_COUNT = 5
+var MAX_VALIDATOR_COUNT = 50
+var ELECTION_COMMIT_SECONDS int64 = 120
+var ELECTION_REVEAL_SECONDS int64 = 120
 
 type chainSubmission struct {
 	chainId string
@@ -148,6 +156,7 @@ func NewCore(origin string, ownerId string, ownerPrivateKey *rsa.PrivateKey) *Co
 		actionStore:            actor.NewActor(),
 		started:                false,
 		executionCostPerSecond: 0,
+		globe:                  nil,
 	}
 }
 
@@ -165,6 +174,13 @@ func (c *Core) AddFreeNode(nodeId string) {
 		c.freeNodes = map[string]bool{}
 	}
 	c.freeNodes[nodeId] = true
+}
+
+func (c *Core) StakeNodeOwner(nodeId string, ownerId string, amount int64) {
+	if c.Globe() == nil {
+		return
+	}
+	c.Globe().StakeNodeOwner(nodeId, ownerId, amount)
 }
 
 func (c *Core) Actor() iaction.IActor {
@@ -214,6 +230,10 @@ func (c *Core) ModifyState(readonly bool, fn func(trx.ITrx) error) {
 
 func (c *Core) Tools() tools.ITools {
 	return c.tools
+}
+
+func (c *Core) Globe() abstract_globe.IGlobe {
+	return c.globe
 }
 
 func (c *Core) Id() string {
@@ -309,38 +329,6 @@ func (c *Core) PlantChainTrigger(count int, userId string, tag string, machineId
 	})
 }
 
-func (c *Core) ExecBaseRequestOnChain(key string, payload []byte, signature string, userId string, tag string, callback func([]byte, int, error)) {
-	c.lock.Lock()
-	defer c.lock.Unlock()
-	callbackId := crypto.SecureUniqueString()
-	c.chainCallbacks[callbackId] = &chain.ChainCallback{Tag: tag, Fn: callback, Executors: map[string]bool{}, Responses: map[string]string{}}
-	future.Async(func() {
-		c.chain <- chain.ChainBaseRequest{Tag: tag, Signatures: []string{c.SignPacket(payload), signature}, Submitter: c.id, RequestId: callbackId, Author: "user::" + userId, Key: key, Payload: payload}
-	}, false)
-}
-
-func (c *Core) SendMessageOnChain(key string, payload []byte, signature string, userId string, receivers map[string]map[string]bool, replyTo string, callback func(string, []byte)) {
-	c.SendTypedMessageOnChain("main", key, "vm.execute", payload, signature, userId, receivers, replyTo, "", nil, callback)
-}
-
-func (c *Core) SendTypedMessageOnChain(chainId string, key string, messageType string, payload []byte, signature string, userId string, receivers map[string]map[string]bool, replyTo string, storeId string, pay *chain.ChainPayPacket, callback func(string, []byte)) {
-	c.lock.Lock()
-	defer c.lock.Unlock()
-	callbackId := crypto.SecureUniqueString()
-	if callback != nil {
-		c.messageCallbacks[callbackId] = &chain.MessageCallback{Id: callbackId, Fn: callback}
-	}
-	if messageType == "" {
-		messageType = "vm.execute"
-	}
-	if chainId == "" {
-		chainId = "main"
-	}
-	future.Async(func() {
-		c.chain <- chainSubmission{chainId: chainId, op: chain.ChainMessage{Key: key, MessageType: messageType, ReplyTo: replyTo, StoreId: storeId, Pay: pay, Recievers: receivers, Signatures: []string{c.SignPacket(payload), signature}, Submitter: c.id, RequestId: callbackId, Author: "user::" + userId, Payload: payload}}
-	}, false)
-}
-
 func (c *Core) chainMessageTargetsLocalNode(packet chain.ChainMessage) bool {
 	if _, exists := packet.Recievers["*"]; exists {
 		return true
@@ -415,7 +403,10 @@ func (c *Core) consumePayLockOnChain(pay *chain.ChainPayPacket) bool {
 	})
 	sign := c.SignPacketAsOwner(inp)
 	res := make(chan bool, 1)
-	c.ExecBaseRequestOnChain("/creatures/consumeLock", inp, sign, c.ownerId, "", func(b []byte, i int, err error) {
+	if c.Globe() == nil {
+		return false
+	}
+	c.Globe().SendBaseRequestOnChain("/creatures/consumeLock", inp, sign, c.ownerId, "", func(b []byte, i int, err error) {
 		if err != nil || i >= 400 {
 			res <- false
 			return
@@ -425,16 +416,10 @@ func (c *Core) consumePayLockOnChain(pay *chain.ChainPayPacket) bool {
 	return <-res
 }
 
-func (c *Core) ExecBaseResponseOnChain(callbackId string, packet []byte, signature string, resCode int, e string, updates []update.Update, tag string, toUserId string) {
-	future.Async(func() {
-		sort.Slice(updates, func(i, j int) bool {
-			return (updates[i].Typ + ":" + updates[i].Key) < (updates[j].Typ + ":" + updates[j].Key)
-		})
-		c.chain <- chain.ChainResponse{ToUserId: toUserId, Tag: tag, Signature: signature, Executor: c.id, RequestId: callbackId, ResCode: resCode, Err: e, Payload: packet, Effects: chain.Effects{DbUpdates: updates}}
-	}, false)
-}
-
-func (c *Core) OnChainPacket(typ string, trxPayload []byte) string {
+func (c *Core) handleChainPacket(typ string, trxPayload []byte) string {
+	if c.Globe() != nil && c.Globe().Handle(typ, trxPayload) {
+		return ""
+	}
 	c.lock.Lock()
 	defer c.lock.Unlock()
 	switch typ {
@@ -517,7 +502,9 @@ func (c *Core) OnChainPacket(typ string, trxPayload []byte) string {
 				log.Println(err2)
 				errText := "input parsing error"
 				signature := c.SignPacket([]byte(errText))
-				c.ExecBaseResponseOnChain(packet.RequestId, []byte{}, signature, 400, errText, []update.Update{}, packet.Tag, userId)
+				if c.Globe() != nil {
+					c.Globe().ExecBaseResponseOnChain(packet.RequestId, []byte{}, signature, 400, errText, []update.Update{}, packet.Tag, userId)
+				}
 				return ""
 			}
 			input = i
@@ -603,6 +590,29 @@ func (c *Core) Load(gods []string, args map[string]interface{}) {
 			c.executionCostPerSecond = cps
 		}
 	}
+	c.chain = make(chan any, 1)
+	c.globe = globe.NewGlobe(
+		c.id,
+		c.Ip,
+		func() []string {
+			return c.tools.Network().Chain().Peers()
+		},
+		c.SignPacket,
+		func(chainId string, op any) {
+			future.Async(func() {
+				c.chain <- chainSubmission{chainId: chainId, op: op}
+			}, false)
+		},
+		func(callbackId string, callback *chain.ChainCallback) {
+			c.chainCallbacks[callbackId] = callback
+		},
+		func(callbackId string, callback *chain.MessageCallback) {
+			c.messageCallbacks[callbackId] = callback
+		},
+		MAX_VALIDATOR_COUNT,
+		ELECTION_COMMIT_SECONDS,
+		ELECTION_REVEAL_SECONDS,
+	)
 
 	c.tools.Network().Chain().RegisterPipeline(func(b [][]byte, insiderCb func([]byte)) []string {
 		machineIds := []string{}
@@ -615,7 +625,7 @@ func (c *Core) Load(gods []string, args map[string]interface{}) {
 			} else if typ == ("sharderMap|" + c.id) {
 				insiderCb(trx)
 			} else {
-				r := c.OnChainPacket(typ, trx[firstIndex+2:])
+				r := c.handleChainPacket(typ, trx[firstIndex+2:])
 				if r != "" {
 					machineIds = append(machineIds, r)
 				}
@@ -625,7 +635,6 @@ func (c *Core) Load(gods []string, args map[string]interface{}) {
 		return machineIds
 	})
 
-	c.chain = make(chan any, 1)
 	future.Async(func() {
 		for {
 			rawOp := <-c.chain
@@ -647,6 +656,16 @@ func (c *Core) Load(gods []string, args map[string]interface{}) {
 			case chain.ChainMessage:
 				{
 					typ = "message"
+					break
+				}
+			case chain.ChainElectionPacket:
+				{
+					typ = "election"
+					break
+				}
+			case chain.ChainStakePacket:
+				{
+					typ = "stake"
 					break
 				}
 			}
@@ -672,27 +691,16 @@ func (c *Core) Load(gods []string, args map[string]interface{}) {
 						log.Println(err)
 					}
 				}()
-				minutes := time.Now().Minute()
-				seconds := time.Now().Second()
-				if (minutes == 0) && ((seconds >= 0) && (seconds <= 2)) {
-					c.DoElection()
-					time.Sleep(2 * time.Minute)
-				}
+				now := time.Now().UTC()
+				c.DoElection(now)
 			}()
 		}
 	}, false)
 }
 
-func (c *Core) DoElection() {
-	c.lock.Lock()
-	defer c.lock.Unlock()
-	c.elecReg = true
-	future.Async(func() {
-		c.chain <- chain.ChainElectionPacket{
-			Type:    "election",
-			Key:     "choose-validator",
-			Meta:    map[string]any{"phase": "start-reg", "voter": c.Ip},
-			Payload: []byte("{}"),
-		}
-	}, false)
+func (c *Core) DoElection(now time.Time) {
+	if c.Globe() == nil {
+		return
+	}
+	c.Globe().TryStartScheduledElection(now)
 }
