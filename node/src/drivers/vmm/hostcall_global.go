@@ -84,10 +84,12 @@ func (wm *Vmm) VmCallback(dataRaw string) (string, int64) {
 		return wm.handleMicroHostAction("genId", input, reqId)
 	case "getLink":
 		return wm.handleMicroHostAction("getLink", input, reqId)
-	case "putLink":
-		return wm.handleMicroHostAction("putLink", input, reqId)
 	case "delKey":
 		return wm.handleMicroHostAction("delKey", input, reqId)
+	case "createAccess":
+		return wm.handleMicroHostAction("createAccess", input, reqId)
+	case "deleteAccess":
+		return wm.handleMicroHostAction("deleteAccess", input, reqId)
 	case "getJson":
 		return wm.handleMicroHostAction("getJson", input, reqId)
 	case "putJson":

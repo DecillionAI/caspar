@@ -51,7 +51,7 @@ func process(input string) string {
 	}
 	hostReq("putJson", map[string]any{"key": "Json::CreatureNamespace::storage", "path": "lastInput", "data": p.Payload, "merge": true})
 	if p.Path != "" {
-		hostReq("putLink", map[string]any{"key": "creatureNamespace::storage::lastPath", "value": p.Path})
+		hostReq("dbOp", map[string]any{"op": "put", "key": "creatureNamespace::storage::lastPath", "val": p.Path})
 	}
 	out, _ := json.Marshal(map[string]any{"ok": true, "namespace": "storage"})
 	hostReq("output", map[string]any{"text": string(out)})

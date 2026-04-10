@@ -379,24 +379,46 @@ func (wm *Vmm) handleMicroHostAction(op string, input map[string]any, reqId int6
 			return nil
 		})
 		return fmt.Sprintf(`{"ok":true,"value":%q}`, val), reqId
-	case "putLink":
-		key, err := checkField(input, "key", "")
-		if err != nil || key == "" {
-			return `{"ok":false,"error":"key is required"}`, reqId
-		}
-		value, _ := checkField(input, "value", "")
-		wm.app.ModifyState(false, func(t trx.ITrx) error {
-			t.PutLink(key, value)
-			return nil
-		})
-		return `{"ok":true}`, reqId
 	case "delKey":
 		key, err := checkField(input, "key", "")
 		if err != nil || key == "" {
 			return `{"ok":false,"error":"key is required"}`, reqId
 		}
+		if strings.HasPrefix(key, "link::") {
+			return `{"ok":false,"error":"link modifications are not allowed via delKey"}`, reqId
+		}
 		wm.app.ModifyState(false, func(t trx.ITrx) error {
 			t.DelKey(key)
+			return nil
+		})
+		return `{"ok":true}`, reqId
+	case "createAccess":
+		userId, err := checkField(input, "userId", "")
+		if err != nil || userId == "" {
+			return `{"ok":false,"error":"userId is required"}`, reqId
+		}
+		storeId, err := checkField(input, "storeId", "")
+		if err != nil || storeId == "" {
+			return `{"ok":false,"error":"storeId is required"}`, reqId
+		}
+		wm.app.ModifyState(false, func(t trx.ITrx) error {
+			t.PutLink("onaccess::"+storeId+"::"+userId, "true")
+			t.PutLink("hasaccess::"+userId+"::"+storeId, "true")
+			return nil
+		})
+		return `{"ok":true}`, reqId
+	case "deleteAccess":
+		userId, err := checkField(input, "userId", "")
+		if err != nil || userId == "" {
+			return `{"ok":false,"error":"userId is required"}`, reqId
+		}
+		storeId, err := checkField(input, "storeId", "")
+		if err != nil || storeId == "" {
+			return `{"ok":false,"error":"storeId is required"}`, reqId
+		}
+		wm.app.ModifyState(false, func(t trx.ITrx) error {
+			t.DelKey("link::onaccess::" + storeId + "::" + userId)
+			t.DelKey("link::hasaccess::" + userId + "::" + storeId)
 			return nil
 		})
 		return `{"ok":true}`, reqId
