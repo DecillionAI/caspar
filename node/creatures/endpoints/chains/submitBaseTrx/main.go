@@ -59,7 +59,7 @@ func process(input string) string {
 		"merge": true,
 	})
 	if p.UserID != "" {
-		hostReq("putLink", map[string]any{"key": "creatureEndpoint::chains::submitBaseTrx::lastUser", "value": p.UserID})
+		hostReq("dbOp", map[string]any{"op": "put", "key": "creatureEndpoint::chains::submitBaseTrx::lastUser", "val": p.UserID})
 	}
 	if p.StoreID != "" {
 		hostReq("signalGroup", map[string]any{"key": "creatures/signal", "groupId": p.StoreID, "packet": "{}", "system": true})
