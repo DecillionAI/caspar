@@ -1,41 +1,56 @@
-# Verifiable Chain Extension (Base Toolkit)
+# Verifiable Chain Extension (Base Toolkit) 🧩
 
-This extension provides a minimal **container-vm mini app base** for zk-style verifiable execution flows built on top of Caspar appengine host functions.
+> Updated: **2026-04-10**
 
-## What this mini app does
+This extension provides a minimal container-VM mini-app base for zk-style verifiable execution flows built on top of Caspar appengine host functions.
 
-- Supports **2 separate phases**:
-  1. **Execution phase (executor node):** receives `onchainExecutionRequest`, checks signature approval, runs `runVm` (`vmType: "elpify"`), then publishes result+proof on-chain as `onchainExecutionProofShared`.
-  2. **Verification phase (verifier nodes):** receives `onchainExecutionProofShared`, calls `elpifyProof`, publishes vote as `onchainVerificationVote`, and emits tally messages.
-- Returns execution result metadata back to requester as an on-chain message from the executor node.
-- Adds a **PoS validator election** flow (commit/reveal + stake-weighted randomness) published on-chain.
-- Adds a **smart sharding manager** that consumes machine load reports, computes balanced shard plans, and emits shard update actions via chain-driver API host calls.
+## What This Mini App Does
 
-## Node roles
+Supports two phases:
+
+1. **Execution phase (executor node):**
+   - receives `onchainExecutionRequest`
+   - validates signature approval
+   - runs `runVm` (`vmType: "elpify"`)
+   - publishes result + proof as `onchainExecutionProofShared`
+2. **Verification phase (verifier nodes):**
+   - receives `onchainExecutionProofShared`
+   - calls `elpifyProof`
+   - publishes vote as `onchainVerificationVote`
+   - emits tally messages
+
+Also included:
+
+- execution result metadata returned to requester as on-chain message from executor node
+- PoS validator election flow (commit/reveal + stake-weighted randomness)
+- smart sharding manager that consumes machine load reports, computes shard plans, and emits shard update actions via chain-driver host calls
+
+## Node Roles
 
 Set role and identity via environment variables:
 
-- `VERIFIABLE_NODE_ROLE=executor` for the primary execution node.
-- `VERIFIABLE_NODE_ROLE=verifier` for verifier nodes.
-- `VERIFIABLE_NODE_ID=<unique-node-id>` for vote attribution.
+- `VERIFIABLE_NODE_ROLE=executor` for primary execution node
+- `VERIFIABLE_NODE_ROLE=verifier` for verifier nodes
+- `VERIFIABLE_NODE_ID=<unique-node-id>` for vote attribution
 
-## New on-chain protocol messages
+## On-Chain Protocol Messages
 
-- `validatorStakeAnnouncement`: node stake declarations.
-- `validatorCommit`: commit hash for randomness reveal (`sha256(period:nodeId:nonce)`).
-- `validatorReveal`: reveal nonce + stake for a period.
-- `validatorElectionTick`: trigger period election and winner publication.
-- `onchainValidatorElectionResult`: elected validators with deterministic seed.
-- `machineLoadReport`: per-machine VM cost reports for shard balancing.
-- `onchainShardPlan`: rebalanced shard grouping publication.
+- `validatorStakeAnnouncement`
+- `validatorCommit` (`sha256(period:nodeId:nonce)`)
+- `validatorReveal`
+- `validatorElectionTick`
+- `onchainValidatorElectionResult`
+- `machineLoadReport`
+- `onchainShardPlan`
 
-## Chain driver integration
+## Chain Driver Integration
 
 The extension calls host op `chainDriverApi` with:
-- `upsertSubChain` to create/update shard sub-chains.
-- `rebalanceSubChains` to trigger split/merge/rebalance actions.
 
-## Request payload shape
+- `upsertSubChain` to create/update shard sub-chains
+- `rebalanceSubChains` to trigger split/merge/rebalance actions
+
+## Request Payload Shape
 
 ```json
 {
@@ -44,13 +59,14 @@ The extension calls host op `chainDriverApi` with:
 }
 ```
 
-## Build container
+## Build
 
 ```bash
 docker build -t caspar-verifiable-chain extensions/verifiable-chain
 ```
 
-## Notes
+## Notes ⚠️
 
-- Signature verification in this base is intentionally simple (`sha256(userId:requestId)` in base64) and should be replaced with the chain's real signing/verification standard.
-- The extension is structured to be reused by any zk-verifiable chain setup using Caspar host APIs.
+- Signature verification in this base is intentionally simple (`sha256(userId:requestId)` in base64).
+- Replace it with your chain's production signing/verification standard before deployment.
+- Structure is intended for reuse in broader zk-verifiable flows using Caspar host APIs.

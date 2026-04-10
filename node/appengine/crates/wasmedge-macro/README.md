@@ -1,7 +1,10 @@
-# Overview
+# wasmedge-macro Overview
 
-The [wasmedge-macro](https://crates.io/crates/wasmedge-macro) crate defines a group of procedural macros used by both [wasmedge-sdk](https://crates.io/crates/wasmedge-sdk) and [wasmedge-sys](https://crates.io/crates/wasmedge-sys) crates.
+The [`wasmedge-macro`](https://crates.io/crates/wasmedge-macro) crate provides procedural macros used by both:
 
-See also
+- [`wasmedge-sdk`](https://crates.io/crates/wasmedge-sdk)
+- [`wasmedge-sys`](https://crates.io/crates/wasmedge-sys)
 
-* [WasmEdge Runtime](https://wasmedge.org/)
+## See Also
+
+- [WasmEdge Runtime](https://wasmedge.org/)

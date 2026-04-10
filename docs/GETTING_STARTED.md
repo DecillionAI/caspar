@@ -1,5 +1,7 @@
 # Getting Started 🚀
 
+> Updated: **2026-04-10**
+
 This guide reflects the current `node/` runtime wiring and scripts.
 
 ## 1) Prerequisites
@@ -11,11 +13,11 @@ This guide reflects the current `node/` runtime wiring and scripts.
 - **Firebase service account JSON**
 - **QuestDB** (storage/log features use PostgreSQL wire)
 
-Optional runtime helpers:
+Optional helpers:
 
-- Firecracker tooling scripts (`node/scripts/install-fcvmm.sh`, `node/scripts/run-fcvmm.sh`)
-- gVisor tooling script (`node/scripts/install-gvisor.sh`)
-- ImageMagick (`convert`) for entity image transform helpers
+- Firecracker scripts: `node/scripts/install-fcvmm.sh`, `node/scripts/run-fcvmm.sh`
+- gVisor installer: `node/scripts/install-gvisor.sh`
+- ImageMagick (`convert`) for entity image transformations
 
 ## 2) Environment Setup
 
@@ -45,15 +47,13 @@ Fill at least these variables:
 | `IPADDR` | chain advertise address |
 | `ROOT_NODE` | bootstrap/root origin for free-node logic |
 | `IS_HEAD` | head-node mode toggle |
-| `VM_EXEC_COST_PER_SECOND` | optional execution pricing value |
+| `VM_EXEC_COST_PER_SECOND` | optional execution pricing |
 
 Legacy value still present in template:
 
 - `AdminPassword`
 
-## 3) Runtime Files Expected by Default
-
-Current code/scripts expect these paths unless you patch config handling:
+## 3) Runtime Files (Default Paths)
 
 - Certs:
   - `/app/certs/fullchain.pem`
@@ -73,56 +73,54 @@ CGO_ENABLED=1 go build -o kasper .
 
 ## 5) Run
 
-### Option A: run the binary directly
+### Option A: Direct binary
 
 ```bash
 cd node
 ./kasper
 ```
 
-When running direct mode, also start dependencies used by storage/runtime paths (for example QuestDB and appengine).
+When running directly, also start dependencies used by storage/runtime paths (for example QuestDB and appengine).
 
-What starts from the node process:
+Node process starts:
 
 - pprof server on `0.0.0.0:9999`
 - TLS TCP/WS client servers
 - federation + chain listeners
 - HTTPS entity + stream gateways
 
-### Option B: scripted multi-node/testnet flow
-
-Common scripts:
+### Option B: Scripted multi-node/testnet flow
 
 - `node/scripts/prepare-testnet.sh`
 - `node/scripts/build-conf.sh`
 - `node/scripts/run-testnet.sh`
 - `node/scripts/stop-testnet.sh`
 
-## 6) Common Ports (from `sample.env` + scripts)
+## 6) Common Ports
 
-- `CLIENT_WS_API_PORT` (example deployments often use `8076`)
-- `CLIENT_TCP_API_PORT` (example deployments often use `8077`)
-- `FEDERATION_API_PORT` (example deployments often use `8078`)
-- `BLOCKCHAIN_API_PORT` (example deployments often use `1337`)
-- `ENTITY_API_PORT` (example deployments often use `3000`)
-- `VM_API_PORT` (example deployments often use `3001`)
+- `CLIENT_WS_API_PORT` (common example: `8076`)
+- `CLIENT_TCP_API_PORT` (common example: `8077`)
+- `FEDERATION_API_PORT` (common example: `8078`)
+- `BLOCKCHAIN_API_PORT` (common example: `1337`)
+- `ENTITY_API_PORT` (common example: `3000`)
+- `VM_API_PORT` (common example: `3001`)
 - pprof fixed at `9999`
 
-## 7) Smoke Checks
+## 7) Smoke Checks ✅
 
-- Process boots without panic
+- process boots without panic
 - PEM decode + PKCS8 parse succeed
 - `/auths/getServerPublicKey` reachable via action protocol
 - chain service endpoints (e.g. `/stats`, `/peers`) respond
 - entity API accepts signed requests
 
-## 8) Troubleshooting
+## 8) Troubleshooting 🛠️
 
-- `failed to decode PEM block` / key parse panic:
+- `failed to decode PEM block` / key parse panic
   - invalid `OWNER_PRIVATE_KEY` formatting or non-PKCS8 key
-- TLS startup failures:
+- TLS startup failures
   - missing/unreadable cert files
-- startup crash around Firebase:
+- startup crash around Firebase
   - invalid/missing `/app/serviceAccounts.json`
-- storage/log errors:
+- storage/log errors
   - QuestDB/PG-wire endpoint unavailable

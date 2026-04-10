@@ -1,81 +1,70 @@
-# Release Procedures
+# Mobile Release Procedure 📦
 
-## Version Number Checks
+> Updated: **2026-04-10**
 
-The mobile release of `babble` (this repo) and the `babble-android` release 
-should use the same version of the Android SDK. 
+## 1) Version Alignment Checks
 
-In the `babble` repo, `/docker/mobile/Dockerfile` contains the following 
-sections defining Android SDK and GO versions:
+Mobile releases for `babble` and `babble-android` should use aligned Android SDK versions.
 
-```
+In `babble`, `/docker/mobile/Dockerfile` defines Android SDK and Go versions, for example:
+
+```dockerfile
 ENV SDK_URL="https://dl.google.com/android/repository/sdk-tools-linux-4333796.zip" \
     ANDROID_HOME="/usr/local/android-sdk" \
     ANDROID_VERSION=29 \
     ANDROID_BUILD_TOOLS_VERSION=29.0.3
-```
 
-```
 ENV GOLANG_VERSION 1.13.7
 ```
 
-Latest version numbers are shown on the pages below:
+Version references:
 
-* [Android SDK Build Tools versions](https://developer.android.com/studio/releases/build-tools) 
-* [Go Versions](https://golang.org/dl/)
+- Android SDK Build Tools: <https://developer.android.com/studio/releases/build-tools>
+- Go versions: <https://go.dev/dl/>
 
-If changing the go version, you will need to cut and paste the checksum into 
-approximately line 70 of the Dockerfile.
+If changing Go version, update the corresponding Dockerfile checksum (around legacy line ~70).
 
+In `babble-android` (`/babble/build.gradle`), verify:
 
-In the ``babble-android`` repo in ``/babble/build.gradle`` is a section as 
-follows:
+- `compileSdkVersion`
+- `targetSdkVersion`
 
-```
-android {
-    compileSdkVersion 29
+match the versions used in `babble`.
 
-    defaultConfig {
-        minSdkVersion 19
-        targetSdkVersion 29
-```
+Also confirm Android SDK Build Tools installed in Android Studio (`Tools -> SDK Manager`) match Dockerfile values.
 
-Make sure the ``compileSdkVersion`` and ``targetSdkVersion`` match the versions 
-in the ``babble`` repo.
+## 2) Build Mobile Distribution
 
-In Android Studio, Open Tools/SDK Manager. Click the SDK Tools, and click the 
-"Show package details" check box.  Check the version of the Android SDK Build
-tools installed, matches the version from above from the `babble` repo 
-Dockerfile.
-
-## Release Procedure for Babble Mobile
-
-In the root of the babble repo, pull the latest released master branch from 
-github. 
+From `babble` repository root:
 
 ```bash
-$ cd docker
-$ make mobile-image
-$ cd ..
-$ make mobile-dist
+cd docker
+make mobile-image
+cd ..
+make mobile-dist
 ```
 
-By default, this will name the release 
-``babble_<branch name>_ <commit-hash>_android_library.zip``. To give it a
-different name, use the ``VERSION`` parameter. 
+Default output naming:
 
-Ex:
+- `babble_<branch-name>_<commit-hash>_android_library.zip`
+
+To provide custom version naming:
 
 ```bash
 make mobile-dist VERSION=testing
 ```
 
-This will produce ``babble_testing_android_library.zip``.
+This generates:
 
-The files are written to ``./build/distmobile/``.
+- `babble_testing_android_library.zip`
 
-When creating a new release of Babble from the master branch, use 
-``VERSION=v0.6.2`` (for example) and upload 
-``/build/distmobile/babble_v0.6.2_android_library.zip`` to the Babble Github 
-repo releases page. 
+Artifacts are written to:
 
+- `./build/distmobile/`
+
+## 3) Official Release Example
+
+For a tagged release from master (example `v0.6.2`):
+
+- run `make mobile-dist VERSION=v0.6.2`
+- upload `build/distmobile/babble_v0.6.2_android_library.zip` to GitHub Releases

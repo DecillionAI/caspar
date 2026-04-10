@@ -1,11 +1,13 @@
 # Architecture 🧠
 
+> Updated: **2026-04-10**
+
 ## 1) System Goals
 
-- **Decentralized ordering/consensus** with a customized Babble/Hashgraph stack.
-- **Federation-first interoperability** across origins.
-- **Programmable execution** across multiple runtimes (`wasm`, `docker`, and related toolchains).
-- **Signed action pipeline** with guard-based authorization checks.
+- Decentralized ordering/consensus with customized Babble/Hashgraph
+- Federation-first interoperability across origins
+- Programmable execution across multiple runtimes (`wasm`, `docker`, and related toolchains)
+- Signed action pipeline with guard-based authorization
 
 ## 2) High-Level Runtime Graph
 
@@ -31,28 +33,23 @@ TLS TCP/WS Clients
 
 Typical action flow:
 
-1. protocol handler parses packet and resolves action path
-2. security checks validate user/signature/context
-3. transaction opens and mutates state
-4. local/federated updates are emitted
-5. optional chain callback reconciliation finalizes distributed result
+1. Protocol handler parses packet and resolves action path
+2. Security checks validate user/signature/context
+3. Transaction opens and mutates state
+4. Local/federated updates are emitted
+5. Optional chain callback reconciliation finalizes distributed result
 
 ## 4) Action and Plugger Layer
 
-Actions are grouped under:
+- Actions: `node/src/shell/api/actions/*`
+- Pluggers: `node/src/shell/api/pluggers/*`
+- Bootstrap wiring: `node/src/shell/api/main/api.go` (`PlugAll`)
 
-- `node/src/shell/api/actions/*`
-
-Pluggers wire those actions into core:
-
-- `node/src/shell/api/pluggers/*`
-- `node/src/shell/api/main/api.go` (`PlugAll`)
-
-This is the source of truth for what endpoints exist at runtime.
+This is the runtime source-of-truth for available actions.
 
 ## 5) Consensus Layer (`node/src/drivers/network/chain`)
 
-The chain stack provides:
+Provides:
 
 - hashgraph event DAG
 - block projection
@@ -60,7 +57,7 @@ The chain stack provides:
 - service endpoints (`/stats`, `/graph`, `/peers`, etc.)
 - transaction routing by type (`baseRequest`, `appRequest`, `response`, `message`, `election`)
 
-Work-chain operations exposed by actions currently include create, create-shard, create-from-store, register-node, and submit-base-trx.
+Work-chain actions include create, create-shard, create-from-store, register-node, and submit-base-trx.
 
 ## 6) Federation Layer (`node/src/drivers/network/federation`)
 
@@ -76,7 +73,7 @@ Key behaviors:
 - callback timeout handling
 - local state materialization for remote updates when required
 
-## 7) Runtime/Execution Layer
+## 7) Runtime / Execution Layer
 
 ### Wasm
 
@@ -91,19 +88,19 @@ Key behaviors:
 
 ## 8) State and Storage
 
-### KV state
+### KV State
 
 - Badger-backed object/link/index model
 - transaction abstraction in `abstract/models/trx`
 
-### Logs/time-series
+### Logs / Time-Series
 
 - QuestDB via PostgreSQL wire usage patterns
 
-### Entity storage
+### Entity Storage
 
 - user/store/app entity upload/download
-- stream relay endpoints for larger payload flow
+- stream relay endpoints for large payload flow
 
 ## 9) Networking Interfaces
 
@@ -113,21 +110,21 @@ Key behaviors:
 - chain gossip + service HTTP
 - HTTPS entity + VM stream gateways
 
-## 10) Security Model
+## 10) Security Model 🔒
 
 - signature verification against stored public keys
 - route-specific guard checks (identity, membership, access policy)
-- privileged/god command path embedded in store signal handling (`/stores/signal` command packets)
+- privileged command path embedded in `/stores/signal` command packets
 
 ## 11) Boot Composition
 
-At startup, app wiring loads adapters/tools, then installs all pluggers/actions, then starts:
+Startup wiring installs adapters/tools, then pluggers/actions, then starts:
 
 - pprof (`0.0.0.0:9999`)
 - TCP/WS/Federation/Chain listeners
 - API and signaling loops
 
-For exact startup sequence and env usage, use:
+For exact startup sequence and env behavior:
 
 - `node/main.go`
 - `node/src/shell/kasper.go`

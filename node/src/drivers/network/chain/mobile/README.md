@@ -1,25 +1,32 @@
-## Build from source
+# Mobile Chain Build Guide 📱
+
+> Updated: **2026-04-10**
+
+## Build from Source
 
 ### Dependencies
-Java JDK, Android NDK, Go mobile tools
+
+- Java JDK
+- Android NDK
+- Go mobile tools
 
 ```bash
-$ go get golang.org/x/mobile/cmd/gomobile
-$ gomobile init -ndk ~/PATH/TO/ANDROID/NDK
+go install golang.org/x/mobile/cmd/gomobile@latest
+gomobile init -ndk ~/PATH/TO/ANDROID/NDK
 ```
 
-### Building android library
-To compile Go package as android library execute
+### Build Android Library
+
 ```bash
-$ gomobile bind -v -target=android kasper/src/drivers/network/chain/babble/mobile
+gomobile bind -v -target=android kasper/src/drivers/network/chain/babble/mobile
 ```
 
 ## Import the Babble Module
 
-Follow Oliver's answer:   
-https://stackoverflow.com/questions/16682847/how-to-manually-include-external-aar-package-using-new-gradle-android-build-syst
+Reference workflow:
 
-Sometimes, Android Studio says “cannot resolve symbol” even if the project 
-compiles. In this case, do the following:
+- <https://stackoverflow.com/questions/16682847/how-to-manually-include-external-aar-package-using-new-gradle-android-build-syst>
 
-*"File" -> "Invalidate Caches..." -> "Invalidate and Restart"*
+If Android Studio shows “cannot resolve symbol” while build still compiles:
+
+- `File -> Invalidate Caches... -> Invalidate and Restart`
