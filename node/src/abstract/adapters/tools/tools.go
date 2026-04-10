@@ -1,7 +1,6 @@
 package tools
 
 import (
-	"kasper/src/abstract/adapters/docker"
 	"kasper/src/abstract/adapters/file"
 	"kasper/src/abstract/adapters/network"
 	"kasper/src/abstract/adapters/security"
@@ -17,5 +16,4 @@ type ITools interface {
 	Network() network.INetwork
 	File() file.IFile
 	Vmm() vmm.IVmm
-	Docker() docker.IDocker
 }

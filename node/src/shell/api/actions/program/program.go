@@ -286,7 +286,7 @@ func Install(a *Actions, extra ...any) error {
 			panic(err)
 		}
 		for _, program := range programs {
-			if program.Runtime == "wasm" || program.Runtime == "elpify" || program.Runtime == "javascript" || program.Runtime == "elpian" || program.Runtime == "fire" {
+			if program.Runtime == "wasm" || program.Runtime == "elpify" || program.Runtime == "javascript" || program.Runtime == "elpian" || program.Runtime == "fire" || program.Runtime == "docker" {
 				a.App.Tools().Vmm().Assign(program.MachineId)
 				if storeId := trx.GetLink("vmAlarmStoreId::" + program.MachineId); storeId != "" {
 					future.Async(func() {
@@ -302,14 +302,6 @@ func Install(a *Actions, extra ...any) error {
 						if a.App.Tools().Security().HasAccessToStore(program.MachineId, storeId) {
 							a.App.Tools().Vmm().RunVm(program.MachineId, storeId, data)
 						}
-					}, false)
-				}
-			} else if program.Runtime == "docker" {
-				a.App.Tools().Docker().Assign(program.MachineId)
-				if trx.GetLink("VmStatus::"+program.MachineId) == "running" {
-					future.Async(func() {
-						a.App.Tools().Docker().SaRContainer(program.MachineId, "main", "main")
-						a.App.Tools().Docker().RunContainer(program.MachineId, "", "main", "main", map[string]string{}, true)
 					}, false)
 				}
 			}

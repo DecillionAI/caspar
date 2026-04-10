@@ -11,7 +11,6 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
-	"kasper/src/abstract/adapters/docker"
 	"kasper/src/abstract/adapters/file"
 	"kasper/src/abstract/adapters/network"
 	"kasper/src/abstract/adapters/security"
@@ -65,7 +64,6 @@ type Tools struct {
 	network  network.INetwork
 	file     file.IFile
 	vmm      vmm.IVmm
-	docker   docker.IDocker
 }
 
 func (t *Tools) Security() security.ISecurity {
@@ -90,10 +88,6 @@ func (t *Tools) File() file.IFile {
 
 func (t *Tools) Vmm() vmm.IVmm {
 	return t.vmm
-}
-
-func (t *Tools) Docker() docker.IDocker {
-	return t.docker
 }
 
 type Core struct {
@@ -551,8 +545,7 @@ func (c *Core) Load(gods []string, args map[string]interface{}) {
 	dsecurity := driver_security.New(c, sroot, dstorage, dsignaler)
 	dNetwork := driver_network.NewNetwork(c, dstorage, dsecurity, dsignaler, dnFederation)
 	dFile := driver_file.NewFileTool(sroot)
-	var dDocker docker.IDocker
-	dVmm := driver_vmm.NewVmm(c, sroot, dstorage, adbPath, dDocker, dFile)
+	dVmm := driver_vmm.NewVmm(c, sroot, dstorage, adbPath, dFile)
 	dnFederation.SecondStageForFill(dstorage, dFile, dsignaler)
 
 	pemData := dsecurity.FetchKeyPair("server_key")[0]
@@ -572,7 +565,6 @@ func (c *Core) Load(gods []string, args map[string]interface{}) {
 		security: dsecurity,
 		network:  dNetwork,
 		file:     dFile,
-		docker:   dDocker,
 		vmm:      dVmm,
 	}
 

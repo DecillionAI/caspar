@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"kasper/src/abstract/adapters/docker"
 	"kasper/src/abstract/adapters/file"
 	"kasper/src/abstract/adapters/signaler"
 	"kasper/src/abstract/adapters/storage"
@@ -32,7 +31,6 @@ type Vmm struct {
 	app         core.ICore
 	storageRoot string
 	storage     storage.IStorage
-	docker      docker.IDocker
 	file        file.IFile
 	aeSocket    chan string
 }
@@ -152,191 +150,6 @@ func (wm *Vmm) BuildVmImage(machineId string, imageName string, dockerfilePath s
 
 // VmCallback is implemented in hostcall_global.go to keep host-call routing
 // separated from runtime bootstrapping logic in this file.
-
-func (wm *Vmm) handleRunDocker(input map[string]any, reqId int64) (string, int64) {
-	machineId, err := checkField(input, "machineId", "")
-	if err != nil {
-		println(err)
-		return err.Error(), reqId
-	}
-	storeId, err := checkField(input, "storeId", "")
-	if err != nil {
-		println(err)
-		return err.Error(), reqId
-	}
-	found := false
-	wm.app.ModifyState(true, func(trx trx.ITrx) error {
-		if trx.GetLink("hasaccess::"+machineId+"::"+storeId) == "true" {
-			found = true
-		}
-		return nil
-	})
-	if !found {
-		err := errors.New("access denied")
-		println(err)
-		return err.Error(), reqId
-	}
-	inputFilesStr, err := checkField(input, "inputFiles", "{}")
-	if err != nil {
-		println(err)
-		return err.Error(), reqId
-	}
-	inputFiles := map[string]string{}
-	err = json.Unmarshal([]byte(inputFilesStr), &inputFiles)
-	if err != nil {
-		println(err)
-		return err.Error(), reqId
-	}
-	finalInputFiles := map[string]string{}
-	for k, v := range inputFiles {
-		if !wm.file.CheckFileFromStorage(wm.storageRoot, storeId, k) {
-			err := errors.New("input file does not exist")
-			println(err)
-			return err.Error(), reqId
-		}
-		path := fmt.Sprintf("%s/files/%s/%s", wm.storageRoot, storeId, k)
-		finalInputFiles[path] = v
-	}
-	imageName, err := checkField(input, "imageName", "")
-	if err != nil {
-		println(err)
-		return err.Error(), reqId
-	}
-	containerName, err := checkField(input, "containerName", "")
-	if err != nil {
-		println(err)
-		return err.Error(), reqId
-	}
-	isAsync, _ := checkField(input, "async", false)
-	creatorUserId, _ := checkField(input, "creatorUserId", "")
-	creatorSignature, _ := checkField(input, "creatorSignature", "")
-	lockId, _ := checkField(input, "lockId", "")
-
-	if creatorUserId == "" || creatorSignature == "" || lockId == "" {
-		legacy, legacyErr := checkField(input, "containerMeta", "")
-		if legacyErr != nil {
-			legacy, legacyErr = checkField(input, "containerName", "")
-		}
-		if legacyErr == nil {
-			parts := strings.Split(legacy, "|")
-			if len(parts) >= 5 {
-				containerName = parts[0]
-				isAsync = parts[1] == "true"
-				creatorUserId = parts[2]
-				creatorSignature = parts[3]
-				lockId = parts[4]
-			}
-		}
-	}
-
-	inp, _ := json.Marshal(inputs_users.ConsumeLockInput{
-		Type:      "pay",
-		UserId:    creatorUserId,
-		Signature: creatorSignature,
-		LockId:    lockId,
-		Amount:    100,
-	})
-	sign := wm.app.SignPacketAsOwner(inp)
-	resChan := make(chan bool)
-	wm.app.Globe().SendBaseRequestOnChain("/creatures/consumeLock", inp, sign, wm.app.OwnerId(), "", func(b []byte, i int, err error) {
-		if err != nil {
-			println(err)
-			resChan <- false
-		} else {
-			resChan <- true
-		}
-	})
-	if res := <-resChan; res {
-		if isAsync {
-			future.Async(func() {
-				if imageName != "main" || containerName != "main" {
-					wm.docker.Assign(machineId + "_" + imageName + "_" + containerName)
-				}
-				wm.docker.SaRContainer(machineId, imageName, containerName)
-				wm.docker.RunContainer(machineId, storeId, imageName, containerName, finalInputFiles, false)
-			}, false)
-		} else {
-			wm.docker.SaRContainer(machineId, imageName, containerName)
-			outputFile, err := wm.docker.RunContainer(machineId, storeId, imageName, containerName, finalInputFiles, false)
-			if err != nil {
-				println(err)
-				return err.Error(), reqId
-			}
-			if outputFile != nil {
-				str, err := json.Marshal(outputFile)
-				if err != nil {
-					println(err)
-					return err.Error(), reqId
-				}
-				return string(str), reqId
-			}
-		}
-	}
-	return "{}", reqId
-}
-
-func (wm *Vmm) handleExecDocker(input map[string]any, reqId int64) (string, int64) {
-	machineId, err := checkField(input, "machineId", "")
-	if err != nil {
-		println(err)
-		return err.Error(), reqId
-	}
-	imageName, err := checkField(input, "imageName", "")
-	if err != nil {
-		println(err)
-		return err.Error(), reqId
-	}
-	containerName, err := checkField(input, "containerName", "")
-	if err != nil {
-		println(err)
-		return err.Error(), reqId
-	}
-	command, err := checkField(input, "command", "")
-	if err != nil {
-		println(err)
-		return err.Error(), reqId
-	}
-	output, err := wm.docker.ExecContainer(machineId, imageName, containerName, command)
-	if err != nil {
-		println(err)
-		return err.Error(), reqId
-	}
-	return output, reqId
-}
-
-func (wm *Vmm) handleCopyToDocker(input map[string]any, reqId int64) (string, int64) {
-	machineId, err := checkField(input, "machineId", "")
-	if err != nil {
-		println(err)
-		return err.Error(), reqId
-	}
-	imageName, err := checkField(input, "imageName", "")
-	if err != nil {
-		println(err)
-		return err.Error(), reqId
-	}
-	containerName, err := checkField(input, "containerName", "")
-	if err != nil {
-		println(err)
-		return err.Error(), reqId
-	}
-	fileName, err := checkField(input, "fileName", "")
-	if err != nil {
-		println(err)
-		return err.Error(), reqId
-	}
-	content, err := checkField(input, "content", "")
-	if err != nil {
-		println(err)
-		return err.Error(), reqId
-	}
-	err = wm.docker.CopyToContainer(machineId, imageName, containerName, fileName, content)
-	if err != nil {
-		println(err)
-		return err.Error(), reqId
-	}
-	return "", reqId
-}
 
 func (wm *Vmm) handleCheckTokenValidity(input map[string]any, reqId int64) (string, int64) {
 	tokenOwnerId, err := checkField(input, "tokenOwnerId", "")
@@ -462,68 +275,6 @@ func (wm *Vmm) handleSignalStore(input map[string]any, reqId int64) (string, int
 		return err
 	})
 	return "{}", reqId
-}
-
-func (wm *Vmm) handleRunVM(input map[string]any, reqId int64) (string, int64) {
-	targetRuntime, _ := checkField(input, "runtime", "")
-	targetRuntime = normalizeRuntime(targetRuntime)
-	targetMachineId, err := checkField(input, "machineId", "")
-	if err != nil {
-		return err.Error(), reqId
-	}
-	targetStoreId, _ := checkField(input, "storeId", "")
-	entityId, _ := checkField(input, "entityId", "")
-	if targetRuntime == "" && entityId != "" {
-		_, targetRuntime = wm.resolveVmExecutionTarget(targetMachineId, entityId)
-	}
-	if targetRuntime == "" {
-		targetRuntime = "wasm"
-	}
-	if isManagedRuntime(targetRuntime) {
-		standalone, _ := checkField(input, "standalone", false)
-		if standalone {
-			data, _ := checkField(input, "data", "{}")
-			astPath, vmType := wm.resolveVmExecutionTarget(targetMachineId, entityId)
-			str, _ := json.Marshal(map[string]any{
-				"type":      "runVm",
-				"runtime":   vmType,
-				"machineId": targetMachineId,
-				"input":     data,
-				"astPath":   astPath,
-				"vmType":    vmType,
-			})
-			wm.aeSocket <- string(str)
-			return "{}", reqId
-		}
-		data, _ := checkField(input, "data", "{}")
-		wm.RunVmEntity(targetMachineId, targetStoreId, data, entityId)
-		return "{}", reqId
-	}
-	if targetRuntime == "docker" {
-		standalone, _ := checkField(input, "standalone", false)
-		if standalone {
-			imageName, _ := checkField(input, "imageName", "main")
-			containerName, _ := checkField(input, "containerName", "main")
-			vmId, _ := checkField(input, "vmId", "")
-			packet := map[string]any{
-				"type":          "runVm",
-				"runtime":       "docker",
-				"machineId":     targetMachineId,
-				"imageName":     imageName,
-				"containerName": containerName,
-				"standalone":    true,
-				"vmId":          vmId,
-			}
-			if inputFiles, ok := input["inputFiles"]; ok {
-				packet["inputFiles"] = inputFiles
-			}
-			str, _ := json.Marshal(packet)
-			wm.aeSocket <- string(str)
-			return "{}", reqId
-		}
-		return wm.handleRunDocker(input, reqId)
-	}
-	return "unsupported runtime", reqId
 }
 
 func parseChainReceivers(input map[string]any) map[string]map[string]bool {
@@ -654,10 +405,7 @@ func (wm *Vmm) handleTerminateVM(input map[string]any, reqId int64) (string, int
 			wm.aeSocket <- string(str)
 			return "{}", reqId
 		}
-		imageName, _ := checkField(input, "imageName", "main")
-		containerName, _ := checkField(input, "containerName", "main")
-		wm.docker.SaRContainer(targetMachineId, imageName, containerName)
-		return "{}", reqId
+		return "unsupported runtime", reqId
 	}
 	if isManagedRuntime(targetRuntime) {
 		str, _ := json.Marshal(map[string]any{
@@ -694,13 +442,12 @@ func checkField[T any](input map[string]any, fieldName string, defVal T) (T, err
 	return f, nil
 }
 
-func NewVmm(core core.ICore, storageRoot string, storage storage.IStorage, kvDbPath string, docker docker.IDocker, file file.IFile) *Vmm {
+func NewVmm(core core.ICore, storageRoot string, storage storage.IStorage, kvDbPath string, file file.IFile) *Vmm {
 	os.MkdirAll(kvDbPath, os.ModePerm)
 	wm := &Vmm{
 		app:         core,
 		storageRoot: storageRoot,
 		storage:     storage,
-		docker:      docker,
 		file:        file,
 		aeSocket:    make(chan string, 1000),
 	}
