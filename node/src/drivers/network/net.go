@@ -79,5 +79,4 @@ func (net *Network) Run(ports map[string]int) {
 	}
 	net.fed.Listen(ports["fed"], net.tlsConfig)
 	net.chain.Listen(ports["chain"], net.tlsConfig)
-	net.core.Tools().Docker().RunGateway()
 }

@@ -30,10 +30,10 @@ func (wm *Vmm) VmCallback(dataRaw string) (string, int64) {
 	}
 
 	switch key {
-	case "execDocker", "execVm":
-		return wm.handleExecDocker(input, reqId)
-	case "copyToDocker", "copyToVm":
-		return wm.handleCopyToDocker(input, reqId)
+	case "execDocker", "copyToDocker":
+		return "unsupported runtime", reqId
+	case "execVm", "copyToVm":
+		return "unsupported runtime", reqId
 	case "checkTokenValidity":
 		return wm.handleCheckTokenValidity(input, reqId)
 	case "plantTrigger":
@@ -41,7 +41,7 @@ func (wm *Vmm) VmCallback(dataRaw string) (string, int64) {
 	case "signal":
 		return wm.handleSignalStore(input, reqId)
 	case "runVm":
-		return wm.handleRunVM(input, reqId)
+		return "unsupported runtime", reqId
 	case "terminateVm":
 		return wm.handleTerminateVM(input, reqId)
 	case "sendMessageOnChain":
