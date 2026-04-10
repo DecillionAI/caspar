@@ -1,11 +1,27 @@
-# SDK runtime samples
+# SDK Runtime Samples 🧪
+
+> Updated: **2026-04-10**
 
 Real-world-compatible runtime samples for all supported VM types.
 
-- `wasm/` uses the AppEngine contract (`malloc`, `run`, and single `env.hostCall`) and now covers full host helpers used across machines + vmm routes (http, trigger, signal, vm/docker control, db ops, sync tasks, submitOnchainTrx, chain messaging, token checks, locks).
-- `docker/` mirrors machines/docker TCP packet transport and includes wrappers for all core vmm callback keys used by managed runtimes.
-- `javascript/` shows QuickJS host bridge usage and includes wrappers for db/lock/sync + vmm callback operations.
-- `elpify/` includes:
-  - `module.masm`: a real MASM billing use case.
-  - `module.elpify.js`: an elpify-language source example that is intended to be transpiled to MASM via `elpify-lang` compiler module in appengine.
-- `elpian/` provides a real logic-focused AST (`main(order)`).
+## Included Runtimes
+
+- `wasm/`
+  - Uses the AppEngine contract (`malloc`, `run`, and `env.hostCall`)
+  - Covers host helpers used across machines + VMM routes (HTTP, trigger, signal, vm/docker control, db ops, sync tasks, `submitOnchainTrx`, chain messaging, token checks, locks)
+- `docker/`
+  - Mirrors machine/docker TCP packet transport
+  - Includes wrappers for core VMM callback keys used by managed runtimes
+- `javascript/`
+  - Demonstrates QuickJS host bridge usage
+  - Includes wrappers for db/lock/sync + VMM callbacks
+- `elpify/`
+  - `module.masm`: practical MASM billing use case
+  - `module.elpify.js`: elpify-language source intended for transpiling via `elpify-lang` in appengine
+- `elpian/`
+  - Logic-oriented AST sample (`main(order)`)
+
+## Notes 📌
+
+- Keep samples close to host callback contracts used in `node/appengine`.
+- Prefer additive examples over breaking changes so integrators can compare versions safely.

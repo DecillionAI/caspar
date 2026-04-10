@@ -1,6 +1,8 @@
-# VM Creatures (WASM Go Projects)
+# VM Creatures (WASM Go Projects) 🧬
 
-This folder contains separate deployable wasm creature projects for namespaces previously served by shell API directly:
+> Updated: **2026-04-10**
+
+This folder contains deployable WASM creature projects for namespaces previously served directly by shell API:
 
 - `stores`
 - `invites`
@@ -8,16 +10,17 @@ This folder contains separate deployable wasm creature projects for namespaces p
 - `pc`
 - `chain`
 
-Each module is intended to run inside VM and use imported host functions for all host/system effects.
+Each module runs inside VM and uses imported host functions for host/system effects.
 
-Migration approach:
+## Migration Model
 
-- Each creature module reads `/input.json` with `{path,payload,userId,storeId}`.
-- The module validates the requested endpoint path against its namespace allow-list.
-- The module calls host op `execShellAction`, which executes the same secure action parser/algorithm on host.
-- This keeps execution in VM creatures while ensuring all mutations happen through host functions.
+- Each creature reads `/input.json` with `{ path, payload, userId, storeId }`.
+- The creature validates the requested endpoint path against its namespace allow-list.
+- The creature calls host op `execShellAction`, which runs the same secure action parser/algorithm on host.
 
-Per-endpoint wasm projects:
+This keeps execution inside VM creatures while ensuring all mutations flow through secure host functions.
+
+## Endpoint Layout
 
 - `endpoints/stores/*`
 - `endpoints/invites/*`
@@ -25,4 +28,4 @@ Per-endpoint wasm projects:
 - `endpoints/pc/*`
 - `endpoints/chains/*`
 
-Each endpoint project is a standalone wasm-go module and reimplements endpoint behavior via host functions (`*`) such as state/json/link updates, security checks, and signaling operations.
+Each endpoint project is a standalone wasm-go module and reimplements endpoint behavior via host functions (state/json/link updates, security checks, signaling, and related operations).

@@ -1,7 +1,10 @@
-# Overview
+# wasmedge-types Overview
 
-The [wasmedge-types](https://crates.io/crates/wasmedge-types) crate defines a group of common data structures used by both [wasmedge-sdk](https://crates.io/crates/wasmedge-sdk) and [wasmedge-sys](https://crates.io/crates/wasmedge-sys) crates.
+The [`wasmedge-types`](https://crates.io/crates/wasmedge-types) crate defines common data structures used by both:
 
-See also
+- [`wasmedge-sdk`](https://crates.io/crates/wasmedge-sdk)
+- [`wasmedge-sys`](https://crates.io/crates/wasmedge-sys)
 
-* [WasmEdge Runtime](https://wasmedge.org/)
+## See Also
+
+- [WasmEdge Runtime](https://wasmedge.org/)

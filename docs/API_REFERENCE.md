@@ -1,23 +1,25 @@
 # API Reference 📡
 
-This node exposes three interfaces:
+> Updated: **2026-04-10**
 
-1. **Signed binary action protocol** over TLS TCP and TLS WebSocket.
-2. **HTTPS entity/stream gateways** for file/entity transfer.
-3. **Hashgraph service HTTP API** for network and chain observability.
+Caspar exposes three interfaces:
 
-All route names below are aligned with the current action declarations in `node/src/shell/api/actions/*`.
+1. **Signed binary action protocol** over TLS TCP and TLS WebSocket
+2. **HTTPS entity/stream gateways** for file/entity transfer
+3. **Hashgraph service HTTP API** for network and chain observability
+
+All route names below are aligned with current action declarations in `node/src/shell/api/actions/*`.
 
 ## 1) Action Protocol (TCP + WS)
 
-### TCP frame format
+### TCP Frame Format
 
 ```text
 [4 bytes body_len (big-endian)]
 [body]
 ```
 
-`body` is:
+`body` format:
 
 ```text
 [4 bytes signature_len]
@@ -31,19 +33,17 @@ All route names below are aligned with the current action declarations in `node/
 [payload bytes]            # JSON action input
 ```
 
-### WS behavior
+### WS Behavior
 
-WS uses the same packet body semantics as TCP request packets, handled by the same action processing pipeline.
+WS uses the same packet body semantics as TCP request packets and shares the same action processing pipeline.
 
-### ACK byte
-
-Client ACK frame is one byte:
+### ACK Byte
 
 ```text
 0x01
 ```
 
-### Server response frame
+### Server Response Frame
 
 ```text
 0x02
@@ -53,7 +53,7 @@ Client ACK frame is one byte:
 [json response bytes]
 ```
 
-### Server update frame
+### Server Update Frame
 
 ```text
 0x01
@@ -144,7 +144,7 @@ After successful `authenticate`, queued user signals can be replayed.
 
 ### Machines and Programs
 
-> Naming note: in current code, `/machines/*` actions operate on **Machine** models and `/programs/*` actions operate on **Program** models attached to a machine.
+> Naming note: `/machines/*` actions operate on **Machine** models; `/programs/*` actions operate on **Program** models attached to a machine.
 
 - `POST /machines/create`
 - `POST /machines/delete`
@@ -190,7 +190,7 @@ After successful `authenticate`, queued user signals can be replayed.
 
 ## 5) HTTPS Entity + Stream APIs
 
-Entity server (bound by `ENTITY_API_PORT`) registers:
+Entity server (`ENTITY_API_PORT`) registers:
 
 - `/storage/downloadUserEntity`
 - `/storage/uploadUserEntity`
@@ -201,13 +201,13 @@ Entity server (bound by `ENTITY_API_PORT`) registers:
 - `/stream/get`
 - `/stream/send`
 
-VM gateway (bound by `VM_API_PORT`) registers:
+VM gateway (`VM_API_PORT`) registers:
 
 - `/stream/send`
 
 ## 6) Hashgraph Service API
 
-Default handlers include:
+Default handlers:
 
 - `/stats`
 - `/block/{index}`
@@ -217,18 +217,3 @@ Default handlers include:
 - `/genesispeers`
 - `/validators/{index}`
 - `/history`
-
-## 7) Input Schema Sources
-
-Authoritative request models are in:
-
-- `node/src/shell/api/inputs/users`
-- `node/src/shell/api/inputs/stores`
-- `node/src/shell/api/inputs/machine`
-- `node/src/shell/api/inputs/invites`
-- `node/src/shell/api/inputs/storage`
-- `node/src/shell/api/inputs/chain`
-- `node/src/shell/api/inputs/auth`
-- `node/src/shell/api/inputs/pc`
-
-For machine deploy payloads, use `node/src/shell/api/inputs/machine/deploy.go` as the contract source.

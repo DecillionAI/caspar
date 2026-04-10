@@ -1,21 +1,23 @@
 # Caspar Protocol 🌐
 
+> **Status:** Documentation refreshed on **2026-04-10** to align with current repository layout and runtime wiring.
+
 Caspar is a decentralized protocol stack built around:
 
-- a customized **Babble/Hashgraph** consensus layer
+- customized **Babble/Hashgraph** consensus
 - **federation-first** cross-origin interoperability
-- multi-runtime compute (`wasm`, `docker`, `javascript`, `elpify`, `elpian`)
+- multi-runtime execution (`wasm`, `docker`, `javascript`, `elpify`, `elpian`)
 
-This repository contains the primary node implementation in `node/`.
+The main node implementation lives in `node/`.
 
 ## Why Caspar ✨
 
-- **Hashgraph-backed ordering** for distributed request consistency.
-- **Federated execution model** for local + remote-origin actions.
-- **Signed request protocol** over TLS TCP/WS.
-- **Real-time signaling** for users and store groups.
-- **Programmable runtime layer** for machine/program deployment.
-- **Entity + stream gateways** for user/store/app binary workflows.
+- Deterministic request ordering with hashgraph-backed consensus
+- Federated execution model for local and remote-origin actions
+- Signed request protocol over TLS (`tcp` + `ws`)
+- Real-time signaling for users, stores, and runtime workflows
+- Programmable runtime layer for machine/program deployment
+- Entity + stream gateways for user/store/app binary workflows
 
 ## System Snapshot 🧩
 
@@ -32,14 +34,14 @@ Clients (TLS TCP/WS, signed packets)
 
 ## Interface Surface 📡
 
-- **Action protocol**: TLS `tcp` + `ws` binary packet interface.
-- **Federation transport**: TLS TCP origin-to-origin messaging.
-- **Hashgraph service API**: chain stats/blocks/graph/peers endpoints.
-- **HTTPS gateways**:
+- **Action protocol:** TLS `tcp` + `ws` binary packet interface
+- **Federation transport:** TLS TCP origin-to-origin messaging
+- **Hashgraph service API:** chain stats/blocks/graph/peers endpoints
+- **HTTPS gateways:**
   - entity API (`ENTITY_API_PORT`)
   - VM stream API (`VM_API_PORT`)
 
-For complete protocol details, see `docs/API_REFERENCE.md`.
+For protocol specifics, see `docs/API_REFERENCE.md`.
 
 ## Quick Start 🚀
 
@@ -48,10 +50,10 @@ cd node
 cp sample.env .env
 ```
 
-Then configure `.env` and required runtime files:
+Configure `.env` and required runtime files:
 
-- certs at `/app/certs/fullchain.pem` and `/app/certs/privkey.pem`
-- Firebase credentials at `/app/serviceAccounts.json`
+- certs: `/app/certs/fullchain.pem`, `/app/certs/privkey.pem`
+- Firebase credentials: `/app/serviceAccounts.json`
 
 Build + run (direct mode):
 
@@ -61,29 +63,31 @@ cd ../ && CGO_ENABLED=1 go build -o kasper .
 ./kasper
 ```
 
-Direct mode typically requires your supporting services to be available (for example QuestDB and appengine).
+Direct mode typically requires supporting services to be available (for example QuestDB and appengine).
 
 ## Route Naming Note ⚠️
 
 Current API naming is historical and intentionally preserved:
 
-- `/machines/*` routes manage **Machine** resources.
-- `/programs/*` routes manage **Program** resources attached to machines.
+- `/machines/*` routes manage **Machine** resources
+- `/programs/*` routes manage **Program** resources attached to machines
 
 Use `docs/API_REFERENCE.md` as the source-of-truth route catalog.
 
-## Main Feature Domains
+## Core Feature Domains 🧱
 
-- **Users**: login/auth, metadata, mint/transfer, lock/consume token.
-- **Stores**: create/join/leave, membership/access, signaling, history.
-- **Invites**: create/cancel/accept/decline + list endpoints.
-- **Machines/Programs**: create/update/delete, deploy, run/stop, logs.
-- **Storage/Entities**: uploads/downloads for user/store/app scope.
-- **Chain Ops**: create shard/work chains, register nodes, submit base trx.
-- **PC Tools**: command execution endpoints.
+- **Users:** login/auth, metadata, mint/transfer, lock/consume token
+- **Stores:** create/join/leave, membership/access, signaling, history
+- **Invites:** create/cancel/accept/decline + listing routes
+- **Machines/Programs:** create/update/delete, deploy, run/stop, logs
+- **Storage/Entities:** uploads/downloads for user/store/app scopes
+- **Chain Ops:** create shard/work chains, register nodes, submit base trx
+- **PC Tools:** command execution endpoints
 
-## Documentation
+## Documentation Map 🗂️
 
-- `docs/GETTING_STARTED.md` — prerequisites, env vars, build/run, troubleshooting.
-- `docs/API_REFERENCE.md` — packet protocol, statuses, routes, APIs.
-- `docs/ARCHITECTURE.md` — core internals, chain/federation/runtime/storage layers.
+- `docs/GETTING_STARTED.md` — prerequisites, env vars, build/run, troubleshooting
+- `docs/API_REFERENCE.md` — packet protocol, statuses, routes, APIs
+- `docs/ARCHITECTURE.md` — core internals and subsystem architecture
+- `sdk/README.md` — runtime-oriented SDK examples
+- `extensions/verifiable-chain/README.md` — verifiable-chain extension toolkit
