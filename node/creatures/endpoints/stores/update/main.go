@@ -13,7 +13,7 @@ var retBuf []byte
 type packet struct {
 	Payload   map[string]any `json:"payload"`
 	UserID    string         `json:"userId,omitempty"`
-	StoreID   string         `json:"storeId,omitempty"`
+	SpaceID   string         `json:"spaceId,omitempty"`
 	MachineID string         `json:"machineId,omitempty"`
 }
 
@@ -49,28 +49,28 @@ func process(input string) string {
 	if input != "" {
 		_ = json.Unmarshal([]byte(input), &p)
 	}
-	if "update" == "create" || "update" == "createFromStore" || "update" == "createShard" {
-		hostReq("microGenId", map[string]any{"source": "stores.update"})
+	if "update" == "create" || "update" == "createFromSpace" || "update" == "createShard" {
+		hostReq("microGenId", map[string]any{"source": "spaces.update"})
 	}
 	hostReq("microPutJson", map[string]any{
-		"key":   "Json::CreatureEndpoint::stores::update",
+		"key":   "Json::CreatureEndpoint::spaces::update",
 		"path":  "lastInput",
 		"data":  p.Payload,
 		"merge": true,
 	})
 	if p.UserID != "" {
-		hostReq("microPutLink", map[string]any{"key": "creatureEndpoint::stores::update::lastUser", "value": p.UserID})
+		hostReq("microPutLink", map[string]any{"key": "creatureEndpoint::spaces::update::lastUser", "value": p.UserID})
 	}
-	if p.StoreID != "" {
-		hostReq("microSignalGroup", map[string]any{"key": "creatures/signal", "groupId": p.StoreID, "packet": "{}", "system": true})
+	if p.SpaceID != "" {
+		hostReq("microSignalGroup", map[string]any{"key": "creatures/signal", "groupId": p.SpaceID, "packet": "{}", "system": true})
 	}
 	if p.UserID != "" {
 		hostReq("microSignalUser", map[string]any{"key": "creatures/signal", "userId": p.UserID, "packet": "{}", "system": true})
 	}
-	if p.MachineID != "" && p.StoreID != "" {
-		hostReq("microHasAccessToStore", map[string]any{"machineId": p.MachineID, "storeId": p.StoreID})
+	if p.MachineID != "" && p.SpaceID != "" {
+		hostReq("microHasAccessToStore", map[string]any{"machineId": p.MachineID, "storeId": p.SpaceID})
 	}
-	out, _ := json.Marshal(map[string]any{"ok": true, "endpoint": "/stores/update"})
+	out, _ := json.Marshal(map[string]any{"ok": true, "endpoint": "/spaces/update"})
 	hostReq("output", map[string]any{"text": string(out)})
 	return string(out)
 }

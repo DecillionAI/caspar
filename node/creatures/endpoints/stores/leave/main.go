@@ -13,7 +13,7 @@ var retBuf []byte
 type packet struct {
 	Payload   map[string]any `json:"payload"`
 	UserID    string         `json:"userId,omitempty"`
-	StoreID   string         `json:"storeId,omitempty"`
+	SpaceID   string         `json:"spaceId,omitempty"`
 	MachineID string         `json:"machineId,omitempty"`
 }
 
@@ -49,28 +49,28 @@ func process(input string) string {
 	if input != "" {
 		_ = json.Unmarshal([]byte(input), &p)
 	}
-	if "leave" == "create" || "leave" == "createFromStore" || "leave" == "createShard" {
-		hostReq("microGenId", map[string]any{"source": "stores.leave"})
+	if "leave" == "create" || "leave" == "createFromSpace" || "leave" == "createShard" {
+		hostReq("microGenId", map[string]any{"source": "spaces.leave"})
 	}
 	hostReq("microPutJson", map[string]any{
-		"key":   "Json::CreatureEndpoint::stores::leave",
+		"key":   "Json::CreatureEndpoint::spaces::leave",
 		"path":  "lastInput",
 		"data":  p.Payload,
 		"merge": true,
 	})
 	if p.UserID != "" {
-		hostReq("microPutLink", map[string]any{"key": "creatureEndpoint::stores::leave::lastUser", "value": p.UserID})
+		hostReq("microPutLink", map[string]any{"key": "creatureEndpoint::spaces::leave::lastUser", "value": p.UserID})
 	}
-	if p.StoreID != "" {
-		hostReq("microSignalGroup", map[string]any{"key": "creatures/signal", "groupId": p.StoreID, "packet": "{}", "system": true})
+	if p.SpaceID != "" {
+		hostReq("microSignalGroup", map[string]any{"key": "creatures/signal", "groupId": p.SpaceID, "packet": "{}", "system": true})
 	}
 	if p.UserID != "" {
 		hostReq("microSignalUser", map[string]any{"key": "creatures/signal", "userId": p.UserID, "packet": "{}", "system": true})
 	}
-	if p.MachineID != "" && p.StoreID != "" {
-		hostReq("microHasAccessToStore", map[string]any{"machineId": p.MachineID, "storeId": p.StoreID})
+	if p.MachineID != "" && p.SpaceID != "" {
+		hostReq("microHasAccessToStore", map[string]any{"machineId": p.MachineID, "storeId": p.SpaceID})
 	}
-	out, _ := json.Marshal(map[string]any{"ok": true, "endpoint": "/stores/leave"})
+	out, _ := json.Marshal(map[string]any{"ok": true, "endpoint": "/spaces/leave"})
 	hostReq("output", map[string]any{"text": string(out)})
 	return string(out)
 }
