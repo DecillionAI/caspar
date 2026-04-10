@@ -472,7 +472,7 @@ func (t *Socket) processPacket(packet []byte) {
 		log.Println("packetId:", packetId)
 		payload := packet[pointer:]
 		log.Println(string(payload))
-		pack = packetmodel.OriginPacket{Type: typ, Key: path, UserId: userId, PointId: "", ResCode: 0, Binary: payload, Signature: signature, RequestId: packetId, Exceptions: []string{}}
+		pack = packetmodel.OriginPacket{Type: typ, Key: path, UserId: userId, StoreId: "", ResCode: 0, Binary: payload, Signature: signature, RequestId: packetId, Exceptions: []string{}}
 	} else if typ == "response" {
 		packetIdLength := int(binary.BigEndian.Uint32(packet[pointer : pointer+4]))
 		pointer += 4
@@ -491,7 +491,7 @@ func (t *Socket) processPacket(packet []byte) {
 		log.Println("signature:", signature)
 		payload := packet[pointer:]
 		log.Println(string(payload))
-		pack = packetmodel.OriginPacket{Type: typ, Key: "", UserId: "", PointId: "", ResCode: resCode, Binary: payload, Signature: signature, RequestId: packetId, Exceptions: []string{}}
+		pack = packetmodel.OriginPacket{Type: typ, Key: "", UserId: "", StoreId: "", ResCode: resCode, Binary: payload, Signature: signature, RequestId: packetId, Exceptions: []string{}}
 	} else if typ == "update" {
 		signatureLength := int(binary.BigEndian.Uint32(packet[pointer : pointer+4]))
 		log.Println("signature length:", signatureLength)
@@ -526,13 +526,13 @@ func (t *Socket) processPacket(packet []byte) {
 		log.Println(string(payload))
 		idParts := strings.Split(targetId, "::")
 		userId := ""
-		pointId := ""
+		storeId := ""
 		if idParts[0] == "user" {
 			userId = idParts[1]
-		} else if idParts[0] == "point" {
-			pointId = idParts[1]
+		} else if idParts[0] == "store" {
+			storeId = idParts[1]
 		}
-		pack = packetmodel.OriginPacket{Type: typ, Key: key, UserId: userId, PointId: pointId, ResCode: 0, Binary: payload, Signature: signature, RequestId: "", Exceptions: exceptions}
+		pack = packetmodel.OriginPacket{Type: typ, Key: key, UserId: userId, StoreId: storeId, ResCode: 0, Binary: payload, Signature: signature, RequestId: "", Exceptions: exceptions}
 	}
 
 	t.server.bridge(t, strings.Split(t.Conn.RemoteAddr().String(), ":")[0], pack)

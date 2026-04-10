@@ -13,7 +13,7 @@ func (d CreateMachineInput) GetData() any {
 	return "dummy"
 }
 
-func (d CreateMachineInput) GetPointId() string {
+func (d CreateMachineInput) GetStoreId() string {
 	return ""
 }
 

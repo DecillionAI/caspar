@@ -4,7 +4,7 @@ import "kasper/src/abstract/models/worker"
 
 type IVmm interface {
 	Assign(machineId string)
-	RunVm(machineId string, pointId string, data string)
+	RunVm(machineId string, storeId string, data string)
 	TerminateVm(machineId string)
 	BuildVmImage(machineId string, imageName string, dockerfilePath string)
 	ExecuteChainTrxsGroup(trxs []*worker.Trx)

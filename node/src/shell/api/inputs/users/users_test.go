@@ -24,11 +24,11 @@ func TestUsersInputsImplementInterface(t *testing.T) {
 	var _ input.IInput = UpdateInput{}
 }
 
-func TestUsersInputOriginsAndPointIds(t *testing.T) {
+func TestUsersInputOriginsAndStoreIds(t *testing.T) {
 	cases := []struct {
 		name  string
 		in    input.IInput
-		point string
+		store string
 		orig  string
 	}{
 		{"authenticate", AuthenticateInput{}, "", ""},
@@ -49,8 +49,8 @@ func TestUsersInputOriginsAndPointIds(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := tc.in.GetPointId(); got != tc.point {
-				t.Fatalf("point mismatch got=%q want=%q", got, tc.point)
+			if got := tc.in.GetStoreId(); got != tc.store {
+				t.Fatalf("store mismatch got=%q want=%q", got, tc.store)
 			}
 			if got := tc.in.Origin(); got != tc.orig {
 				t.Fatalf("origin mismatch got=%q want=%q", got, tc.orig)

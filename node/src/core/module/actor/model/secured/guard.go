@@ -12,7 +12,7 @@ type Guard struct {
 	IsInTopic bool `json:"isInTopic"`
 }
 
-func (g *Guard) optionalIdentity(app core.ICore, packet []byte, signature string, userId string, pointId string) (bool, *model.Info) {
+func (g *Guard) optionalIdentity(app core.ICore, packet []byte, signature string, userId string, storeId string) (bool, *model.Info) {
 	if userId == "" && signature == "" {
 		return true, model.NewInfo("", "")
 	}
@@ -26,16 +26,16 @@ func (g *Guard) optionalIdentity(app core.ICore, packet []byte, signature string
 	if !g.IsInSpace {
 		return true, model.NewGodInfo(userId, "", isGod)
 	}
-	hasAccess := app.Tools().Security().HasAccessToPoint(userId, pointId)
+	hasAccess := app.Tools().Security().HasAccessToStore(userId, storeId)
 	if !hasAccess {
 		return false, &model.Info{}
 	}
-	return true, model.NewGodInfo(userId, pointId, isGod)
+	return true, model.NewGodInfo(userId, storeId, isGod)
 }
 
-func (g *Guard) CheckValidity(app core.ICore, packet []byte, signature string, userId string, pointId string, insider ...bool) (bool, *model.Info) {
+func (g *Guard) CheckValidity(app core.ICore, packet []byte, signature string, userId string, storeId string, insider ...bool) (bool, *model.Info) {
 	if !g.IsUser {
-		return g.optionalIdentity(app, packet, signature, userId, pointId)
+		return g.optionalIdentity(app, packet, signature, userId, storeId)
 	}
 	if len(insider) > 0 && insider[0] && (signature == "#appletsign") {
 		typ := ""
@@ -47,11 +47,11 @@ func (g *Guard) CheckValidity(app core.ICore, packet []byte, signature string, u
 			if !g.IsInSpace {
 				return true, model.NewGodInfo(userId, "", false)
 			}
-			hasAccess := app.Tools().Security().HasAccessToPoint(userId, pointId)
+			hasAccess := app.Tools().Security().HasAccessToStore(userId, storeId)
 			if !hasAccess {
 				return false, &model.Info{}
 			}
-			return true, model.NewGodInfo(userId, pointId, false)
+			return true, model.NewGodInfo(userId, storeId, false)
 		}
 	}
 	identified, _, isGod := app.Tools().Security().AuthWithSignature(userId, packet, signature)
@@ -61,16 +61,16 @@ func (g *Guard) CheckValidity(app core.ICore, packet []byte, signature string, u
 	if !g.IsInSpace {
 		return true, model.NewGodInfo(userId, "", isGod)
 	}
-	hasAccess := app.Tools().Security().HasAccessToPoint(userId, pointId)
+	hasAccess := app.Tools().Security().HasAccessToStore(userId, storeId)
 	if !hasAccess {
 		return false, &model.Info{}
 	}
-	return true, model.NewGodInfo(userId, pointId, isGod)
+	return true, model.NewGodInfo(userId, storeId, isGod)
 }
 
-func (g *Guard) CheckValidityForChain(app core.ICore, packet []byte, signature string, userId string, pointId string) (bool, *model.Info) {
+func (g *Guard) CheckValidityForChain(app core.ICore, packet []byte, signature string, userId string, storeId string) (bool, *model.Info) {
 	if !g.IsUser {
-		return g.optionalIdentity(app, packet, signature, userId, pointId)
+		return g.optionalIdentity(app, packet, signature, userId, storeId)
 	}
 	if signature == "#appletsign" {
 		typ := ""
@@ -82,11 +82,11 @@ func (g *Guard) CheckValidityForChain(app core.ICore, packet []byte, signature s
 			if !g.IsInSpace {
 				return true, model.NewGodInfo(userId, "", false)
 			}
-			hasAccess := app.Tools().Security().HasAccessToPoint(userId, pointId)
+			hasAccess := app.Tools().Security().HasAccessToStore(userId, storeId)
 			if !hasAccess {
 				return false, &model.Info{}
 			}
-			return true, model.NewGodInfo(userId, pointId, false)
+			return true, model.NewGodInfo(userId, storeId, false)
 		}
 	}
 	identified, _, isGod := app.Tools().Security().AuthWithSignature(userId, packet, signature)
@@ -96,11 +96,11 @@ func (g *Guard) CheckValidityForChain(app core.ICore, packet []byte, signature s
 	if !g.IsInSpace {
 		return true, model.NewGodInfo(userId, "", isGod)
 	}
-	hasAccess := app.Tools().Security().HasAccessToPoint(userId, pointId)
+	hasAccess := app.Tools().Security().HasAccessToStore(userId, storeId)
 	if !hasAccess {
 		return false, &model.Info{}
 	}
-	return true, model.NewGodInfo(userId, pointId, isGod)
+	return true, model.NewGodInfo(userId, storeId, isGod)
 }
 
 func (g *Guard) CheckIdentity(app core.ICore, packet []byte, signature string, userId string) bool {

@@ -12,7 +12,7 @@ type ChainMessage struct {
 	RequestId   string
 	Recievers   map[string]map[string]bool
 	ReplyTo     string
-	PointId     string
+	StoreId     string
 	Pay         *ChainPayPacket
 }
 
@@ -28,7 +28,7 @@ type ChainPayPacket struct {
 	AcceptedSeconds  int64
 	CostPerSecond    int64
 	Error            string
-	PointId          string
+	StoreId          string
 	VmPayload        string
 }
 

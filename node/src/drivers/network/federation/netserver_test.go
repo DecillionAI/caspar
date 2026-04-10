@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"kasper/src/abstract/models/packet"
-	inputs_points "kasper/src/shell/api/inputs/points"
+	inputs_stores "kasper/src/shell/api/inputs/stores"
 )
 
 type testAddr string
@@ -31,22 +31,22 @@ func (m *mockConn) SetReadDeadline(_ time.Time) error  { return nil }
 func (m *mockConn) SetWriteDeadline(_ time.Time) error { return nil }
 
 func TestParseInput(t *testing.T) {
-	in, err := ParseInput[inputs_points.JoinInput](`{"pointId":"p@fed"}`)
+	in, err := ParseInput[inputs_stores.JoinInput](`{"storeId":"p@fed"}`)
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
-	j := in.(inputs_points.JoinInput)
-	if j.PointId != "p@fed" {
-		t.Fatalf("point mismatch: %q", j.PointId)
+	j := in.(inputs_stores.JoinInput)
+	if j.StoreId != "p@fed" {
+		t.Fatalf("store mismatch: %q", j.StoreId)
 	}
-	if _, err := ParseInput[inputs_points.JoinInput]("not-json"); err == nil {
+	if _, err := ParseInput[inputs_stores.JoinInput]("not-json"); err == nil {
 		t.Fatal("expected invalid format error")
 	}
 }
 
 func TestWriteRequestBuildsPacket(t *testing.T) {
 	s := &Socket{Ack: false}
-	s.writeRequest("req-1", "user-1", "/points/join", []byte(`{"a":1}`), "sig")
+	s.writeRequest("req-1", "user-1", "/stores/join", []byte(`{"a":1}`), "sig")
 	if len(s.Buffer) != 1 {
 		t.Fatalf("expected one buffered packet, got %d", len(s.Buffer))
 	}

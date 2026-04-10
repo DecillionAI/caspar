@@ -35,7 +35,7 @@ Fill at least these variables:
 | `BASE_DB_PATH` | base badger path |
 | `APPLET_DB_PATH` | applet badger path |
 | `SEARCH_INDEX_PATH` | search index path |
-| `POINT_LOGS_DB` | point logs DB selector/path |
+| `STORE_LOGS_DB` | store logs DB selector/path |
 | `CLIENT_WS_API_PORT` | TLS WS client API port |
 | `CLIENT_TCP_API_PORT` | TLS TCP client API port |
 | `FEDERATION_API_PORT` | federation TCP port |

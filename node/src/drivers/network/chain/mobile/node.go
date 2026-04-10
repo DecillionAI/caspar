@@ -16,7 +16,7 @@ import (
 	"github.com/spf13/viper"
 )
 
-// Node is the entry point for using Babble from Java or Objective-C. It is a
+// Node is the entry store for using Babble from Java or Objective-C. It is a
 // wrapper around a normal Babble node that works around the limitations of
 // gomobile concerning the exportable types.
 type Node struct {
@@ -27,7 +27,7 @@ type Node struct {
 }
 
 // New creates a new mobile node from a set of handlers. The configDir
-// parameter points to the directory where Babble configuration files reside.
+// parameter stores to the directory where Babble configuration files reside.
 func New(
 	commitHandler CommitHandler,
 	stateChangeHandler StateChangeHandler,

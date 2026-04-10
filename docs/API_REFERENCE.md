@@ -25,7 +25,7 @@ All route names below are aligned with the current action declarations in `node/
 [4 bytes user_id_len]
 [user_id bytes]
 [4 bytes path_len]
-[path bytes]               # e.g. /points/signal
+[path bytes]               # e.g. /stores/signal
 [4 bytes request_id_len]
 [request_id bytes]
 [payload bytes]            # JSON action input
@@ -106,37 +106,37 @@ After successful `authenticate`, queued user signals can be replayed.
 - `GET /users/find`
 - `GET /users/list`
 
-### Points
+### Stores
 
-- `POST /points/addMachine`
-- `POST /points/listMachines`
-- `POST /points/updateProgram`
-- `POST /points/removeMachine`
-- `POST /points/addProgram`
-- `POST /points/removeProgram`
-- `POST /points/addMember`
-- `POST /points/updateMember`
-- `POST /points/updateMemberAccess`
-- `POST /points/updateProgramAccess`
-- `POST /points/getDefaultAccess`
-- `POST /points/readMembers`
-- `POST /points/removeMember`
-- `POST /points/create`
-- `PUT /points/update`
-- `DELETE /points/delete`
-- `GET /points/meta`
-- `GET /points/get`
-- `GET /points/read`
-- `POST /points/join`
-- `POST /points/leave`
-- `POST /points/signal`
-- `POST /points/history`
-- `GET /points/list`
+- `POST /stores/addMachine`
+- `POST /stores/listMachines`
+- `POST /stores/updateProgram`
+- `POST /stores/removeMachine`
+- `POST /stores/addProgram`
+- `POST /stores/removeProgram`
+- `POST /stores/addMember`
+- `POST /stores/updateMember`
+- `POST /stores/updateMemberAccess`
+- `POST /stores/updateProgramAccess`
+- `POST /stores/getDefaultAccess`
+- `POST /stores/readMembers`
+- `POST /stores/removeMember`
+- `POST /stores/create`
+- `PUT /stores/update`
+- `DELETE /stores/delete`
+- `GET /stores/meta`
+- `GET /stores/get`
+- `GET /stores/read`
+- `POST /stores/join`
+- `POST /stores/leave`
+- `POST /stores/signal`
+- `POST /stores/history`
+- `GET /stores/list`
 
 ### Invites
 
 - `POST /invites/create`
-- `POST /invites/listPointInvites`
+- `POST /invites/listStoreInvites`
 - `POST /invites/listUserInvites`
 - `POST /invites/cancel`
 - `POST /invites/accept`
@@ -167,16 +167,16 @@ After successful `authenticate`, queued user signals can be replayed.
 - `POST /storage/upload`
 - `POST /storage/uploadUserEntity`
 - `POST /storage/deleteUserEntity`
-- `POST /storage/uploadPointEntity`
+- `POST /storage/uploadStoreEntity`
 - `POST /storage/uploadAppEntity`
-- `POST /storage/deletePointEntity`
+- `POST /storage/deleteStoreEntity`
 - `POST /storage/download`
 
 ### Chain
 
 - `POST /chains/create`
 - `POST /chains/createShard`
-- `POST /chains/createFromPoint`
+- `POST /chains/createFromStore`
 - `POST /chains/submitBaseTrx`
 - `POST /chains/registerNode`
 
@@ -194,10 +194,10 @@ Entity server (bound by `ENTITY_API_PORT`) registers:
 
 - `/storage/downloadUserEntity`
 - `/storage/uploadUserEntity`
-- `/storage/uploadPointEntity`
+- `/storage/uploadStoreEntity`
 - `/storage/uploadAppEntity`
 - `/storage/downloadAppEntity`
-- `/storage/downloadPointEntity`
+- `/storage/downloadStoreEntity`
 - `/stream/get`
 - `/stream/send`
 
@@ -223,7 +223,7 @@ Default handlers include:
 Authoritative request models are in:
 
 - `node/src/shell/api/inputs/users`
-- `node/src/shell/api/inputs/points`
+- `node/src/shell/api/inputs/stores`
 - `node/src/shell/api/inputs/machine`
 - `node/src/shell/api/inputs/invites`
 - `node/src/shell/api/inputs/storage`

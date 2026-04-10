@@ -13,7 +13,7 @@ func (d ConsumeLockInput) GetData() any {
 	return "dummy"
 }
 
-func (d ConsumeLockInput) GetPointId() string {
+func (d ConsumeLockInput) GetStoreId() string {
 	return ""
 }
 

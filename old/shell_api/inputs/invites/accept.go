@@ -3,17 +3,17 @@ package inputs_invites
 import "kasper/src/shell/utils/origin"
 
 type AcceptInput struct {
-	PointId string `json:"pointId" validate:"required"`
+	StoreId string `json:"storeId" validate:"required"`
 }
 
 func (d AcceptInput) GetData() any {
 	return "dummy"
 }
 
-func (d AcceptInput) GetPointId() string {
+func (d AcceptInput) GetStoreId() string {
 	return ""
 }
 
 func (d AcceptInput) Origin() string {
-	return origin.FindOriginLocal(d.PointId)
+	return origin.FindOriginLocal(d.StoreId)
 }

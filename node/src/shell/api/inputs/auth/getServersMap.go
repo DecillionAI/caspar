@@ -6,7 +6,7 @@ func (d GetServersMapInput) GetData() any {
 	return "dummy"
 }
 
-func (d GetServersMapInput) GetPointId() string {
+func (d GetServersMapInput) GetStoreId() string {
 	return ""
 }
 

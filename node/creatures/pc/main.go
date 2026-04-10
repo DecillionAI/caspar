@@ -14,7 +14,7 @@ type packet struct {
 	Path    string         `json:"path"`
 	Payload map[string]any `json:"payload"`
 	UserID  string         `json:"userId,omitempty"`
-	PointID string         `json:"pointId,omitempty"`
+	StoreID string         `json:"storeId,omitempty"`
 }
 
 func bytesAt(offset uint32, length uint32) []byte {

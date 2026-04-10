@@ -10,7 +10,7 @@ func (d LoginInput) GetData() any {
 	return "dummy"
 }
 
-func (d LoginInput) GetPointId() string {
+func (d LoginInput) GetStoreId() string {
 	return ""
 }
 

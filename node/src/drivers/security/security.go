@@ -42,7 +42,7 @@ type LastPos struct {
 }
 
 type Location struct {
-	PointId string
+	StoreId string
 }
 
 const keysFolderName = "keys"
@@ -153,13 +153,13 @@ func (sm *Security) AuthWithSignature(userId string, packet []byte, signatureBas
 	return true, userType, isGod
 }
 
-func (sm *Security) HasAccessToPoint(userId string, pointId string) bool {
-	if pointId == "" {
+func (sm *Security) HasAccessToStore(userId string, storeId string) bool {
+	if storeId == "" {
 		return false
 	}
 	found := false
 	sm.app.ModifyState(true, func(trx trx.ITrx) error {
-		if trx.GetLink("hasaccess::"+userId+"::"+pointId) == "true" {
+		if trx.GetLink("hasaccess::"+userId+"::"+storeId) == "true" {
 			found = true
 		}
 		return nil

@@ -41,16 +41,16 @@ func HttpPost(url string, headers string, body string) string {
 	return call("httpPost", fmt.Sprintf(`{"url":%s,"headers":%s,"body":%s}`, quote(url), quote(headers), quote(body)))
 }
 
-func PlantTrigger(tag string, input string, pointID string, count int) string {
-	return call("plantTrigger", fmt.Sprintf(`{"tag":%s,"input":%s,"pointId":%s,"count":%d}`, quote(tag), quote(input), quote(pointID), count))
+func PlantTrigger(tag string, input string, storeID string, count int) string {
+	return call("plantTrigger", fmt.Sprintf(`{"tag":%s,"input":%s,"storeId":%s,"count":%d}`, quote(tag), quote(input), quote(storeID), count))
 }
 
-func SignalPoint(typ string, pointID string, userID string, data string) string {
-	return call("signalPoint", fmt.Sprintf(`{"type":%s,"pointId":%s,"userId":%s,"data":%s}`, quote(typ), quote(pointID), quote(userID), quote(data)))
+func SignalStore(typ string, storeID string, userID string, data string) string {
+	return call("signalStore", fmt.Sprintf(`{"type":%s,"storeId":%s,"userId":%s,"data":%s}`, quote(typ), quote(storeID), quote(userID), quote(data)))
 }
 
-func RunDocker(machineID string, pointID string, containerMeta string) string {
-	return call("runVm", fmt.Sprintf(`{"machineId":%s,"pointId":%s,"containerMeta":%s,"vmType":"docker"}`, quote(machineID), quote(pointID), quote(containerMeta)))
+func RunDocker(machineID string, storeID string, containerMeta string) string {
+	return call("runVm", fmt.Sprintf(`{"machineId":%s,"storeId":%s,"containerMeta":%s,"vmType":"docker"}`, quote(machineID), quote(storeID), quote(containerMeta)))
 }
 
 func ExecDocker(machineID string, imageName string, containerName string, command string) string {
@@ -112,8 +112,8 @@ func CheckTokenValidity(token string) string {
 	return call("checkTokenValidity", fmt.Sprintf(`{"token":%s}`, quote(token)))
 }
 
-func SendMessageOnChain(pointID string, payload string) string {
-	return call("sendMessageOnChain", fmt.Sprintf(`{"pointId":%s,"payload":%s}`, quote(pointID), quote(payload)))
+func SendMessageOnChain(storeID string, payload string) string {
+	return call("sendMessageOnChain", fmt.Sprintf(`{"storeId":%s,"payload":%s}`, quote(storeID), quote(payload)))
 }
 
 func RunVm(machineID string, input string, astPath string, vmType string) string {
@@ -161,7 +161,7 @@ func MicroDelKey(input string) string           { return call("microDelKey", inp
 func MicroGetJson(input string) string          { return call("microGetJson", input) }
 func MicroPutJson(input string) string          { return call("microPutJson", input) }
 func MicroGetByPrefix(input string) string      { return call("microGetByPrefix", input) }
-func MicroHasAccessToPoint(input string) string { return call("microHasAccessToPoint", input) }
+func MicroHasAccessToStore(input string) string { return call("microHasAccessToStore", input) }
 func MicroSignalUser(input string) string       { return call("microSignalUser", input) }
 func MicroSignalGroup(input string) string      { return call("microSignalGroup", input) }
 func MicroJoinGroup(input string) string        { return call("microJoinGroup", input) }

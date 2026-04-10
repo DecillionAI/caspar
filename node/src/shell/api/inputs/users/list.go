@@ -11,7 +11,7 @@ func (d ListInput) GetData() any {
 	return "dummy"
 }
 
-func (d ListInput) GetPointId() string {
+func (d ListInput) GetStoreId() string {
 	return ""
 }
 

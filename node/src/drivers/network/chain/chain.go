@@ -29,7 +29,7 @@ import (
 
 type WorkChain struct {
 	Id          string
-	PointId     string
+	StoreId     string
 	blockchain  *Blockchain
 	mainLedger  *babble.Babble
 	mainProxy   *inmem.InmemProxy
@@ -121,18 +121,18 @@ func initTransport(config *config.Config) (net.Transport, error) {
 	}
 }
 
-func (b *Blockchain) createNewWorkChain(chainId string, pointId string, persist bool) *WorkChain {
+func (b *Blockchain) createNewWorkChain(chainId string, storeId string, persist bool) *WorkChain {
 	if existing, ok := b.chains.Get(chainId); ok {
 		return existing
 	}
-	wchain := &WorkChain{Id: chainId, PointId: pointId, mainLedger: nil, mainProxy: nil, shardChains: cmap.New[*ShardChain](), blockchain: b}
+	wchain := &WorkChain{Id: chainId, StoreId: storeId, mainLedger: nil, mainProxy: nil, shardChains: cmap.New[*ShardChain](), blockchain: b}
 	b.chains.Set(chainId, wchain)
 	mainShardChain := wchain.createNewShardChain("shard-main", false, []string{}, persist)
 	wchain.mainLedger = mainShardChain.shardLedger
 	wchain.mainProxy = mainShardChain.shardProxy
 	if persist {
 		b.app.ModifyState(false, func(trx trx.ITrx) error {
-			model.Chain{Id: chainId, PointId: pointId}.Push(trx)
+			model.Chain{Id: chainId, StoreId: storeId}.Push(trx)
 			return nil
 		})
 	}
@@ -223,7 +223,7 @@ func (b *Blockchain) restoreChainsFromStorage() {
 			shardsByChain[shard.WorkChainId] = append(shardsByChain[shard.WorkChainId], shard.Id)
 		}
 		for _, ch := range chains {
-			wchain := b.createNewWorkChain(ch.Id, ch.PointId, false)
+			wchain := b.createNewWorkChain(ch.Id, ch.StoreId, false)
 			for _, shardId := range shardsByChain[ch.Id] {
 				if shardId == "shard-main" {
 					continue
@@ -328,12 +328,12 @@ func (c *Blockchain) NotifyNewMachineCreated(chainId string, machineId string) {
 	// }
 }
 
-func (c *Blockchain) CreateTempChain(pointId string) string {
-	return c.createNewWorkChain(uuid.NewString(), pointId, true).Id
+func (c *Blockchain) CreateTempChain(storeId string) string {
+	return c.createNewWorkChain(uuid.NewString(), storeId, true).Id
 }
 
-func (c *Blockchain) CreateWorkChain(pointId string) string {
-	return c.createNewWorkChain(uuid.NewString(), pointId, true).Id
+func (c *Blockchain) CreateWorkChain(storeId string) string {
+	return c.createNewWorkChain(uuid.NewString(), storeId, true).Id
 }
 
 func (c *Blockchain) CreateShardChain(chainId string, shardChainId string, peers []string) string {

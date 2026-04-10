@@ -12,7 +12,7 @@ import (
 	inputs_users "kasper/src/shell/api/inputs/users"
 	"kasper/src/shell/api/model"
 	outputs_machiner "kasper/src/shell/api/outputs/plugin"
-	updates_points "kasper/src/shell/api/updates/points"
+	updates_stores "kasper/src/shell/api/updates/stores"
 	"kasper/src/shell/utils/future"
 	"log"
 	"strconv"
@@ -289,7 +289,7 @@ func Install(a *Actions, extra ...any) error {
 		for _, program := range programs {
 			if program.Runtime == "wasm" || program.Runtime == "elpify" || program.Runtime == "javascript" || program.Runtime == "elpian" {
 				a.App.Tools().Vmm().Assign(program.MachineId)
-				if pointId := trx.GetLink("vmAlarmPointId::" + program.MachineId); pointId != "" {
+				if storeId := trx.GetLink("vmAlarmStoreId::" + program.MachineId); storeId != "" {
 					future.Async(func() {
 						t, _ := strconv.ParseInt(trx.GetLink("vmAlarmTime::"+program.MachineId), 10, 64)
 						ct := time.Now().UnixMilli()
@@ -297,11 +297,11 @@ func Install(a *Actions, extra ...any) error {
 							time.Sleep(time.Duration(t-ct) * time.Millisecond)
 						}
 						data := trx.GetLink("vmAlarmData::" + program.MachineId)
-						trx.DelKey("link::vmAlarmPointId::" + program.MachineId)
+						trx.DelKey("link::vmAlarmStoreId::" + program.MachineId)
 						trx.DelKey("link::vmAlarmData::" + program.MachineId)
 						trx.DelKey("link::vmAlarmTime::" + program.MachineId)
-						if a.App.Tools().Security().HasAccessToPoint(program.MachineId, pointId) {
-							a.App.Tools().Vmm().RunVm(program.MachineId, pointId, data)
+						if a.App.Tools().Security().HasAccessToStore(program.MachineId, storeId) {
+							a.App.Tools().Vmm().RunVm(program.MachineId, storeId, data)
 						}
 					}, false)
 				}
@@ -314,17 +314,17 @@ func Install(a *Actions, extra ...any) error {
 					}, false)
 				}
 			}
-			var pointIds []string
+			var storeIds []string
 			prefix := "hasaccess::" + program.MachineId + "::"
 			pIds, err := trx.GetLinksList(prefix, -1, -1)
 			if err != nil {
 				log.Println(err)
-				pointIds = []string{}
+				storeIds = []string{}
 			} else {
-				pointIds = pIds
+				storeIds = pIds
 			}
-			for _, pointId := range pointIds {
-				a.App.Tools().Signaler().JoinGroup(pointId[len(prefix):], program.MachineId)
+			for _, storeId := range storeIds {
+				a.App.Tools().Signaler().JoinGroup(storeId[len(prefix):], program.MachineId)
 			}
 		}
 		return nil

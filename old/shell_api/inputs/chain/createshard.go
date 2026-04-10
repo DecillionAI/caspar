@@ -12,7 +12,7 @@ func (d CreateShardInput) GetData() any {
 	return "dummy"
 }
 
-func (d CreateShardInput) GetPointId() string {
+func (d CreateShardInput) GetStoreId() string {
 	return ""
 }
 

@@ -213,7 +213,7 @@ fn serialize_expr(val: serde_json::Value) -> Vec<u8> {
 fn serialize_condition_chain(
     operation: Value,
     is_conditioned: bool,
-    start_point: usize,
+    start_store: usize,
 ) -> (Vec<u8>, Vec<usize>) {
     let mut result: Vec<u8> = vec![];
     let mut baps: Vec<usize> = vec![];
@@ -225,9 +225,9 @@ fn serialize_condition_chain(
         result.push(0x00);
     }
     let body_start = if is_conditioned {
-        start_point + result.len() + 8 + 8 + 8 + 8
+        start_store + result.len() + 8 + 8 + 8 + 8
     } else {
-        start_point + result.len() + 8 + 8 + 8
+        start_store + result.len() + 8 + 8 + 8
     };
     let body = compile_ast(operation["data"].clone(), body_start);
     let body_end = body_start + body.len();
@@ -235,27 +235,27 @@ fn serialize_condition_chain(
     result.append(&mut i64::to_be_bytes(body_end as i64).to_vec());
     let mut after_body: Vec<u8> = vec![];
     if let Some(elseif_stmt) = operation["data"].get("elseifStmt") {
-        let (mut compiled_body, mut branch_after_points) =
+        let (mut compiled_body, mut branch_after_stores) =
             serialize_condition_chain(elseif_stmt.clone(), true, body_end);
         after_body.append(&mut compiled_body);
-        baps.append(&mut branch_after_points);
+        baps.append(&mut branch_after_stores);
     } else if let Some(else_stmt) = operation["data"].get("elseStmt") {
-        let (mut compiled_body, mut branch_after_points) =
+        let (mut compiled_body, mut branch_after_stores) =
             serialize_condition_chain(else_stmt.clone(), false, body_end);
         after_body.append(&mut compiled_body);
-        baps.append(&mut branch_after_points);
+        baps.append(&mut branch_after_stores);
     }
     if is_conditioned {
         result.append(&mut i64::to_be_bytes(body_end as i64).to_vec());
     }
-    baps.push(start_point + result.len());
+    baps.push(start_store + result.len());
     result.append(&mut vec![0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);
     result.append(&mut body.clone());
     result.append(&mut after_body);
     (result, baps)
 }
 
-pub fn compile_ast(program: serde_json::Value, start_point: usize) -> Vec<u8> {
+pub fn compile_ast(program: serde_json::Value, start_store: usize) -> Vec<u8> {
     let mut result: Vec<u8> = vec![];
     let mut op_counter: i64 = 1;
     let mut step_start_map: HashMap<i64, usize> = HashMap::new();
@@ -263,7 +263,7 @@ pub fn compile_ast(program: serde_json::Value, start_point: usize) -> Vec<u8> {
     for operation in program["body"].as_array().unwrap().iter() {
         step_start_map
             .entry(op_counter)
-            .or_insert(start_point + result.len());
+            .or_insert(start_store + result.len());
         match operation["type"].as_str().unwrap() {
             "jumpOperation" => {
                 result.push(0x15);
@@ -327,22 +327,22 @@ pub fn compile_ast(program: serde_json::Value, start_point: usize) -> Vec<u8> {
             }
             "ifStmt" => {
                 let (mut compiled_code, baps) =
-                    serialize_condition_chain(operation.clone(), true, start_point + result.len());
+                    serialize_condition_chain(operation.clone(), true, start_store + result.len());
                 let branch_after =
-                    i64::to_be_bytes((start_point + result.len() + compiled_code.len()) as i64)
+                    i64::to_be_bytes((start_store + result.len() + compiled_code.len()) as i64)
                         .to_vec();
                 for bap in baps.iter() {
-                    let s = *bap - start_point - result.len();
-                    let e = *bap + 8 - start_point - result.len();
+                    let s = *bap - start_store - result.len();
+                    let e = *bap + 8 - start_store - result.len();
                     compiled_code[s..e].copy_from_slice(branch_after.as_slice());
                 }
                 result.append(&mut compiled_code);
             }
             "loopStmt" => {
-                let loop_start = start_point + result.len();
+                let loop_start = start_store + result.len();
                 result.push(0x11);
                 result.append(&mut serialize_expr(operation["data"]["condition"].clone()).to_vec());
-                let body_start = start_point + result.len() + 8 + 8 + 8;
+                let body_start = start_store + result.len() + 8 + 8 + 8;
                 let mut body = compile_ast(operation["data"].clone(), body_start);
                 body.push(0x15);
                 body.append(&mut i64::to_be_bytes(loop_start as i64).to_vec());
@@ -358,7 +358,7 @@ pub fn compile_ast(program: serde_json::Value, start_point: usize) -> Vec<u8> {
                 let mut inner: Vec<u8> = vec![];
                 for case_val in operation["data"]["cases"].as_array().unwrap().iter() {
                     inner.append(&mut serialize_expr(case_val["value"].clone()));
-                    let body_start = start_point + result.len() + 8 + 8 + inner.len() + 8 + 8;
+                    let body_start = start_store + result.len() + 8 + 8 + inner.len() + 8 + 8;
                     let mut body: Vec<u8> = compile_ast(case_val["body"].clone(), body_start);
                     let body_end = body_start + body.len();
                     inner.append(&mut i64::to_be_bytes(body_start as i64).to_vec());
@@ -367,7 +367,7 @@ pub fn compile_ast(program: serde_json::Value, start_point: usize) -> Vec<u8> {
                 }
                 result.append(
                     &mut i64::to_be_bytes(
-                        (start_point + result.len() + inner.len() + 8 + 8) as i64,
+                        (start_store + result.len() + inner.len() + 8 + 8) as i64,
                     )
                     .to_vec(),
                 );
@@ -401,7 +401,7 @@ pub fn compile_ast(program: serde_json::Value, start_point: usize) -> Vec<u8> {
                     result.append(&mut len_bytes);
                     result.append(&mut str_bytes);
                 }
-                let func_start = start_point + result.len() + 8 + 8;
+                let func_start = start_store + result.len() + 8 + 8;
                 let body = compile_ast(operation["data"].clone(), func_start);
                 let func_end = func_start + body.len();
                 result.append(&mut i64::to_be_bytes(func_start as i64).to_vec());
@@ -474,8 +474,8 @@ pub fn compile_ast(program: serde_json::Value, start_point: usize) -> Vec<u8> {
         op_counter += 1;
     }
     for (key, value) in reserved_branch_map {
-        let step_point = *step_start_map.get(&key).unwrap();
-        let sp_bytes = i64::to_be_bytes(step_point as i64).to_vec();
+        let step_store = *step_start_map.get(&key).unwrap();
+        let sp_bytes = i64::to_be_bytes(step_store as i64).to_vec();
         for space in value.iter() {
             let address: usize = *space;
             result[address..address + 8].copy_from_slice(sp_bytes.as_slice());

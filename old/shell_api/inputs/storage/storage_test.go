@@ -16,21 +16,21 @@ func TestStorageInputsImplementInterface(t *testing.T) {
 	var _ input.IInput = DeleteUserEntityInput{}
 	var _ input.IInput = StreamGetInput{}
 	var _ input.IInput = UploadAppEntityInput{}
-	var _ input.IInput = UploadPointEntityInput{}
-	var _ input.IInput = DownloadPointEntityInput{}
-	var _ input.IInput = DeletePointEntityInput{}
+	var _ input.IInput = UploadStoreEntityInput{}
+	var _ input.IInput = DownloadStoreEntityInput{}
+	var _ input.IInput = DeleteStoreEntityInput{}
 }
 
-func TestStorageInputOriginsFollowPointId(t *testing.T) {
-	point := "p1@remote-origin"
+func TestStorageInputOriginsFollowStoreId(t *testing.T) {
+	store := "p1@remote-origin"
 	tests := []input.IInput{
-		UploadPointEntityInput{PointId: point},
-		DeletePointEntityInput{PointId: point},
-		UploadDataInput{PointId: point},
+		UploadStoreEntityInput{StoreId: store},
+		DeleteStoreEntityInput{StoreId: store},
+		UploadDataInput{StoreId: store},
 	}
 	for i, tt := range tests {
-		if got := tt.GetPointId(); got != point {
-			t.Fatalf("test %d point mismatch got=%q want=%q", i, got, point)
+		if got := tt.GetStoreId(); got != store {
+			t.Fatalf("test %d store mismatch got=%q want=%q", i, got, store)
 		}
 		if got := tt.Origin(); got != "remote-origin" {
 			t.Fatalf("test %d origin mismatch got=%q want=remote-origin", i, got)
@@ -38,8 +38,8 @@ func TestStorageInputOriginsFollowPointId(t *testing.T) {
 	}
 
 	emptyOrigin := []input.IInput{
-		DownloadPointEntityInput{PointId: point}, UploadInput{PointId: point}, DownloadInput{PointId: point},
-		StreamGetInput{PointId: point}, DownloadUserEntityInput{}, DownloadAppEntityInput{},
+		DownloadStoreEntityInput{StoreId: store}, UploadInput{StoreId: store}, DownloadInput{StoreId: store},
+		StreamGetInput{StoreId: store}, DownloadUserEntityInput{}, DownloadAppEntityInput{},
 	}
 	for i, tt := range emptyOrigin {
 		if tt.Origin() != "" {

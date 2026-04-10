@@ -11,7 +11,7 @@ func TestFindOrigin(t *testing.T) {
 		{name: "empty", id: "", want: ""},
 		{name: "without-separator", id: "abc", want: ""},
 		{name: "single-origin", id: "user@fed", want: "fed"},
-		{name: "multiple-at", id: "user@point@fed", want: "fed"},
+		{name: "multiple-at", id: "user@store@fed", want: "fed"},
 	}
 
 	for _, tt := range tests {

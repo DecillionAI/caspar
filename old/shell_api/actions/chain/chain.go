@@ -90,16 +90,16 @@ func (a *Actions) Create(state state.IState, input inputs_chain.CreateInput) (an
 		return nil, err
 	}
 	id := ""
-	pointId := ""
-	if input.PointId != nil {
-		pointId = *input.PointId
+	storeId := ""
+	if input.StoreId != nil {
+		storeId = *input.StoreId
 	}
 	if *input.IsTemp {
-		id = a.App.Tools().Network().Chain().CreateTempChain(pointId)
+		id = a.App.Tools().Network().Chain().CreateTempChain(storeId)
 	} else {
-		id = a.App.Tools().Network().Chain().CreateWorkChain(pointId)
+		id = a.App.Tools().Network().Chain().CreateWorkChain(storeId)
 	}
-	return map[string]any{"chainId": id, "pointId": pointId}, nil
+	return map[string]any{"chainId": id, "storeId": storeId}, nil
 }
 
 // CreateShard /chains/createShard check [ true false false ] access [ true false false false POST ]
@@ -118,9 +118,9 @@ func (a *Actions) CreateShard(state state.IState, input inputs_chain.CreateShard
 	return map[string]any{"chainId": input.ChainId, "shardChainId": id}, nil
 }
 
-// CreateFromPoint /chains/createFromPoint check [ true true false ] access [ true false false false POST ]
-func (a *Actions) CreateFromPoint(state state.IState, input inputs_chain.CreateFromPointInput) (any, error) {
-	members, err := state.Trx().GetLinksList("onaccess::"+state.Info().PointId()+"::", -1, -1)
+// CreateFromStore /chains/createFromStore check [ true true false ] access [ true false false false POST ]
+func (a *Actions) CreateFromStore(state state.IState, input inputs_chain.CreateFromStoreInput) (any, error) {
+	members, err := state.Trx().GetLinksList("onaccess::"+state.Info().StoreId()+"::", -1, -1)
 	if err != nil {
 		return nil, err
 	}
@@ -141,7 +141,7 @@ func (a *Actions) CreateFromPoint(state state.IState, input inputs_chain.CreateF
 		peers = append(peers, addr)
 	}
 
-	createResRaw, err := a.Create(state, inputs_chain.CreateInput{PointId: &input.PointId, IsTemp: input.IsTemp, LockId: input.LockId, LockSignature: input.LockSignature})
+	createResRaw, err := a.Create(state, inputs_chain.CreateInput{StoreId: &input.StoreId, IsTemp: input.IsTemp, LockId: input.LockId, LockSignature: input.LockSignature})
 	if err != nil {
 		return nil, err
 	}
@@ -163,7 +163,7 @@ func (a *Actions) CreateFromPoint(state state.IState, input inputs_chain.CreateF
 		"chainId":      chainId,
 		"shardChainId": shardChainId,
 		"peers":        peers,
-		"pointId":      input.PointId,
+		"storeId":      input.StoreId,
 	}, nil
 }
 

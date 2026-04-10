@@ -350,20 +350,20 @@ func (t *Socket) processPacket(packet []byte) {
 			}()
 			t.server.sockets.Set(userId, t)
 			t.userId = userId
-			var pointIds []string
+			var storeIds []string
 			prefix := "hasaccess::" + userId + "::"
 			t.app.ModifyState(true, func(trx trx.ITrx) error {
 				pIds, err := trx.GetLinksList(prefix, -1, -1)
 				if err != nil {
 					println(err)
-					pointIds = []string{}
+					storeIds = []string{}
 				} else {
-					pointIds = pIds
+					storeIds = pIds
 				}
 				return nil
 			})
-			for _, pointId := range pointIds {
-				t.app.Tools().Signaler().JoinGroup(pointId[len(prefix):], userId)
+			for _, storeId := range storeIds {
+				t.app.Tools().Signaler().JoinGroup(storeId[len(prefix):], userId)
 			}
 			t.writeResponse(packetId, 0, packetmodel.BuildErrorJson("authenticated"), false)
 			t.app.Tools().Signaler().ListenToSingle(lis)

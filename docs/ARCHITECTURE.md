@@ -60,7 +60,7 @@ The chain stack provides:
 - service endpoints (`/stats`, `/graph`, `/peers`, etc.)
 - transaction routing by type (`baseRequest`, `appRequest`, `response`, `message`, `election`)
 
-Work-chain operations exposed by actions currently include create, create-shard, create-from-point, register-node, and submit-base-trx.
+Work-chain operations exposed by actions currently include create, create-shard, create-from-store, register-node, and submit-base-trx.
 
 ## 6) Federation Layer (`node/src/drivers/network/federation`)
 
@@ -102,7 +102,7 @@ Key behaviors:
 
 ### Entity storage
 
-- user/point/app entity upload/download
+- user/store/app entity upload/download
 - stream relay endpoints for larger payload flow
 
 ## 9) Networking Interfaces
@@ -117,7 +117,7 @@ Key behaviors:
 
 - signature verification against stored public keys
 - route-specific guard checks (identity, membership, access policy)
-- privileged/god command path embedded in point signal handling (`/points/signal` command packets)
+- privileged/god command path embedded in store signal handling (`/stores/signal` command packets)
 
 ## 11) Boot Composition
 

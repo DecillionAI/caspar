@@ -38,8 +38,8 @@ func (wm *Vmm) VmCallback(dataRaw string) (string, int64) {
 		return wm.handleCheckTokenValidity(input, reqId)
 	case "plantTrigger":
 		return wm.handlePlantTrigger(input, reqId)
-	case "signalPoint":
-		return wm.handleSignalPoint(input, reqId)
+	case "signalStore":
+		return wm.handleSignalStore(input, reqId)
 	case "runVm":
 		return wm.handleRunVM(input, reqId)
 	case "terminateVm":
@@ -94,8 +94,8 @@ func (wm *Vmm) VmCallback(dataRaw string) (string, int64) {
 		return wm.handleMicroHostAction("putJson", input, reqId)
 	case "microGetByPrefix":
 		return wm.handleMicroHostAction("getByPrefix", input, reqId)
-	case "microHasAccessToPoint":
-		return wm.handleMicroHostAction("hasAccessToPoint", input, reqId)
+	case "microHasAccessToStore":
+		return wm.handleMicroHostAction("hasAccessToStore", input, reqId)
 	case "microSignalUser":
 		return wm.handleMicroHostAction("signalUser", input, reqId)
 	case "microSignalGroup":

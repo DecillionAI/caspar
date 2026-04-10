@@ -21,11 +21,11 @@ import (
 type requestEnvelope struct {
 	Type  string          `json:"type"`
 	Data  string          `json:"data"`
-	Point pointDescriptor `json:"point"`
+	Store storeDescriptor `json:"store"`
 	User  userDescriptor  `json:"user"`
 }
 
-type pointDescriptor struct {
+type storeDescriptor struct {
 	ID string `json:"id"`
 }
 
@@ -36,7 +36,7 @@ type userDescriptor struct {
 type onchainRequest struct {
 	RequestID        string          `json:"requestId"`
 	MachineID        string          `json:"machineId"`
-	PointID          string          `json:"pointId"`
+	StoreID          string          `json:"storeId"`
 	MasmPath         string          `json:"masmPath"`
 	Inputs           []uint64        `json:"inputs"`
 	Outputs          []uint64        `json:"outputs"`
@@ -60,7 +60,7 @@ var (
 type proofSharedMessage struct {
 	Type         string          `json:"type"`
 	RequestID    string          `json:"requestId"`
-	PointID      string          `json:"pointId"`
+	StoreID      string          `json:"storeId"`
 	ExecutorNode string          `json:"executorNode"`
 	MachineID    string          `json:"machineId"`
 	MasmPath     string          `json:"masmPath"`
@@ -75,7 +75,7 @@ type proofSharedMessage struct {
 type verificationVote struct {
 	Type          string `json:"type"`
 	RequestID     string `json:"requestId"`
-	PointID       string `json:"pointId"`
+	StoreID       string `json:"storeId"`
 	Requester     string `json:"requester"`
 	VerifierNode  string `json:"verifierNode"`
 	Vote          string `json:"vote"`
@@ -233,31 +233,31 @@ func chainDriverApi(action string, input map[string]any) {
 	})
 }
 
-func signalPoint(pointID string, userID string, payload map[string]any) {
+func signalStore(storeID string, userID string, payload map[string]any) {
 	body, _ := json.Marshal(payload)
-	hostCall("signalPoint", map[string]any{
+	hostCall("signalStore", map[string]any{
 		"type":    "broadcast",
-		"pointId": pointID,
+		"storeId": storeID,
 		"userId":  userID,
 		"data":    string(body),
 	})
 }
 
-func signalPointStruct(pointID, userID string, payload any) {
+func signalStoreStruct(storeID, userID string, payload any) {
 	body, _ := json.Marshal(payload)
-	hostCall("signalPoint", map[string]any{
+	hostCall("signalStore", map[string]any{
 		"type":    "broadcast",
-		"pointId": pointID,
+		"storeId": storeID,
 		"userId":  userID,
 		"data":    string(body),
 	})
 }
 
-func runVm(machineID, pointID, masmPath string, inputs []uint64) {
+func runVm(machineID, storeID, masmPath string, inputs []uint64) {
 	payload, _ := json.Marshal(map[string]any{"inputs": inputs})
 	hostCall("runVm", map[string]any{
 		"machineId": machineID,
-		"pointId":   pointID,
+		"storeId":   storeID,
 		"astPath":   masmPath,
 		"vmType":    "elpify",
 		"input":     string(payload),
@@ -288,7 +288,7 @@ func processOnchainRequest(req onchainRequest) {
 	}
 
 	if !verifyApproval(req) {
-		signalPoint(req.PointID, req.UserID, map[string]any{
+		signalStore(req.StoreID, req.UserID, map[string]any{
 			"type":      "onchainExecutionRejected",
 			"requestId": req.RequestID,
 			"reason":    "invalid user approval signature",
@@ -296,20 +296,20 @@ func processOnchainRequest(req onchainRequest) {
 		return
 	}
 
-	signalPoint(req.PointID, req.UserID, map[string]any{
+	signalStore(req.StoreID, req.UserID, map[string]any{
 		"type":      "onchainExecutionAccepted",
 		"requestId": req.RequestID,
 		"nodeId":    nodeID,
 		"nodeRole":  nodeRole,
 	})
 
-	runVm(req.MachineID, req.PointID, req.MasmPath, req.Inputs)
+	runVm(req.MachineID, req.StoreID, req.MasmPath, req.Inputs)
 
 	proofDigest := sha256.Sum256(req.Proof)
 	proofMessage := proofSharedMessage{
 		Type:         "onchainExecutionProofShared",
 		RequestID:    req.RequestID,
-		PointID:      req.PointID,
+		StoreID:      req.StoreID,
 		ExecutorNode: nodeID,
 		MachineID:    req.MachineID,
 		MasmPath:     req.MasmPath,
@@ -320,9 +320,9 @@ func processOnchainRequest(req onchainRequest) {
 		Result:       req.ExecutionPayload,
 		Requester:    req.UserID,
 	}
-	signalPointStruct(req.PointID, req.UserID, proofMessage)
+	signalStoreStruct(req.StoreID, req.UserID, proofMessage)
 
-	signalPoint(req.PointID, req.UserID, map[string]any{
+	signalStore(req.StoreID, req.UserID, map[string]any{
 		"type":      "executionResultToRequester",
 		"requestId": req.RequestID,
 		"result":    string(req.ExecutionPayload),
@@ -345,7 +345,7 @@ func processProofShared(msg proofSharedMessage) {
 	vote := verificationVote{
 		Type:         "onchainVerificationVote",
 		RequestID:    msg.RequestID,
-		PointID:      msg.PointID,
+		StoreID:      msg.StoreID,
 		Requester:    msg.Requester,
 		VerifierNode: nodeID,
 		Vote:         "yes",
@@ -357,7 +357,7 @@ func processProofShared(msg proofSharedMessage) {
 		vote.Vote = "no"
 		vote.Reason = "empty proof payload"
 	}
-	signalPointStruct(msg.PointID, msg.Requester, vote)
+	signalStoreStruct(msg.StoreID, msg.Requester, vote)
 }
 
 func processVerificationVote(vote verificationVote) {
@@ -369,7 +369,7 @@ func processVerificationVote(vote verificationVote) {
 		status = "rejected"
 	}
 
-	signalPoint(vote.PointID, vote.Requester, map[string]any{
+	signalStore(vote.StoreID, vote.Requester, map[string]any{
 		"type":      "onchainVerificationTally",
 		"requestId": vote.RequestID,
 		"yesVotes":  yes,
@@ -378,32 +378,32 @@ func processVerificationVote(vote verificationVote) {
 	})
 }
 
-func processValidatorStake(pointID string, msg validatorStake) {
+func processValidatorStake(storeID string, msg validatorStake) {
 	electionState.mu.Lock()
 	defer electionState.mu.Unlock()
 	electionState.stakes[msg.NodeID] = msg.Stake
-	signalPoint(pointID, msg.NodeID, map[string]any{
+	signalStore(storeID, msg.NodeID, map[string]any{
 		"type":   "validatorStakeAccepted",
 		"nodeId": msg.NodeID,
 		"stake":  msg.Stake,
 	})
 }
 
-func processValidatorCommit(pointID string, msg validatorCommit) {
+func processValidatorCommit(storeID string, msg validatorCommit) {
 	electionState.mu.Lock()
 	defer electionState.mu.Unlock()
 	if _, ok := electionState.commits[msg.Period]; !ok {
 		electionState.commits[msg.Period] = map[string]string{}
 	}
 	electionState.commits[msg.Period][msg.NodeID] = msg.Hash
-	signalPoint(pointID, msg.NodeID, map[string]any{
+	signalStore(storeID, msg.NodeID, map[string]any{
 		"type":   "validatorCommitAccepted",
 		"period": msg.Period,
 		"nodeId": msg.NodeID,
 	})
 }
 
-func processValidatorReveal(pointID string, msg validatorReveal) {
+func processValidatorReveal(storeID string, msg validatorReveal) {
 	electionState.mu.Lock()
 	defer electionState.mu.Unlock()
 	commitHash := ""
@@ -412,7 +412,7 @@ func processValidatorReveal(pointID string, msg validatorReveal) {
 	}
 	expected := hashCommit(msg.Period, msg.NodeID, msg.Nonce)
 	if commitHash == "" || commitHash != expected {
-		signalPoint(pointID, msg.NodeID, map[string]any{
+		signalStore(storeID, msg.NodeID, map[string]any{
 			"type":   "validatorRevealRejected",
 			"period": msg.Period,
 			"nodeId": msg.NodeID,
@@ -427,7 +427,7 @@ func processValidatorReveal(pointID string, msg validatorReveal) {
 	electionState.stakes[msg.NodeID] = msg.Stake
 }
 
-func processElectionTick(pointID string, msg electionTick) {
+func processElectionTick(storeID string, msg electionTick) {
 	electionState.mu.Lock()
 	defer electionState.mu.Unlock()
 	reveals := electionState.reveals[msg.Period]
@@ -470,7 +470,7 @@ func processElectionTick(pointID string, msg electionTick) {
 	winners = winners[:slots]
 	electionState.elected[msg.Period] = winners
 
-	signalPointStruct(pointID, "", map[string]any{
+	signalStoreStruct(storeID, "", map[string]any{
 		"type":    "onchainValidatorElectionResult",
 		"period":  msg.Period,
 		"winners": winners,
@@ -524,7 +524,7 @@ func rebalanceShards(workChain string) {
 	}
 
 	// Broadcast sharding plan on chain and call chain-driver API hooks for create/update.
-	signalPointStruct(workChain, "", map[string]any{
+	signalStoreStruct(workChain, "", map[string]any{
 		"type":   "onchainShardPlan",
 		"chain":  workChain,
 		"shards": shards,
@@ -567,8 +567,8 @@ func processPacket(data []byte) {
 				log.Printf("failed to decode proof-shared payload: %v", err)
 				return
 			}
-			if msg.PointID == "" {
-				msg.PointID = env.Point.ID
+			if msg.StoreID == "" {
+				msg.StoreID = env.Store.ID
 			}
 			if msg.Requester == "" {
 				msg.Requester = env.User.ID
@@ -581,8 +581,8 @@ func processPacket(data []byte) {
 				log.Printf("failed to decode verification vote: %v", err)
 				return
 			}
-			if vote.PointID == "" {
-				vote.PointID = env.Point.ID
+			if vote.StoreID == "" {
+				vote.StoreID = env.Store.ID
 			}
 			if vote.Requester == "" {
 				vote.Requester = env.User.ID
@@ -592,32 +592,32 @@ func processPacket(data []byte) {
 		if payloadType == "validatorStakeAnnouncement" {
 			stake := validatorStake{}
 			if err := json.Unmarshal([]byte(env.Data), &stake); err == nil {
-				processValidatorStake(env.Point.ID, stake)
+				processValidatorStake(env.Store.ID, stake)
 			}
 		}
 		if payloadType == "validatorCommit" {
 			commit := validatorCommit{}
 			if err := json.Unmarshal([]byte(env.Data), &commit); err == nil {
-				processValidatorCommit(env.Point.ID, commit)
+				processValidatorCommit(env.Store.ID, commit)
 			}
 		}
 		if payloadType == "validatorReveal" {
 			reveal := validatorReveal{}
 			if err := json.Unmarshal([]byte(env.Data), &reveal); err == nil {
-				processValidatorReveal(env.Point.ID, reveal)
+				processValidatorReveal(env.Store.ID, reveal)
 			}
 		}
 		if payloadType == "validatorElectionTick" {
 			tick := electionTick{}
 			if err := json.Unmarshal([]byte(env.Data), &tick); err == nil {
-				processElectionTick(env.Point.ID, tick)
+				processElectionTick(env.Store.ID, tick)
 			}
 		}
 		if payloadType == "machineLoadReport" {
 			report := machineLoadReport{}
 			if err := json.Unmarshal([]byte(env.Data), &report); err == nil {
 				if report.WorkChain == "" {
-					report.WorkChain = env.Point.ID
+					report.WorkChain = env.Store.ID
 				}
 				processMachineLoadReport(report)
 			}
@@ -630,8 +630,8 @@ func processPacket(data []byte) {
 		log.Printf("failed to decode onchain request payload: %v", err)
 		return
 	}
-	if req.PointID == "" {
-		req.PointID = env.Point.ID
+	if req.StoreID == "" {
+		req.StoreID = env.Store.ID
 	}
 	if req.UserID == "" {
 		req.UserID = env.User.ID

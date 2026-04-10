@@ -10,7 +10,7 @@ func (d UploadAppEntityInput) GetData() any {
 	return "dummy"
 }
 
-func (d UploadAppEntityInput) GetPointId() string {
+func (d UploadAppEntityInput) GetStoreId() string {
 	return ""
 }
 

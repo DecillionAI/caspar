@@ -22,7 +22,7 @@ func TestMachineInputsImplementInterface(t *testing.T) {
 	var _ input.IInput = UpdateProgramInput{}
 }
 
-func TestMachineInputOriginsAndPointIds(t *testing.T) {
+func TestMachineInputOriginsAndStoreIds(t *testing.T) {
 	cases := []struct {
 		in   input.IInput
 		orig string
@@ -42,8 +42,8 @@ func TestMachineInputOriginsAndPointIds(t *testing.T) {
 		{UpdateProgramInput{}, "global"},
 	}
 	for i, c := range cases {
-		if c.in.GetPointId() != "" {
-			t.Fatalf("case %d expected empty point id", i)
+		if c.in.GetStoreId() != "" {
+			t.Fatalf("case %d expected empty store id", i)
 		}
 		if c.in.Origin() != c.orig {
 			t.Fatalf("case %d origin got=%q want=%q", i, c.in.Origin(), c.orig)

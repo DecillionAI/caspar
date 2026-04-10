@@ -14,9 +14,9 @@ import (
 	"kasper/src/abstract/models/packet"
 	"kasper/src/abstract/models/trx"
 	inputs_invites "kasper/src/shell/api/inputs/invites"
-	inputs_points "kasper/src/shell/api/inputs/points"
-	outputs_points "kasper/src/shell/api/outputs/points"
-	updates_points "kasper/src/shell/api/updates/points"
+	inputs_stores "kasper/src/shell/api/inputs/stores"
+	outputs_stores "kasper/src/shell/api/outputs/stores"
+	updates_stores "kasper/src/shell/api/updates/stores"
 	"kasper/src/shell/utils/crypto"
 	"kasper/src/shell/utils/future"
 	"log"
@@ -102,9 +102,9 @@ func (fed *FedNet) HandlePacket(socket *Socket, channelId string, payload packet
 		cb, ok := fed.packetCallbacks.Get(payload.RequestId)
 		if ok {
 			if payload.ResCode == 0 {
-				if cb.Key == "/invites/accept" || cb.Key == "/points/join" {
+				if cb.Key == "/invites/accept" || cb.Key == "/stores/join" {
 					userId := ""
-					pointId := ""
+					storeId := ""
 					if cb.Key == "/invites/accept" {
 						var memberRes inputs_invites.AcceptInput
 						err2 := json.Unmarshal(cb.Request, &memberRes)
@@ -113,39 +113,39 @@ func (fed *FedNet) HandlePacket(socket *Socket, channelId string, payload packet
 							return
 						}
 						userId = cb.UserId
-						pointId = memberRes.PointId
-					} else if cb.Key == "/points/join" {
-						var memberRes inputs_points.JoinInput
+						storeId = memberRes.StoreId
+					} else if cb.Key == "/stores/join" {
+						var memberRes inputs_stores.JoinInput
 						err2 := json.Unmarshal(cb.Request, &memberRes)
 						if err2 != nil {
 							log.Println(err2)
 							return
 						}
 						userId = cb.UserId
-						pointId = memberRes.PointId
+						storeId = memberRes.StoreId
 					}
-					if pointId != "" {
+					if storeId != "" {
 						fed.app.ModifyState(false, func(trx trx.ITrx) error {
-							trx.PutLink("onaccess::"+pointId+"::"+userId, "true")
-							trx.PutLink("hasaccess::"+userId+"::"+pointId, "true")
+							trx.PutLink("onaccess::"+storeId+"::"+userId, "true")
+							trx.PutLink("hasaccess::"+userId+"::"+storeId, "true")
 							return nil
 						})
-						fed.signaler.JoinGroup(pointId, userId)
+						fed.signaler.JoinGroup(storeId, userId)
 					}
-				} else if cb.Key == "/points/create" {
-					var spaceOut outputs_points.CreateOutput
+				} else if cb.Key == "/stores/create" {
+					var spaceOut outputs_stores.CreateOutput
 					err3 := json.Unmarshal(payload.Binary, &spaceOut)
 					if err3 != nil {
 						log.Println(err3)
 						return
 					}
 					fed.app.ModifyState(false, func(trx trx.ITrx) error {
-						spaceOut.Point.Pull(trx)
-						trx.PutLink("onaccess::"+spaceOut.Point.Id+"::"+cb.UserId, "true")
-						trx.PutLink("hasaccess::"+cb.UserId+"::"+spaceOut.Point.Id, "true")
+						spaceOut.Store.Pull(trx)
+						trx.PutLink("onaccess::"+spaceOut.Store.Id+"::"+cb.UserId, "true")
+						trx.PutLink("hasaccess::"+cb.UserId+"::"+spaceOut.Store.Id, "true")
 						return nil
 					})
-					fed.signaler.JoinGroup(spaceOut.Point.Id, cb.UserId)
+					fed.signaler.JoinGroup(spaceOut.Store.Id, cb.UserId)
 				}
 			}
 			fed.packetCallbacks.Remove(payload.RequestId)
@@ -162,84 +162,84 @@ func (fed *FedNet) HandlePacket(socket *Socket, channelId string, payload packet
 	} else if payload.Type == "update" {
 		log.Println("received update")
 		reactToUpdate := func(key string, data string) {
-			if key == "points/update" {
-				tc := updates_points.Update{}
+			if key == "stores/update" {
+				tc := updates_stores.Update{}
 				err := json.Unmarshal([]byte(data), &tc)
 				if err != nil {
 					log.Println(err)
 					return
 				}
 				fed.app.ModifyState(false, func(trx trx.ITrx) error {
-					tc.Point.Push(trx)
+					tc.Store.Push(trx)
 					return nil
 				})
-			} else if key == "points/delete" {
-				tc := updates_points.Delete{}
+			} else if key == "stores/delete" {
+				tc := updates_stores.Delete{}
 				err := json.Unmarshal([]byte(data), &tc)
 				if err != nil {
 					log.Println(err)
 					return
 				}
 				fed.app.ModifyState(false, func(trx trx.ITrx) error {
-					trx.DelKey("obj::Point::" + tc.Point.Id)
+					trx.DelKey("obj::Store::" + tc.Store.Id)
 					return nil
 				})
-			} else if key == "points/addMember" {
-				tc := updates_points.AddMember{}
+			} else if key == "stores/addMember" {
+				tc := updates_stores.AddMember{}
 				err := json.Unmarshal([]byte(data), &tc)
 				if err != nil {
 					log.Println(err)
 					return
 				}
 				fed.app.ModifyState(false, func(trx trx.ITrx) error {
-					trx.PutLink("onaccess::"+tc.PointId+"::"+tc.User.Id, "true")
-					trx.PutLink("hasaccess::"+tc.User.Id+"::"+tc.PointId, "true")
+					trx.PutLink("onaccess::"+tc.StoreId+"::"+tc.User.Id, "true")
+					trx.PutLink("hasaccess::"+tc.User.Id+"::"+tc.StoreId, "true")
 					return nil
 				})
-			} else if key == "points/removeMember" {
-				tc := updates_points.AddMember{}
+			} else if key == "stores/removeMember" {
+				tc := updates_stores.AddMember{}
 				err := json.Unmarshal([]byte(data), &tc)
 				if err != nil {
 					log.Println(err)
 					return
 				}
 				fed.app.ModifyState(false, func(trx trx.ITrx) error {
-					trx.DelKey("link::onaccess::" + tc.PointId + "::" + tc.User.Id)
-					trx.DelKey("link::hasaccess::" + tc.User.Id + "::" + tc.PointId)
+					trx.DelKey("link::onaccess::" + tc.StoreId + "::" + tc.User.Id)
+					trx.DelKey("link::hasaccess::" + tc.User.Id + "::" + tc.StoreId)
 					return nil
 				})
-			} else if key == "points/updateMember" {
-				tc := updates_points.UpdateMember{}
+			} else if key == "stores/updateMember" {
+				tc := updates_stores.UpdateMember{}
 				err := json.Unmarshal([]byte(data), &tc)
 				if err != nil {
 					log.Println(err)
 					return
 				}
 				fed.app.ModifyState(false, func(trx trx.ITrx) error {
-					trx.PutJson("member_"+tc.PointId+"_"+tc.User.Id, "meta", tc.Metadata, false)
+					trx.PutJson("member_"+tc.StoreId+"_"+tc.User.Id, "meta", tc.Metadata, false)
 					return nil
 				})
-			} else if key == "points/join" {
-				tc := updates_points.Join{}
+			} else if key == "stores/join" {
+				tc := updates_stores.Join{}
 				err := json.Unmarshal([]byte(data), &tc)
 				if err != nil {
 					log.Println(err)
 					return
 				}
 				fed.app.ModifyState(false, func(trx trx.ITrx) error {
-					trx.PutLink("onaccess::"+tc.PointId+"::"+tc.User.Id, "true")
-					trx.PutLink("hasaccess::"+tc.User.Id+"::"+tc.PointId, "true")
+					trx.PutLink("onaccess::"+tc.StoreId+"::"+tc.User.Id, "true")
+					trx.PutLink("hasaccess::"+tc.User.Id+"::"+tc.StoreId, "true")
 					return nil
 				})
 			}
 		}
 		log.Println(payload)
-		if payload.PointId == "" {
+		if payload.StoreId == "" {
 			reactToUpdate(payload.Key, string(payload.Binary))
 			fed.signaler.SignalUser(payload.Key, payload.UserId, payload.Binary, false)
 		} else {
 			reactToUpdate(payload.Key, string(payload.Binary))
-			fed.signaler.SignalGroup(payload.Key, payload.PointId, payload.Binary, false, payload.Exceptions)
+			fed.signaler.SignalGroup(payload.Key, payload.StoreId, payload.Binary, false, payload.Exceptions)
 		}
 	} else if payload.Type == "request" {
 		action := fed.app.Actor().FetchAction(payload.Key)

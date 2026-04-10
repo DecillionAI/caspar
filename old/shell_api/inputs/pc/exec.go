@@ -9,7 +9,7 @@ func (d ExecCommandInput) GetData() any {
 	return "dummy"
 }
 
-func (d ExecCommandInput) GetPointId() string {
+func (d ExecCommandInput) GetStoreId() string {
 	return ""
 }
 

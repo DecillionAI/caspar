@@ -9,7 +9,7 @@ func (d TransferInput) GetData() any {
 	return "dummy"
 }
 
-func (d TransferInput) GetPointId() string {
+func (d TransferInput) GetStoreId() string {
 	return ""
 }
 

@@ -17,7 +17,7 @@ func (d LockTokenInput) GetData() any {
 	return "dummy"
 }
 
-func (d LockTokenInput) GetPointId() string {
+func (d LockTokenInput) GetStoreId() string {
 	return ""
 }
 

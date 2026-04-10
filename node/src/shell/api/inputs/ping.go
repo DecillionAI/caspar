@@ -7,7 +7,7 @@ func (d PingInput) GetData() any {
 	return "dummy"
 }
 
-func (d PingInput) GetPointId() string {
+func (d PingInput) GetStoreId() string {
 	return ""
 }
 

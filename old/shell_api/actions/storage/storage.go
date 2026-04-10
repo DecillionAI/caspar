@@ -293,7 +293,7 @@ func Install(a *Actions, extra ...any) error {
 			w.Write(b)
 		}
 	})
-	registerRoute(mux, "/storage/uploadPointEntity", func(w http.ResponseWriter, r *http.Request) {
+	registerRoute(mux, "/storage/uploadStoreEntity", func(w http.ResponseWriter, r *http.Request) {
 		userId := r.Header.Get("User-Id")
 		inputStr := r.Header.Get("Input")
 		signature := r.Header.Get("Signature")
@@ -301,14 +301,14 @@ func Install(a *Actions, extra ...any) error {
 			http.Error(w, "signature verification failed", http.StatusForbidden)
 			return
 		}
-		var input inputs_storage.UploadPointEntityInput
+		var input inputs_storage.UploadStoreEntityInput
 		err := json.Unmarshal([]byte(inputStr), &input)
 		if err != nil {
 			log.Printf("Error parsing body: %v", err)
 			http.Error(w, "can't parse body", http.StatusBadRequest)
 			return
 		}
-		origin := strings.Split(input.PointId, "@")[1]
+		origin := strings.Split(input.StoreId, "@")[1]
 		if origin == a.App.Id() || origin == "global" {
 			data, err := ioutil.ReadAll(r.Body)
 			if err != nil {
@@ -318,17 +318,17 @@ func Install(a *Actions, extra ...any) error {
 			}
 			var e error
 			a.App.ModifyState(false, func(trx trx.ITrx) error {
-				if trx.GetLink("admin::"+input.PointId+"::"+userId) == "" {
+				if trx.GetLink("admin::"+input.StoreId+"::"+userId) == "" {
 					e = errors.New("you are not admin")
 					return err
 				}
-				if err := a.App.Tools().File().SaveDataToGlobalStorage(a.App.Tools().Storage().StorageRoot()+"/entities/points/"+input.PointId, data, input.EntityId+".original", true); err != nil {
+				if err := a.App.Tools().File().SaveDataToGlobalStorage(a.App.Tools().Storage().StorageRoot()+"/entities/stores/"+input.StoreId, data, input.EntityId+".original", true); err != nil {
 					log.Println(err)
 					e = err
 					return err
 				}
 				if mimeType := http.DetectContentType(data); strings.HasPrefix(mimeType, "image/") {
-					entityPath := a.App.Tools().Storage().StorageRoot() + "/entities/points/" + input.PointId + "/" + input.EntityId
+					entityPath := a.App.Tools().Storage().StorageRoot() + "/entities/stores/" + input.StoreId + "/" + input.EntityId
 					cmd := exec.Command("convert", entityPath+".original", "-quality", imageQuality(len(data)), "-thumbnail", imageThumbSize(input.EntityId, data)+">", entityPath+".jpg")
 					output, err := cmd.Output()
 					if err != nil {
@@ -336,14 +336,14 @@ func Install(a *Actions, extra ...any) error {
 					}
 					fmt.Printf("Command output:\n%s", output)
 				} else {
-					if err := a.App.Tools().File().SaveDataToGlobalStorage(a.App.Tools().Storage().StorageRoot()+"/entities/points/"+input.PointId, data, input.EntityId, true); err != nil {
+					if err := a.App.Tools().File().SaveDataToGlobalStorage(a.App.Tools().Storage().StorageRoot()+"/entities/stores/"+input.StoreId, data, input.EntityId, true); err != nil {
 						log.Println(err)
 						e = err
 						return err
 					}
 				}
 				future.Async(func() {
-					a.App.Tools().Signaler().SignalGroup("storage/updatePointEntity", input.PointId, map[string]any{"pointId": input.PointId, "entityId": input.EntityId}, true, []string{})
+					a.App.Tools().Signaler().SignalGroup("storage/updateStoreEntity", input.StoreId, map[string]any{"storeId": input.StoreId, "entityId": input.EntityId}, true, []string{})
 				}, false)
 				return nil
 			})
@@ -474,7 +474,7 @@ func Install(a *Actions, extra ...any) error {
 		}
 		w.Write([]byte(data))
 	})
-	registerRoute(mux, "/storage/downloadPointEntity", func(w http.ResponseWriter, r *http.Request) {
+	registerRoute(mux, "/storage/downloadStoreEntity", func(w http.ResponseWriter, r *http.Request) {
 		userId := r.Header.Get("User-Id")
 		inputLengthStr := r.Header.Get("Input-Length")
 		ilI64, err := strconv.ParseInt(inputLengthStr, 10, 32)
@@ -484,7 +484,7 @@ func Install(a *Actions, extra ...any) error {
 			return
 		}
 		inputLength := int(ilI64)
-		var input inputs_storage.DownloadPointEntityInput
+		var input inputs_storage.DownloadStoreEntityInput
 		body, err := ioutil.ReadAll(r.Body)
 		if err != nil {
 			log.Printf("Error reading body: %v", err)
@@ -513,7 +513,7 @@ func Install(a *Actions, extra ...any) error {
 				http.Error(w, "can't parse body", http.StatusBadRequest)
 				return
 			}
-			data, err := a.App.Tools().File().ReadFileFromGlobalStorage(a.App.Tools().Storage().StorageRoot()+"/entities/points/"+input.PointId, input.EntityId)
+			data, err := a.App.Tools().File().ReadFileFromGlobalStorage(a.App.Tools().Storage().StorageRoot()+"/entities/stores/"+input.StoreId, input.EntityId)
 			if err != nil {
 				log.Println(err)
 				http.Error(w, "can't read file", http.StatusBadRequest)
@@ -547,7 +547,7 @@ func Install(a *Actions, extra ...any) error {
 		inputBody := []byte(r.URL.Query().Get("input"))
 		signature := r.URL.Query().Get("signature")
 		if success, _, _ := a.App.Tools().Security().AuthWithSignature(userId, inputBody, string(signature)); !success {
-			log.Println("Error accessing point:", err.Error())
+			log.Println("Error accessing store:", err.Error())
 			http.Error(w, "signature verification failed", http.StatusForbidden)
 			return
 		}
@@ -568,9 +568,9 @@ func Install(a *Actions, extra ...any) error {
 				http.Error(w, "can't parse body", http.StatusBadRequest)
 				return
 			}
-			if !a.App.Tools().Security().HasAccessToPoint(userId, input.PointId) {
-				log.Printf("Error accessing point: %v", err)
-				http.Error(w, "can't access point", http.StatusForbidden)
+			if !a.App.Tools().Security().HasAccessToStore(userId, input.StoreId) {
+				log.Printf("Error accessing store: %v", err)
+				http.Error(w, "can't access store", http.StatusForbidden)
 				return
 			}
 			url := fmt.Sprintf("%s://%s%s", "https", "10.10.0.5:8443", "/"+strings.Join(strings.Split(input.MachineId, "@"), "_")+"/stream/get/")
@@ -584,7 +584,7 @@ func Install(a *Actions, extra ...any) error {
 			proxyReq.Header = make(http.Header)
 			maps.Copy(proxyReq.Header, r.Header)
 			proxyReq.Header.Set("User-Id", userId)
-			proxyReq.Header.Set("Point-Id", input.PointId)
+			proxyReq.Header.Set("Store-Id", input.StoreId)
 			proxyReq.Header.Set("Metadata", input.Metadata)
 			tr := &http.Transport{
 				TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
@@ -624,7 +624,7 @@ func Install(a *Actions, extra ...any) error {
 		inputBody := []byte(r.URL.Query().Get("input"))
 		signature := r.URL.Query().Get("signature")
 		if success, _, _ := a.App.Tools().Security().AuthWithSignature(userId, inputBody, string(signature)); !success {
-			log.Println("Error accessing point:", err.Error())
+			log.Println("Error accessing store:", err.Error())
 			http.Error(w, "signature verification failed", http.StatusForbidden)
 			return
 		}
@@ -645,9 +645,9 @@ func Install(a *Actions, extra ...any) error {
 				http.Error(w, "can't parse body", http.StatusBadRequest)
 				return
 			}
-			if !a.App.Tools().Security().HasAccessToPoint(userId, input.PointId) {
-				log.Printf("Error accessing point: %v", err)
-				http.Error(w, "can't access point", http.StatusForbidden)
+			if !a.App.Tools().Security().HasAccessToStore(userId, input.StoreId) {
+				log.Printf("Error accessing store: %v", err)
+				http.Error(w, "can't access store", http.StatusForbidden)
 				return
 			}
 			url := fmt.Sprintf("%s://%s%s", "https", "10.10.0.5:8443", "/"+strings.Join(strings.Split(input.MachineId, "@"), "_")+"/stream/send/")
@@ -670,7 +670,7 @@ func Install(a *Actions, extra ...any) error {
 			maps.Copy(proxyReq.Header, r.Header)
 			proxyReq.Header.Set("Content-Type", "application/octet-stream")
 			proxyReq.Header.Set("User-Id", userId)
-			proxyReq.Header.Set("Point-Id", input.PointId)
+			proxyReq.Header.Set("Store-Id", input.StoreId)
 			proxyReq.Header.Set("Metadata", input.Metadata)
 			tr := &http.Transport{
 				TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
@@ -727,19 +727,19 @@ func (a *Actions) Upload(state state.IState, input inputs_storage.UploadDataInpu
 			log.Println(err)
 			return nil, err
 		}
-		if err := a.App.Tools().File().SaveDataToStorage(a.App.Tools().Storage().StorageRoot(), data, state.Info().PointId(), input.FileId); err != nil {
+		if err := a.App.Tools().File().SaveDataToStorage(a.App.Tools().Storage().StorageRoot(), data, state.Info().StoreId(), input.FileId); err != nil {
 			log.Println(err)
 			return nil, err
 		}
 		return map[string]any{}, nil
 	} else {
-		var file = models.File{Id: a.App.Tools().Storage().GenId(trx, input.Origin()), OwnerId: state.Info().UserId(), PointId: state.Info().PointId()}
+		var file = models.File{Id: a.App.Tools().Storage().GenId(trx, input.Origin()), OwnerId: state.Info().UserId(), StoreId: state.Info().StoreId()}
 		data, err := base64.StdEncoding.DecodeString(input.Data)
 		if err != nil {
 			log.Println(err)
 			return nil, err
 		}
-		if err := a.App.Tools().File().SaveDataToStorage(a.App.Tools().Storage().StorageRoot(), data, state.Info().PointId(), file.Id); err != nil {
+		if err := a.App.Tools().File().SaveDataToStorage(a.App.Tools().Storage().StorageRoot(), data, state.Info().StoreId(), file.Id); err != nil {
 			log.Println(err)
 			return nil, err
 		}
@@ -825,10 +825,10 @@ func (a *Actions) DeleteUserEntity(state state.IState, input inputs_storage.Dele
 	return map[string]any{}, nil
 }
 
-// UploadPointEntity /storage/uploadPointEntity check [ true true true ] access [ true false false false POST ]
-func (a *Actions) UploadPointEntity(state state.IState, input inputs_storage.UploadPointEntityInput) (any, error) {
-	if state.Trx().GetLink("admin::"+state.Info().PointId()+"::"+state.Info().UserId()) != "true" {
-		if meta, err := state.Trx().GetJson("PointAccess::"+state.Info().PointId()+"::"+state.Info().UserId(), "metadata"); err != nil && !meta["uploadEntity"].(bool) {
+// UploadStoreEntity /storage/uploadStoreEntity check [ true true true ] access [ true false false false POST ]
+func (a *Actions) UploadStoreEntity(state state.IState, input inputs_storage.UploadStoreEntityInput) (any, error) {
+	if state.Trx().GetLink("admin::"+state.Info().StoreId()+"::"+state.Info().UserId()) != "true" {
+		if meta, err := state.Trx().GetJson("StoreAccess::"+state.Info().StoreId()+"::"+state.Info().UserId(), "metadata"); err != nil && !meta["uploadEntity"].(bool) {
 			return nil, errors.New("access not permitted")
 		}
 	}
@@ -837,12 +837,12 @@ func (a *Actions) UploadPointEntity(state state.IState, input inputs_storage.Upl
 		log.Println(err)
 		return nil, err
 	}
-	if err := a.App.Tools().File().SaveDataToGlobalStorage(a.App.Tools().Storage().StorageRoot()+"/entities/points/"+input.PointId, data, input.EntityId+".original", true); err != nil {
+	if err := a.App.Tools().File().SaveDataToGlobalStorage(a.App.Tools().Storage().StorageRoot()+"/entities/stores/"+input.StoreId, data, input.EntityId+".original", true); err != nil {
 		log.Println(err)
 		return nil, err
 	}
 	if mimeType := http.DetectContentType(data); strings.HasPrefix(mimeType, "image/") {
-		entityPath := a.App.Tools().Storage().StorageRoot() + "/entities/points/" + input.PointId + "/" + input.EntityId
+		entityPath := a.App.Tools().Storage().StorageRoot() + "/entities/stores/" + input.StoreId + "/" + input.EntityId
 		cmd := exec.Command("convert", entityPath+".original", "-quality", imageQuality(len(data)), "-thumbnail", imageThumbSize(input.EntityId, data)+">", entityPath+".jpg")
 		output, err := cmd.Output()
 		if err != nil {
@@ -850,13 +850,13 @@ func (a *Actions) UploadPointEntity(state state.IState, input inputs_storage.Upl
 		}
 		fmt.Printf("Command output:\n%s", output)
 	} else {
-		if err := a.App.Tools().File().SaveDataToGlobalStorage(a.App.Tools().Storage().StorageRoot()+"/entities/points/"+input.PointId, data, input.EntityId, true); err != nil {
+		if err := a.App.Tools().File().SaveDataToGlobalStorage(a.App.Tools().Storage().StorageRoot()+"/entities/stores/"+input.StoreId, data, input.EntityId, true); err != nil {
 			log.Println(err)
 			return nil, err
 		}
 	}
 	future.Async(func() {
-		a.App.Tools().Signaler().SignalGroup("storage/updatePointEntity", state.Info().PointId(), map[string]any{"pointId": state.Info().PointId(), "entityId": input.EntityId}, true, []string{})
+		a.App.Tools().Signaler().SignalGroup("storage/updateStoreEntity", state.Info().StoreId(), map[string]any{"storeId": state.Info().StoreId(), "entityId": input.EntityId}, true, []string{})
 	}, false)
 	return map[string]any{}, nil
 }
@@ -893,18 +893,18 @@ func (a *Actions) UploadAppEntity(state state.IState, input inputs_storage.Uploa
 	return map[string]any{}, nil
 }
 
-// DeletePointEntity /storage/deletePointEntity check [ true true true ] access [ true false false false POST ]
-func (a *Actions) DeletePointEntity(state state.IState, input inputs_storage.DeletePointEntityInput) (any, error) {
+// DeleteStoreEntity /storage/deleteStoreEntity check [ true true true ] access [ true false false false POST ]
+func (a *Actions) DeleteStoreEntity(state state.IState, input inputs_storage.DeleteStoreEntityInput) (any, error) {
 	trx := state.Trx()
-	if trx.GetLink("admin::"+state.Info().PointId()+"::"+state.Info().UserId()) == "" {
+	if trx.GetLink("admin::"+state.Info().StoreId()+"::"+state.Info().UserId()) == "" {
 		return nil, errors.New("you are not admin")
 	}
-	if err := a.App.Tools().File().DeleteFileFromGlobalStorage(a.App.Tools().Storage().StorageRoot()+"/entities/points/"+state.Info().PointId(), input.EntityId, true); err != nil {
+	if err := a.App.Tools().File().DeleteFileFromGlobalStorage(a.App.Tools().Storage().StorageRoot()+"/entities/stores/"+state.Info().StoreId(), input.EntityId, true); err != nil {
 		log.Println(err)
 		return nil, err
 	}
 	future.Async(func() {
-		a.App.Tools().Signaler().SignalGroup("storage/updatePointEntity", state.Info().PointId(), map[string]any{"pointId": state.Info().PointId(), "entityId": input.EntityId}, true, []string{})
+		a.App.Tools().Signaler().SignalGroup("storage/updateStoreEntity", state.Info().StoreId(), map[string]any{"storeId": state.Info().StoreId(), "entityId": input.EntityId}, true, []string{})
 	}, false)
 	return map[string]any{}, nil
 }
@@ -916,10 +916,10 @@ func (a *Actions) Download(state state.IState, input inputs_storage.DownloadInpu
 		return nil, errors.New("file not found")
 	}
 	var file = models.File{Id: input.FileId}.Pull(trx)
-	if file.PointId != state.Info().PointId() {
+	if file.StoreId != state.Info().StoreId() {
 		return nil, errors.New("access to file denied")
 	}
-	data, err := a.App.Tools().File().ReadFileFromStorage(a.App.Tools().Storage().StorageRoot(), state.Info().PointId(), file.Id)
+	data, err := a.App.Tools().File().ReadFileFromStorage(a.App.Tools().Storage().StorageRoot(), state.Info().StoreId(), file.Id)
 	if err != nil {
 		log.Println(err)
 		return nil, err

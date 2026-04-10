@@ -4,5 +4,5 @@ import "kasper/src/shell/api/model"
 
 type Accept struct {
 	User  model.User `json:"user"`
-	PointId string `json:"pointId"`
+	StoreId string `json:"storeId"`
 }

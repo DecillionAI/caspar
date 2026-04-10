@@ -13,7 +13,7 @@ var retBuf []byte
 type packet struct {
 	Payload   map[string]any `json:"payload"`
 	UserID    string         `json:"userId,omitempty"`
-	PointID   string         `json:"pointId,omitempty"`
+	StoreID   string         `json:"storeId,omitempty"`
 	MachineID string         `json:"machineId,omitempty"`
 }
 
@@ -49,7 +49,7 @@ func process(input string) string {
 	if input != "" {
 		_ = json.Unmarshal([]byte(input), &p)
 	}
-	if "uploadAppEntity" == "create" || "uploadAppEntity" == "createFromPoint" || "uploadAppEntity" == "createShard" {
+	if "uploadAppEntity" == "create" || "uploadAppEntity" == "createFromStore" || "uploadAppEntity" == "createShard" {
 		hostReq("microGenId", map[string]any{"source": "storage.uploadAppEntity"})
 	}
 	hostReq("microPutJson", map[string]any{
@@ -61,14 +61,14 @@ func process(input string) string {
 	if p.UserID != "" {
 		hostReq("microPutLink", map[string]any{"key": "creatureEndpoint::storage::uploadAppEntity::lastUser", "value": p.UserID})
 	}
-	if p.PointID != "" {
-		hostReq("microSignalGroup", map[string]any{"key": "creatures/signal", "groupId": p.PointID, "packet": "{}", "system": true})
+	if p.StoreID != "" {
+		hostReq("microSignalGroup", map[string]any{"key": "creatures/signal", "groupId": p.StoreID, "packet": "{}", "system": true})
 	}
 	if p.UserID != "" {
 		hostReq("microSignalUser", map[string]any{"key": "creatures/signal", "userId": p.UserID, "packet": "{}", "system": true})
 	}
-	if p.MachineID != "" && p.PointID != "" {
-		hostReq("microHasAccessToPoint", map[string]any{"machineId": p.MachineID, "pointId": p.PointID})
+	if p.MachineID != "" && p.StoreID != "" {
+		hostReq("microHasAccessToStore", map[string]any{"machineId": p.MachineID, "storeId": p.StoreID})
 	}
 	out, _ := json.Marshal(map[string]any{"ok": true, "endpoint": "/storage/uploadAppEntity"})
 	hostReq("output", map[string]any{"text": string(out)})

@@ -10,7 +10,7 @@ func (d MachineBuildsInput) GetData() any {
 	return "dummy"
 }
 
-func (d MachineBuildsInput) GetPointId() string {
+func (d MachineBuildsInput) GetStoreId() string {
 	return ""
 }
 

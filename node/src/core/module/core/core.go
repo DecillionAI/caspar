@@ -287,7 +287,7 @@ func (c *Core) ExecutionCostPerSecond() int64 {
 	return c.executionCostPerSecond
 }
 
-func (c *Core) PlantChainTrigger(count int, userId string, tag string, machineId string, pointId string, attachment string) {
+func (c *Core) PlantChainTrigger(count int, userId string, tag string, machineId string, storeId string, attachment string) {
 	c.triggerLock.Lock()
 	defer c.triggerLock.Unlock()
 	c.ModifyState(false, func(trx trx.ITrx) error {
@@ -295,7 +295,7 @@ func (c *Core) PlantChainTrigger(count int, userId string, tag string, machineId
 		found := (len(trx.GetByPrefix("chainCallback::"+userId+"_"+tag+"|>")) > 0)
 		trx.PutBytes("chainCallback::"+userId+"_"+tag+"|>"+tail, []byte{0x01})
 		trx.PutBytes("chainCallback::"+userId+"_"+tag+"|"+tail+"::machineId", []byte(machineId))
-		trx.PutBytes("chainCallback::"+userId+"_"+tag+"|"+tail+"::pointId", []byte(pointId))
+		trx.PutBytes("chainCallback::"+userId+"_"+tag+"|"+tail+"::storeId", []byte(storeId))
 		trx.PutBytes("chainCallback::"+userId+"_"+tag+"|"+tail+"::attachment", []byte(attachment))
 		if !found {
 			targetCountB := make([]byte, 4)
@@ -323,7 +323,7 @@ func (c *Core) SendMessageOnChain(key string, payload []byte, signature string, 
 	c.SendTypedMessageOnChain("main", key, "vm.execute", payload, signature, userId, receivers, replyTo, "", nil, callback)
 }
 
-func (c *Core) SendTypedMessageOnChain(chainId string, key string, messageType string, payload []byte, signature string, userId string, receivers map[string]map[string]bool, replyTo string, pointId string, pay *chain.ChainPayPacket, callback func(string, []byte)) {
+func (c *Core) SendTypedMessageOnChain(chainId string, key string, messageType string, payload []byte, signature string, userId string, receivers map[string]map[string]bool, replyTo string, storeId string, pay *chain.ChainPayPacket, callback func(string, []byte)) {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 	callbackId := crypto.SecureUniqueString()
@@ -337,7 +337,7 @@ func (c *Core) SendTypedMessageOnChain(chainId string, key string, messageType s
 		chainId = "main"
 	}
 	future.Async(func() {
-		c.chain <- chainSubmission{chainId: chainId, op: chain.ChainMessage{Key: key, MessageType: messageType, ReplyTo: replyTo, PointId: pointId, Pay: pay, Recievers: receivers, Signatures: []string{c.SignPacket(payload), signature}, Submitter: c.id, RequestId: callbackId, Author: "user::" + userId, Payload: payload}}
+		c.chain <- chainSubmission{chainId: chainId, op: chain.ChainMessage{Key: key, MessageType: messageType, ReplyTo: replyTo, StoreId: storeId, Pay: pay, Recievers: receivers, Signatures: []string{c.SignPacket(payload), signature}, Submitter: c.id, RequestId: callbackId, Author: "user::" + userId, Payload: payload}}
 	}, false)
 }
 
@@ -396,7 +396,7 @@ func (c *Core) runChainMessage(packet chain.ChainMessage) {
 		}
 		future.Async(func() {
 			if runtimeType == "wasm" || runtimeType == "javascript" || runtimeType == "elpify" || runtimeType == "elpian" {
-				c.Tools().Vmm().RunVm(machineId, packet.PointId, string(packet.Payload))
+				c.Tools().Vmm().RunVm(machineId, packet.StoreId, string(packet.Payload))
 			}
 		}, false)
 	}
@@ -562,7 +562,7 @@ func (c *Core) Load(gods []string, args map[string]interface{}) {
 	sroot := args["storageRoot"].(string)
 	bdbPath := args["baseDbPath"].(string)
 	adbPath := args["appletDbPath"].(string)
-	ldbPath := args["pointLogsDb"].(string)
+	ldbPath := args["storeLogsDb"].(string)
 	srchPath := args["searcherDb"].(string)
 
 	dnFederation := driver_network_fed.FirstStageBackFill(c)
