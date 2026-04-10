@@ -75,8 +75,12 @@ func ExtractActionMetadata(function interface{}) (string, *secured.Guard) {
 	}
 	var key = tokens[0]
 	var guard *secured.Guard
-	if tokens[1] == "check" && tokens[2] == "[" && tokens[6] == "]" {
-		guard = &secured.Guard{IsUser: tokens[3] == "true", IsInSpace: tokens[4] == "true", IsInTopic: tokens[5] == "true"}
+	if len(tokens) > 5 && tokens[1] == "check" && tokens[2] == "[" {
+		if tokens[5] == "]" {
+			guard = &secured.Guard{IsUser: tokens[3] == "true", IsInStore: tokens[4] == "true"}
+		} else if len(tokens) > 6 && tokens[6] == "]" {
+			guard = &secured.Guard{IsUser: tokens[3] == "true", IsInStore: tokens[4] == "true"}
+		}
 	}
 	return key, guard
 }
