@@ -154,14 +154,14 @@ func DeleteSubchain(input string) string  { return call("deleteSubchain", input)
 
 func ExecShellAction(input string) string { return call("execShellAction", input) }
 
-func MicroGenId(input string) string            { return call("microGenId", input) }
-func MicroGetLink(input string) string          { return call("microGetLink", input) }
-func MicroPutLink(input string) string          { return call("microPutLink", input) }
-func MicroDelKey(input string) string           { return call("microDelKey", input) }
-func MicroGetJson(input string) string          { return call("microGetJson", input) }
-func MicroPutJson(input string) string          { return call("microPutJson", input) }
-func MicroGetByPrefix(input string) string      { return call("microGetByPrefix", input) }
-func MicroHasAccessToStore(input string) string { return call("microHasAccessToStore", input) }
-func MicroSignalUser(input string) string       { return call("microSignalUser", input) }
-func MicroSignalGroup(input string) string      { return call("microSignalGroup", input) }
-func MicroJoinGroup(input string) string        { return call("microJoinGroup", input) }
+func GenId(input string) string            { return call("genId", input) }
+func GetLink(input string) string          { return call("getLink", input) }
+func PutLink(input string) string          { return call("putLink", input) }
+func DelKey(input string) string           { return call("delKey", input) }
+func GetJson(input string) string          { return call("getJson", input) }
+func PutJson(input string) string          { return call("putJson", input) }
+func GetByPrefix(input string) string      { return call("getByPrefix", input) }
+func HasAccessToStore(input string) string { return call("hasAccessToStore", input) }
+func SignalUser(input string) string       { return call("signalUser", input) }
+func SignalGroup(input string) string      { return call("signalGroup", input) }
+func JoinGroup(input string) string        { return call("joinGroup", input) }
