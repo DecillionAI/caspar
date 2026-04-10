@@ -8,8 +8,7 @@ import (
 
 type Guard struct {
 	IsUser    bool `json:"isUser"`
-	IsInSpace bool `json:"isInSpace"`
-	IsInTopic bool `json:"isInTopic"`
+	IsInStore bool `json:"isInStore"`
 }
 
 func (g *Guard) optionalIdentity(app core.ICore, packet []byte, signature string, userId string, storeId string) (bool, *model.Info) {
@@ -23,7 +22,7 @@ func (g *Guard) optionalIdentity(app core.ICore, packet []byte, signature string
 	if !identified {
 		return false, &model.Info{}
 	}
-	if !g.IsInSpace {
+	if !g.IsInStore {
 		return true, model.NewGodInfo(userId, "", isGod)
 	}
 	hasAccess := app.Tools().Security().HasAccessToStore(userId, storeId)
@@ -44,7 +43,7 @@ func (g *Guard) CheckValidity(app core.ICore, packet []byte, signature string, u
 			return nil
 		})
 		if typ == "machine" {
-			if !g.IsInSpace {
+			if !g.IsInStore {
 				return true, model.NewGodInfo(userId, "", false)
 			}
 			hasAccess := app.Tools().Security().HasAccessToStore(userId, storeId)
@@ -58,7 +57,7 @@ func (g *Guard) CheckValidity(app core.ICore, packet []byte, signature string, u
 	if !identified {
 		return false, &model.Info{}
 	}
-	if !g.IsInSpace {
+	if !g.IsInStore {
 		return true, model.NewGodInfo(userId, "", isGod)
 	}
 	hasAccess := app.Tools().Security().HasAccessToStore(userId, storeId)
@@ -79,7 +78,7 @@ func (g *Guard) CheckValidityForChain(app core.ICore, packet []byte, signature s
 			return nil
 		})
 		if typ == "machine" {
-			if !g.IsInSpace {
+			if !g.IsInStore {
 				return true, model.NewGodInfo(userId, "", false)
 			}
 			hasAccess := app.Tools().Security().HasAccessToStore(userId, storeId)
@@ -93,7 +92,7 @@ func (g *Guard) CheckValidityForChain(app core.ICore, packet []byte, signature s
 	if !identified {
 		return false, &model.Info{}
 	}
-	if !g.IsInSpace {
+	if !g.IsInStore {
 		return true, model.NewGodInfo(userId, "", isGod)
 	}
 	hasAccess := app.Tools().Security().HasAccessToStore(userId, storeId)
