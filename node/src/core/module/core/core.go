@@ -13,7 +13,6 @@ import (
 	"fmt"
 	"kasper/src/abstract/adapters/docker"
 	"kasper/src/abstract/adapters/file"
-	"kasper/src/abstract/adapters/firectl"
 	"kasper/src/abstract/adapters/network"
 	"kasper/src/abstract/adapters/security"
 	"kasper/src/abstract/adapters/signaler"
@@ -39,7 +38,6 @@ import (
 	"kasper/src/shell/utils/future"
 
 	driver_file "kasper/src/drivers/file"
-	driver_firectl "kasper/src/drivers/firectl"
 	driver_network "kasper/src/drivers/network"
 	driver_security "kasper/src/drivers/security"
 	driver_signaler "kasper/src/drivers/signaler"
@@ -68,7 +66,6 @@ type Tools struct {
 	file     file.IFile
 	vmm      vmm.IVmm
 	docker   docker.IDocker
-	firectl  firectl.IFirectl
 }
 
 func (t *Tools) Security() security.ISecurity {
@@ -97,10 +94,6 @@ func (t *Tools) Vmm() vmm.IVmm {
 
 func (t *Tools) Docker() docker.IDocker {
 	return t.docker
-}
-
-func (t *Tools) Firectl() firectl.IFirectl {
-	return t.firectl
 }
 
 type Core struct {
@@ -372,7 +365,7 @@ func (c *Core) runChainMessage(packet chain.ChainMessage) {
 			runtimeType = vm.Runtime
 			return nil
 		})
-		if runtimeType == "wasm" || runtimeType == "docker" || runtimeType == "javascript" || runtimeType == "elpify" || runtimeType == "elpian" {
+		if runtimeType == "wasm" || runtimeType == "docker" || runtimeType == "javascript" || runtimeType == "elpify" || runtimeType == "elpian" || runtimeType == "fire" {
 			listener, found := c.Tools().Signaler().Listeners().Get(machineId)
 			if found && listener != nil {
 				payload := append([]byte(nil), packet.Payload...)
@@ -383,7 +376,7 @@ func (c *Core) runChainMessage(packet chain.ChainMessage) {
 			}
 		}
 		future.Async(func() {
-			if runtimeType == "wasm" || runtimeType == "javascript" || runtimeType == "elpify" || runtimeType == "elpian" {
+			if runtimeType == "wasm" || runtimeType == "javascript" || runtimeType == "elpify" || runtimeType == "elpian" || runtimeType == "fire" {
 				c.Tools().Vmm().RunVm(machineId, packet.StoreId, string(packet.Payload))
 			}
 		}, false)
@@ -561,7 +554,6 @@ func (c *Core) Load(gods []string, args map[string]interface{}) {
 	var dDocker docker.IDocker
 	dVmm := driver_vmm.NewVmm(c, sroot, dstorage, adbPath, dDocker, dFile)
 	dnFederation.SecondStageForFill(dstorage, dFile, dsignaler)
-	dFirectl := driver_firectl.NewFireCtl()
 
 	pemData := dsecurity.FetchKeyPair("server_key")[0]
 	block, _ := pem.Decode([]byte(pemData))
@@ -581,7 +573,6 @@ func (c *Core) Load(gods []string, args map[string]interface{}) {
 		network:  dNetwork,
 		file:     dFile,
 		docker:   dDocker,
-		firectl:  dFirectl,
 		vmm:      dVmm,
 	}
 

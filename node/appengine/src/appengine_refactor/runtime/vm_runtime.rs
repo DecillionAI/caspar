@@ -22,6 +22,7 @@ enum VmRuntime {
     Wasm,
     Elpify,
     Elpian,
+    Fire,
 }
 
 struct ElpifyTask {
@@ -212,6 +213,8 @@ fn detect_vm_runtime(packet: &JsonValue, ast_path: &str) -> VmRuntime {
         VmRuntime::Elpify
     } else if vm_hint == "elpian" || vm_hint == "elpian_vm" || ast_path.ends_with(".elpian.json") {
         VmRuntime::Elpian
+    } else if vm_hint == "fire" || vm_hint == "firecracker" {
+        VmRuntime::Fire
     } else {
         VmRuntime::Wasm
     }

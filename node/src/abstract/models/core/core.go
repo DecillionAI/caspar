@@ -7,7 +7,6 @@ import (
 	"kasper/src/abstract/models/globe"
 	"kasper/src/abstract/models/info"
 	"kasper/src/abstract/models/trx"
-	"kasper/src/abstract/models/update"
 	"kasper/src/abstract/state"
 )
 

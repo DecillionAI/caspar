@@ -2,6 +2,8 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
+	"strings"
 	"unsafe"
 )
 
@@ -49,28 +51,65 @@ func process(input string) string {
 	if input != "" {
 		_ = json.Unmarshal([]byte(input), &p)
 	}
-	if "runPc" == "create" || "runPc" == "createFromStore" || "runPc" == "createShard" {
-		hostReq("genId", map[string]any{"source": "pc.runPc"})
+
+	// Forward streamed firecracker output events to the original requester.
+	if p.Payload["event"] == "fireVmOutput" {
+		requesterUserID, _ := p.Payload["requesterUserId"].(string)
+		if requesterUserID != "" {
+			streamPayload, _ := json.Marshal(map[string]any{
+				"type":   "pc.fire.stream",
+				"source": "pc.runPc",
+				"data":   p.Payload,
+			})
+			hostReq("signalUser", map[string]any{
+				"key":    "creatures/signal",
+				"userId": requesterUserID,
+				"packet": string(streamPayload),
+				"system": true,
+			})
+		}
+		out, _ := json.Marshal(map[string]any{"ok": true, "forwarded": true, "endpoint": "/pc/runPc"})
+		return string(out)
 	}
+
+	vmID := ""
+	if v, ok := p.Payload["vmId"].(string); ok && v != "" {
+		vmID = v
+	} else {
+		genRes := hostReq("genId", map[string]any{"source": "pc.runPc.vm"})
+		genMap := map[string]any{}
+		_ = json.Unmarshal([]byte(genRes), &genMap)
+		vmID, _ = genMap["id"].(string)
+		if vmID == "" {
+			vmID = "main"
+		}
+	}
+
+	command := ""
+	if v, ok := p.Payload["command"].(string); ok {
+		command = strings.TrimSpace(v)
+	}
+	runInput := map[string]any{
+		"runtime":         "fire",
+		"machineId":       p.MachineID,
+		"storeId":         p.StoreID,
+		"requesterUserId": p.UserID,
+		"vmId":            vmID,
+		"standalone":      true,
+	}
+	if command != "" {
+		runInput["data"] = fmt.Sprintf("{\"command\":%q}", command)
+	}
+	hostReq("runVm", runInput)
+
 	hostReq("putJson", map[string]any{
 		"key":   "Json::CreatureEndpoint::pc::runPc",
-		"path":  "lastInput",
-		"data":  p.Payload,
+		"path":  "lastFireRun",
+		"data":  map[string]any{"machineId": p.MachineID, "storeId": p.StoreID, "requesterUserId": p.UserID, "vmId": vmID, "command": command},
 		"merge": true,
 	})
-	if p.UserID != "" {
-		hostReq("dbOp", map[string]any{"op": "put", "key": "creatureEndpoint::pc::runPc::lastUser", "val": p.UserID})
-	}
-	if p.StoreID != "" {
-		hostReq("signalGroup", map[string]any{"key": "creatures/signal", "groupId": p.StoreID, "packet": "{}", "system": true})
-	}
-	if p.UserID != "" {
-		hostReq("signalUser", map[string]any{"key": "creatures/signal", "userId": p.UserID, "packet": "{}", "system": true})
-	}
-	if p.MachineID != "" && p.StoreID != "" {
-		hostReq("hasAccessToStore", map[string]any{"machineId": p.MachineID, "storeId": p.StoreID})
-	}
-	out, _ := json.Marshal(map[string]any{"ok": true, "endpoint": "/pc/runPc"})
+
+	out, _ := json.Marshal(map[string]any{"ok": true, "endpoint": "/pc/runPc", "runtime": "fire", "vmId": vmID})
 	hostReq("output", map[string]any{"text": string(out)})
 	return string(out)
 }

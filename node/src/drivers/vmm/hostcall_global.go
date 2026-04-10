@@ -3,7 +3,7 @@ package vmm
 import "encoding/json"
 
 // VmCallback handles appengine host-call packets globally for all appengine
-// runtimes (wasm/docker/javascript/elpify/elpian) through the same ZeroMQ callback channel.
+// runtimes (wasm/docker/javascript/elpify/elpian/fire) through the same ZeroMQ callback channel.
 func (wm *Vmm) VmCallback(dataRaw string) (string, int64) {
 	println(dataRaw)
 	data := map[string]any{}
@@ -38,7 +38,7 @@ func (wm *Vmm) VmCallback(dataRaw string) (string, int64) {
 		return wm.handleCheckTokenValidity(input, reqId)
 	case "plantTrigger":
 		return wm.handlePlantTrigger(input, reqId)
-	case "signalStore":
+	case "signal":
 		return wm.handleSignalStore(input, reqId)
 	case "runVm":
 		return wm.handleRunVM(input, reqId)
