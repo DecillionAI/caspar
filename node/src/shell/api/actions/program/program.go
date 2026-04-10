@@ -227,7 +227,7 @@ func (a *Actions) chargeRunningStandaloneVmsIfNeeded() {
 			Step:      &step,
 		})
 		consumeDone := make(chan error, 1)
-		a.App.ExecBaseRequestOnChain("/creatures/consumeLock", payload, a.App.SignPacketAsOwner(payload), a.App.OwnerId(), "", func(_ []byte, code int, err error) {
+		a.App.Globe().SendBaseRequestOnChain("/creatures/consumeLock", payload, a.App.SignPacketAsOwner(payload), a.App.OwnerId(), "", func(_ []byte, code int, err error) {
 			if err != nil || code >= 400 {
 				if err == nil {
 					err = errors.New("hourly vm payment consume failed")

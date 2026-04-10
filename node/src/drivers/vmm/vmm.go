@@ -238,7 +238,7 @@ func (wm *Vmm) handleRunDocker(input map[string]any, reqId int64) (string, int64
 	})
 	sign := wm.app.SignPacketAsOwner(inp)
 	resChan := make(chan bool)
-	wm.app.ExecBaseRequestOnChain("/creatures/consumeLock", inp, sign, wm.app.OwnerId(), "", func(b []byte, i int, err error) {
+	wm.app.Globe().SendBaseRequestOnChain("/creatures/consumeLock", inp, sign, wm.app.OwnerId(), "", func(b []byte, i int, err error) {
 		if err != nil {
 			println(err)
 			resChan <- false
@@ -626,7 +626,7 @@ func (wm *Vmm) handleSendMessageOnChain(input map[string]any, reqId int64) (stri
 	storeId, _ := checkField(input, "storeId", "")
 	receivers := parseChainReceivers(input)
 	pay := parseChainPayPacket(input)
-	wm.app.SendTypedMessageOnChain(chainId, key, messageType, []byte(payloadStr), signature, userId, receivers, replyTo, storeId, pay, nil)
+	wm.app.Globe().SendTypedMessageOnChain(chainId, key, messageType, []byte(payloadStr), signature, userId, receivers, replyTo, storeId, pay, nil)
 	return "{}", reqId
 }
 
