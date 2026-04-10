@@ -1,6 +1,6 @@
 package input
 
 type IInput interface {
-	GetPointId() string
+	GetStoreId() string
 	Origin() string
 }

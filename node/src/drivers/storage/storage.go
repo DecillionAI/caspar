@@ -79,52 +79,52 @@ func (sm *StorageManager) ReadBuildLogs(buildId string, machineId string) []pack
 	return logs
 }
 
-func (sm *StorageManager) LogTimeSieries(pointId string, userId string, data string, timeVal int64) packet.LogPacket {
+func (sm *StorageManager) LogTimeSieries(storeId string, userId string, data string, timeVal int64) packet.LogPacket {
 	sm.lock.Lock()
 	defer sm.lock.Unlock()
 	ctx := context.Background()
 	id := uuid.NewString()
 	_, err := sm.tsdb.ExecContext(ctx,
-		"INSERT INTO storage (id, point_id, user_id, data, time, edited) VALUES ($1, $2, $3, $4, $5, $6)",
-		id, pointId, userId, data, timeVal, false,
+		"INSERT INTO storage (id, store_id, user_id, data, time, edited) VALUES ($1, $2, $3, $4, $5, $6)",
+		id, storeId, userId, data, timeVal, false,
 	)
 	if err != nil {
 		log.Println("Insert error: " + err.Error())
 	}
-	packet := packet.LogPacket{Id: id, UserId: userId, Data: data, PointId: pointId, Time: timeVal, Edited: false}
+	packet := packet.LogPacket{Id: id, UserId: userId, Data: data, StoreId: storeId, Time: timeVal, Edited: false}
 	return packet
 }
 
-func (sm *StorageManager) UpdateLog(pointId string, userId string, signalId string, data string, timeVal int64) packet.LogPacket {
+func (sm *StorageManager) UpdateLog(storeId string, userId string, signalId string, data string, timeVal int64) packet.LogPacket {
 	sm.lock.Lock()
 	defer sm.lock.Unlock()
 	ctx := context.Background()
 	_, err := sm.tsdb.ExecContext(ctx,
-		"update storage set data = $1 where point_id = $2 and id = $3 and edited = $4",
-		data, pointId, signalId, true,
+		"update storage set data = $1 where store_id = $2 and id = $3 and edited = $4",
+		data, storeId, signalId, true,
 	)
 	if err != nil {
 		log.Println("Update error: " + err.Error())
 	}
-	packet := packet.LogPacket{Id: signalId, UserId: userId, Data: data, PointId: pointId, Time: timeVal, Edited: true}
+	packet := packet.LogPacket{Id: signalId, UserId: userId, Data: data, StoreId: storeId, Time: timeVal, Edited: true}
 	return packet
 }
 
-func (sm *StorageManager) ReadPointLogs(pointId string, beforeTime int64, count int) []packet.LogPacket {
+func (sm *StorageManager) ReadStoreLogs(storeId string, beforeTime int64, count int) []packet.LogPacket {
 	sm.lock.Lock()
 	defer sm.lock.Unlock()
 	ctx := context.Background()
 	var rows *sql.Rows
 	var err error
 	if beforeTime == 0 {
-		rows, err = sm.tsdb.QueryContext(ctx, "SELECT id, user_id, data, time, edited FROM storage WHERE point_id = $1 order by time desc limit $2", pointId, count)
+		rows, err = sm.tsdb.QueryContext(ctx, "SELECT id, user_id, data, time, edited FROM storage WHERE store_id = $1 order by time desc limit $2", storeId, count)
 		if err != nil {
 			log.Println(err)
 			return []packet.LogPacket{}
 		}
 		defer rows.Close()
 	} else {
-		rows, err = sm.tsdb.QueryContext(ctx, "SELECT id, user_id, data, time, edited FROM storage WHERE point_id = $1 and time < $2 order by time desc limit $3", pointId, beforeTime, count)
+		rows, err = sm.tsdb.QueryContext(ctx, "SELECT id, user_id, data, time, edited FROM storage WHERE store_id = $1 and time < $2 order by time desc limit $3", storeId, beforeTime, count)
 		if err != nil {
 			log.Println(err)
 			return []packet.LogPacket{}
@@ -142,18 +142,18 @@ func (sm *StorageManager) ReadPointLogs(pointId string, beforeTime int64, count 
 		if err := rows.Scan(&id, &userId, &data, &timeVal, &edited); err != nil {
 			log.Println(err)
 		}
-		logs = append(logs, packet.LogPacket{Id: id, UserId: userId, Data: data, PointId: pointId, Time: timeVal, Edited: edited})
+		logs = append(logs, packet.LogPacket{Id: id, UserId: userId, Data: data, StoreId: storeId, Time: timeVal, Edited: edited})
 	}
 	return logs
 }
 
-func (sm *StorageManager) PickPointLogs(pointId string, ids []string) []packet.LogPacket {
+func (sm *StorageManager) PickStoreLogs(storeId string, ids []string) []packet.LogPacket {
 
 	ctx := context.Background()
 	if len(ids) == 0 {
 		return []packet.LogPacket{}
 	}
-	rows, err := sm.tsdb.QueryContext(ctx, "SELECT id, user_id, data, time, edited FROM storage WHERE point_id = $1 and id in ('"+strings.Join(ids, "','")+"')", pointId)
+	rows, err := sm.tsdb.QueryContext(ctx, "SELECT id, user_id, data, time, edited FROM storage WHERE store_id = $1 and id in ('"+strings.Join(ids, "','")+"')", storeId)
 	if err != nil {
 		log.Println(err)
 		return []packet.LogPacket{}
@@ -170,7 +170,7 @@ func (sm *StorageManager) PickPointLogs(pointId string, ids []string) []packet.L
 		if err := rows.Scan(&id, &userId, &data, &timeVal, &edited); err != nil {
 			log.Println(err)
 		}
-		logs = append(logs, packet.LogPacket{Id: id, UserId: userId, Data: data, PointId: pointId, Time: timeVal, Edited: edited})
+		logs = append(logs, packet.LogPacket{Id: id, UserId: userId, Data: data, StoreId: storeId, Time: timeVal, Edited: edited})
 	}
 	return logs
 }
@@ -227,7 +227,7 @@ func NewStorage(core core.ICore, storageRoot string, baseDbPath string, logsDbPa
 	}
 	for {
 		_, err = tsdb.ExecContext(context.Background(),
-			"create table if not exists storage(id text, point_id text, user_id text, data text, time bigint, edited boolean);",
+			"create table if not exists storage(id text, store_id text, user_id text, data text, time bigint, edited boolean);",
 		)
 		if err != nil {
 			log.Println(err)

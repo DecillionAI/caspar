@@ -8,7 +8,7 @@ func (d DeleteAppInput) GetData() any {
 	return "dummy"
 }
 
-func (d DeleteAppInput) GetPointId() string {
+func (d DeleteAppInput) GetStoreId() string {
 	return ""
 }
 

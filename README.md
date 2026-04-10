@@ -13,9 +13,9 @@ This repository contains the primary node implementation in `node/`.
 - **Hashgraph-backed ordering** for distributed request consistency.
 - **Federated execution model** for local + remote-origin actions.
 - **Signed request protocol** over TLS TCP/WS.
-- **Real-time signaling** for users and point groups.
+- **Real-time signaling** for users and store groups.
 - **Programmable runtime layer** for machine/program deployment.
-- **Entity + stream gateways** for user/point/app binary workflows.
+- **Entity + stream gateways** for user/store/app binary workflows.
 
 ## System Snapshot 🧩
 
@@ -75,10 +75,10 @@ Use `docs/API_REFERENCE.md` as the source-of-truth route catalog.
 ## Main Feature Domains
 
 - **Users**: login/auth, metadata, mint/transfer, lock/consume token.
-- **Points**: create/join/leave, membership/access, signaling, history.
+- **Stores**: create/join/leave, membership/access, signaling, history.
 - **Invites**: create/cancel/accept/decline + list endpoints.
 - **Machines/Programs**: create/update/delete, deploy, run/stop, logs.
-- **Storage/Entities**: uploads/downloads for user/point/app scope.
+- **Storage/Entities**: uploads/downloads for user/store/app scope.
 - **Chain Ops**: create shard/work chains, register nodes, submit base trx.
 - **PC Tools**: command execution endpoints.
 

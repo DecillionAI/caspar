@@ -14,7 +14,7 @@ func (d RunProgramEntityInput) GetData() any {
 	return "dummy"
 }
 
-func (d RunProgramEntityInput) GetPointId() string {
+func (d RunProgramEntityInput) GetStoreId() string {
 	return ""
 }
 

@@ -6,7 +6,7 @@ func (d DeleteInput) GetData() any {
 	return "dummy"
 }
 
-func (d DeleteInput) GetPointId() string {
+func (d DeleteInput) GetStoreId() string {
 	return ""
 }
 

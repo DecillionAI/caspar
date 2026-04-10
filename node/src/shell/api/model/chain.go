@@ -8,7 +8,7 @@ import (
 
 type Chain struct {
 	Id      string `json:"id"`
-	PointId string `json:"pointId"`
+	StoreId string `json:"storeId"`
 }
 
 func (d Chain) Type() string {
@@ -18,21 +18,21 @@ func (d Chain) Type() string {
 func (d Chain) Push(trx trx.ITrx) {
 	trx.PutObj(d.Type(), d.Id, map[string][]byte{
 		"id":      []byte(d.Id),
-		"pointId": []byte(d.PointId),
+		"storeId": []byte(d.StoreId),
 	})
 }
 
 func (d Chain) Delete(trx trx.ITrx) {
 	trx.DelKey("obj::" + d.Type() + "::" + d.Id + "::|")
 	trx.DelKey("obj::" + d.Type() + "::" + d.Id + "::id")
-	trx.DelKey("obj::" + d.Type() + "::" + d.Id + "::pointId")
+	trx.DelKey("obj::" + d.Type() + "::" + d.Id + "::storeId")
 }
 
 func (d Chain) Pull(trx trx.ITrx) Chain {
 	m := trx.GetObj(d.Type(), d.Id)
 	if len(m) > 0 {
 		d.Id = string(m["id"])
-		d.PointId = string(m["pointId"])
+		d.StoreId = string(m["storeId"])
 	}
 	return d
 }
@@ -48,7 +48,7 @@ func (d Chain) All(trx trx.ITrx, offset int64, count int64, query map[string]str
 		if len(m) > 0 {
 			d := Chain{}
 			d.Id = id
-			d.PointId = string(m["pointId"])
+			d.StoreId = string(m["storeId"])
 			entities = append(entities, d)
 		}
 	}

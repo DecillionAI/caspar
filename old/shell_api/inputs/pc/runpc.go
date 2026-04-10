@@ -6,7 +6,7 @@ func (d RunPcInput) GetData() any {
 	return "dummy"
 }
 
-func (d RunPcInput) GetPointId() string {
+func (d RunPcInput) GetStoreId() string {
 	return ""
 }
 

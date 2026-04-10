@@ -11,7 +11,7 @@ func (d CreateAppInput) GetData() any {
 	return "dummy"
 }
 
-func (d CreateAppInput) GetPointId() string {
+func (d CreateAppInput) GetStoreId() string {
 	return ""
 }
 

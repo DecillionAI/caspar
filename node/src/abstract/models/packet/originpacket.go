@@ -4,7 +4,7 @@ type OriginPacket struct {
 	Type       string
 	Key        string
 	UserId     string
-	PointId    string
+	StoreId    string
 	RequestId  string
 	ResCode    int
 	Binary     []byte

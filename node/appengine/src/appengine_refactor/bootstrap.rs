@@ -55,14 +55,14 @@ fn main() {
                         thread::spawn(move || {
                             let inp1 = input.clone();
                             let input_json: JsonValue = serde_json::from_str(&inp1).unwrap();
-                            let point_id = input_json["point"].as_object().unwrap()["id"]
+                            let store_id = input_json["store"].as_object().unwrap()["id"]
                                 .as_str()
                                 .unwrap()
                                 .to_string();
 
                             let mut rt = WasmMac::new_vm(
                                 machine_id.clone(),
-                                point_id,
+                                store_id,
                                 ast_path.clone(),
                                 Box::new(wasm_send),
                             );

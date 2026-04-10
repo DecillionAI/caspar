@@ -2,7 +2,7 @@ package packet
 
 type OriginFileRes struct {
 	UserId     string
-	PointId    string
+	StoreId    string
 	RequestId  string
 	FileId     string
 }

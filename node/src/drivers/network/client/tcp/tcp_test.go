@@ -29,7 +29,7 @@ func (m *mockConn) SetWriteDeadline(_ time.Time) error { return nil }
 
 func TestWriteUpdateAndResponseBufferFraming(t *testing.T) {
 	s := &Socket{Ack: false}
-	s.writeUpdate("points/update", []byte(`{"x":1}`), true)
+	s.writeUpdate("stores/update", []byte(`{"x":1}`), true)
 	s.writeResponse("req-1", 200, []byte(`{"ok":true}`), true)
 	if len(s.Buffer) != 2 {
 		t.Fatalf("expected 2 queued packets, got %d", len(s.Buffer))

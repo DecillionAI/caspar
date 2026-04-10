@@ -138,7 +138,7 @@ func (p *Signaler) SignalGroup(key string, groupId string, data any, pack bool, 
 			return
 		}
 		var foreignersMap = map[string][]string{}
-		for t := range group.Points.IterBuffered() {
+		for t := range group.Stores.IterBuffered() {
 			userId := t.Val
 			username := ""
 			p.app.ModifyState(true, func(trx trx.ITrx) error {
@@ -173,7 +173,7 @@ func (p *Signaler) SignalGroup(key string, groupId string, data any, pack bool, 
 			}
 		}
 		for k, v := range foreignersMap {
-			p.Federation.SendFedUpdate(k, key, data, "point", groupId, v)
+			p.Federation.SendFedUpdate(k, key, data, "store", groupId, v)
 		}
 	}
 }
@@ -181,7 +181,7 @@ func (p *Signaler) SignalGroup(key string, groupId string, data any, pack bool, 
 func (p *Signaler) JoinGroup(groupId string, userId string) {
 	g, ok := p.RetriveGroup(groupId)
 	if ok {
-		g.Points.Set(userId, userId)
+		g.Stores.Set(userId, userId)
 		if p.JListener != nil {
 			p.JListener.Join(groupId, userId)
 		}
@@ -191,7 +191,7 @@ func (p *Signaler) JoinGroup(groupId string, userId string) {
 func (p *Signaler) LeaveGroup(groupId string, userId string) {
 	g, ok := p.RetriveGroup(groupId)
 	if ok {
-		g.Points.Remove(userId)
+		g.Stores.Remove(userId)
 		if p.JListener != nil {
 			p.JListener.Leave(groupId, userId)
 		}
@@ -202,7 +202,7 @@ func (p *Signaler) RetriveGroup(groupId string) (*signaler.Group, bool) {
 	ok := p.groups.Has(groupId)
 	if !ok {
 		newMap := cmap.New[string]()
-		group := &signaler.Group{Points: &newMap, Listener: nil, Override: false}
+		group := &signaler.Group{Stores: &newMap, Listener: nil, Override: false}
 		p.groups.SetIfAbsent(groupId, group)
 	}
 	return p.groups.Get(groupId)

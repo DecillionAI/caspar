@@ -5,15 +5,15 @@ import "strings"
 type Info struct {
 	isGod   bool
 	userId  string
-	pointId string
+	storeId string
 }
 
-func NewInfo(userId string, pointId string) *Info {
-	return &Info{isGod: false, userId: userId, pointId: pointId}
+func NewInfo(userId string, storeId string) *Info {
+	return &Info{isGod: false, userId: userId, storeId: storeId}
 }
 
-func NewGodInfo(userId string, pointId string, isGod bool) *Info {
-	return &Info{isGod: isGod, userId: userId, pointId: pointId}
+func NewGodInfo(userId string, storeId string, isGod bool) *Info {
+	return &Info{isGod: isGod, userId: userId, storeId: storeId}
 }
 
 func (info *Info) IsGod() bool {
@@ -24,8 +24,8 @@ func (info *Info) UserId() string {
 	return info.userId
 }
 
-func (info *Info) PointId() string {
-	return info.pointId
+func (info *Info) StoreId() string {
+	return info.storeId
 }
 
 func (info *Info) Identity() (string, string) {

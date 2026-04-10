@@ -73,7 +73,7 @@ func main() {
 			"storageRoot":  os.Getenv("STORAGE_ROOT_PATH"),
 			"appletDbPath": os.Getenv("APPLET_DB_PATH"),
 			"baseDbPath":   os.Getenv("BASE_DB_PATH"),
-			"pointLogsDb":  os.Getenv("POINT_LOGS_DB"),
+			"storeLogsDb":  os.Getenv("STORE_LOGS_DB"),
 			"searcherDb":   os.Getenv("SEARCH_INDEX_PATH"),
 		},
 	)
@@ -126,12 +126,12 @@ func main() {
 				PrimaryProp: false,
 			},
 		},
-		"point": {
+		"store": {
 			"title": {
 				Name:        "title",
 				Path:        "metadata.public.profile",
 				Type:        "string",
-				Default:     "Untitled Point",
+				Default:     "Untitled Store",
 				Required:    true,
 				Searchable:  true,
 				PrimaryProp: true,

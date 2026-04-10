@@ -7,13 +7,13 @@ function host(op, input) {
 
 const vm = {
   httpPost: (url, headers, body) => host("httpPost", { url, headers, body }),
-  plantTrigger: (tag, input, pointId, count) => host("plantTrigger", { tag, input, pointId, count }),
-  signalPoint: (type, pointId, userId, data) => host("signalPoint", { type, pointId, userId, data: JSON.stringify(data) }),
+  plantTrigger: (tag, input, storeId, count) => host("plantTrigger", { tag, input, storeId, count }),
+  signalStore: (type, storeId, userId, data) => host("signalStore", { type, storeId, userId, data: JSON.stringify(data) }),
   runVm: (machineId, input, astPath, vmType) => host("runVm", { machineId, input, astPath, vmType }),
   execVm: (machineId, imageName, containerName, command) => host("execVm", { machineId, imageName, containerName, command }),
   copyToVm: (machineId, imageName, containerName, fileName, content) => host("copyToVm", { machineId, imageName, containerName, fileName, content }),
   checkTokenValidity: (token) => host("checkTokenValidity", { token }),
-  sendMessageOnChain: (pointId, payload) => host("sendMessageOnChain", { pointId, payload }),
+  sendMessageOnChain: (storeId, payload) => host("sendMessageOnChain", { storeId, payload }),
   terminateVm: (machineId) => host("terminateVm", { machineId }),
   submitOnchainTrx: (targetMachineId, key, packet, meta) => host("submitOnchainTrx", { targetMachineId, key, packet, meta }),
   dbPut: (key, val) => host("dbOp", { op: "put", key, val }),

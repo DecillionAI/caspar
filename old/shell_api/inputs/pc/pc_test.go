@@ -12,8 +12,8 @@ func TestPcInputsImplementInterfaceAndScope(t *testing.T) {
 
 	all := []input.IInput{RunPcInput{}, ExecCommandInput{}}
 	for _, in := range all {
-		if in.GetPointId() != "" || in.Origin() != "" {
-			t.Fatalf("unexpected pc input values point=%q origin=%q", in.GetPointId(), in.Origin())
+		if in.GetStoreId() != "" || in.Origin() != "" {
+			t.Fatalf("unexpected pc input values store=%q origin=%q", in.GetStoreId(), in.Origin())
 		}
 	}
 }

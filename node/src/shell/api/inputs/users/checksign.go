@@ -10,7 +10,7 @@ func (d CheckSignInput) GetData() any {
 	return "dummy"
 }
 
-func (d CheckSignInput) GetPointId() string {
+func (d CheckSignInput) GetStoreId() string {
 	return ""
 }
 

@@ -286,12 +286,12 @@ func (wm *Vmm) handleResourceEntityDelete(input map[string]any, reqId int64) (st
 }
 
 func (wm *Vmm) handleVmChainRequest(op string, input map[string]any, reqId int64) (string, int64) {
-	pointId, _ := checkField(input, "pointId", "")
+	storeId, _ := checkField(input, "storeId", "")
 	receivers := map[string]map[string]bool{"*": {}}
 	if op == "createWorkchain" {
-		chainId := wm.app.Tools().Network().Chain().CreateWorkChain(pointId)
-		payload, _ := json.Marshal(map[string]any{"op": op, "chainId": chainId, "pointId": pointId})
-		wm.app.SendTypedMessageOnChain("main", "chains/vm/request", "vm.chain", payload, "", wm.app.OwnerId(), receivers, "", pointId, nil, nil)
+		chainId := wm.app.Tools().Network().Chain().CreateWorkChain(storeId)
+		payload, _ := json.Marshal(map[string]any{"op": op, "chainId": chainId, "storeId": storeId})
+		wm.app.SendTypedMessageOnChain("main", "chains/vm/request", "vm.chain", payload, "", wm.app.OwnerId(), receivers, "", storeId, nil, nil)
 		return fmt.Sprintf(`{"ok":true,"chainId":"%s"}`, chainId), reqId
 	}
 	if op == "createSubchain" {
@@ -307,12 +307,12 @@ func (wm *Vmm) handleVmChainRequest(op string, input map[string]any, reqId int64
 		}
 		subchainId = wm.app.Tools().Network().Chain().CreateShardChain(workChainId, subchainId, peers)
 		payload, _ := json.Marshal(map[string]any{"op": op, "workChainId": workChainId, "subchainId": subchainId, "peers": peers})
-		wm.app.SendTypedMessageOnChain("main", "chains/vm/request", "vm.chain", payload, "", wm.app.OwnerId(), receivers, "", pointId, nil, nil)
+		wm.app.SendTypedMessageOnChain("main", "chains/vm/request", "vm.chain", payload, "", wm.app.OwnerId(), receivers, "", storeId, nil, nil)
 		return fmt.Sprintf(`{"ok":true,"workChainId":"%s","subchainId":"%s"}`, workChainId, subchainId), reqId
 	}
 	if strings.HasPrefix(op, "delete") {
 		payload, _ := json.Marshal(map[string]any{"op": op, "input": input})
-		wm.app.SendTypedMessageOnChain("main", "chains/vm/request", "vm.chain", payload, "", wm.app.OwnerId(), receivers, "", pointId, nil, nil)
+		wm.app.SendTypedMessageOnChain("main", "chains/vm/request", "vm.chain", payload, "", wm.app.OwnerId(), receivers, "", storeId, nil, nil)
 		return `{"ok":true,"notified":true}`, reqId
 	}
 	return `{"ok":false,"error":"unsupported chain op"}`, reqId
@@ -324,7 +324,7 @@ func (wm *Vmm) handleExecShellAction(input map[string]any, reqId int64) (string,
 		return `{"ok":false,"error":"path is required"}`, reqId
 	}
 	userId, _ := checkField(input, "userId", wm.app.OwnerId())
-	pointId, _ := checkField(input, "pointId", "")
+	storeId, _ := checkField(input, "storeId", "")
 	signature, _ := checkField(input, "signature", "")
 	packetID, _ := checkField(input, "packetId", "")
 
@@ -347,7 +347,7 @@ func (wm *Vmm) handleExecShellAction(input map[string]any, reqId int64) (string,
 	statusCode := 0
 	var result any = map[string]any{}
 	var actErr error
-	wm.app.ModifyStateSecurly(false, base.NewInfo(userId, pointId), func(_ state.IState) error {
+	wm.app.ModifyStateSecurly(false, base.NewInfo(userId, storeId), func(_ state.IState) error {
 		statusCode, result, actErr = secureAction.SecurelyAct(userId, packetID, payloadBytes, signature, parsedInput, wm.app.IpAddr(), true)
 		return nil
 	})
@@ -438,16 +438,16 @@ func (wm *Vmm) handleMicroHostAction(op string, input map[string]any, reqId int6
 		})
 		b, _ := json.Marshal(map[string]any{"ok": true, "data": results})
 		return string(b), reqId
-	case "hasAccessToPoint":
+	case "hasAccessToStore":
 		machineId, err := checkField(input, "machineId", "")
 		if err != nil || machineId == "" {
 			return `{"ok":false,"error":"machineId is required"}`, reqId
 		}
-		pointId, err := checkField(input, "pointId", "")
-		if err != nil || pointId == "" {
-			return `{"ok":false,"error":"pointId is required"}`, reqId
+		storeId, err := checkField(input, "storeId", "")
+		if err != nil || storeId == "" {
+			return `{"ok":false,"error":"storeId is required"}`, reqId
 		}
-		allowed := wm.app.Tools().Security().HasAccessToPoint(machineId, pointId)
+		allowed := wm.app.Tools().Security().HasAccessToStore(machineId, storeId)
 		b, _ := json.Marshal(map[string]any{"ok": true, "allowed": allowed})
 		return string(b), reqId
 	case "signalUser":

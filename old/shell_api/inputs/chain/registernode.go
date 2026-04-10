@@ -8,7 +8,7 @@ func (d RegisterNodeInput) GetData() any {
 	return "dummy"
 }
 
-func (d RegisterNodeInput) GetPointId() string {
+func (d RegisterNodeInput) GetStoreId() string {
 	return ""
 }
 

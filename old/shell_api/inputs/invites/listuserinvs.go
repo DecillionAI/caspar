@@ -6,7 +6,7 @@ func (d ListUserInvitesInput) GetData() any {
 	return "dummy"
 }
 
-func (d ListUserInvitesInput) GetPointId() string {
+func (d ListUserInvitesInput) GetStoreId() string {
 	return ""
 }
 

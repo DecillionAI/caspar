@@ -16,7 +16,7 @@ import (
 	inputsusers "kasper/src/shell/api/inputs/users"
 	"kasper/src/shell/api/model"
 	outputsusers "kasper/src/shell/api/outputs/users"
-	updates_points "kasper/src/shell/api/updates/points"
+	updates_stores "kasper/src/shell/api/updates/stores"
 	"kasper/src/shell/utils/crypto"
 	"kasper/src/shell/utils/future"
 	"log"
@@ -176,17 +176,17 @@ func (a *Actions) Signal(state state.IState, input inputs_creatures.SignalInput)
 	trx := state.Trx()
 	senderCreature := model.Creature{Id: state.Info().UserId()}.Pull(trx)
 	sender := model.User{Id: senderCreature.Id, Typ: senderCreature.TypeName, Username: senderCreature.Username, PublicKey: senderCreature.PublicKey}
-	pointId := state.Info().PointId()
+	storeId := state.Info().StoreId()
 	if input.Type == "all" {
-		if pointId == "" {
-			return nil, errors.New("pointId is required for broadcast")
+		if storeId == "" {
+			return nil, errors.New("storeId is required for broadcast")
 		}
-		if trx.GetLink("onaccess::"+pointId+"::"+state.Info().UserId()) != "true" {
+		if trx.GetLink("onaccess::"+storeId+"::"+state.Info().UserId()) != "true" {
 			return nil, errors.New("access denied")
 		}
-		packet := updates_points.Send{Action: "broadcast", User: sender, Data: input.Data, IsTemp: input.Temp}
+		packet := updates_stores.Send{Action: "broadcast", User: sender, Data: input.Data, IsTemp: input.Temp}
 		future.Async(func() {
-			a.App.Tools().Signaler().SignalGroup("creatures/signal", pointId, packet, true, []string{state.Info().UserId()})
+			a.App.Tools().Signaler().SignalGroup("creatures/signal", storeId, packet, true, []string{state.Info().UserId()})
 		}, false)
 		return map[string]any{"passed": true}, nil
 	}
@@ -196,7 +196,7 @@ func (a *Actions) Signal(state state.IState, input inputs_creatures.SignalInput)
 	if input.CreatureId == "" {
 		return nil, errors.New("creatureId is required for pvp")
 	}
-	packet := updates_points.Send{Action: "single", User: sender, Data: input.Data, IsTemp: input.Temp}
+	packet := updates_stores.Send{Action: "single", User: sender, Data: input.Data, IsTemp: input.Temp}
 	future.Async(func() {
 		a.App.Tools().Signaler().SignalUser("creatures/signal", input.CreatureId, packet, true)
 	}, false)
@@ -473,13 +473,13 @@ func (a *Actions) Delete(state state.IState, input inputsusers.DeleteInput) (any
 	}
 	user.Delete(state.Trx())
 	state.Trx().DelJson("UserMeta::"+input.UserId, "metadata")
-	pointList, _ := model.Point{}.List(state.Trx(), "onaccess::", map[string]string{})
-	for _, point := range pointList {
-		state.Trx().DelKey("link::onaccess::" + point.Id + "::" + input.UserId)
+	storeList, _ := model.Store{}.List(state.Trx(), "onaccess::", map[string]string{})
+	for _, store := range storeList {
+		state.Trx().DelKey("link::onaccess::" + store.Id + "::" + input.UserId)
 	}
-	createdPointList, _ := model.Point{}.List(state.Trx(), "creatorof::"+input.UserId+"::", map[string]string{})
-	for _, point := range createdPointList {
-		point.Delete(state.Trx())
+	createdStoreList, _ := model.Store{}.List(state.Trx(), "creatorof::"+input.UserId+"::", map[string]string{})
+	for _, store := range createdStoreList {
+		store.Delete(state.Trx())
 	}
 	state.Trx().DelKey("link::UserIdToEmail::" + input.UserId)
 	state.Trx().DelKey("link::UserEmailToId::" + state.Trx().GetLink("UserIdToEmail::"+input.UserId))

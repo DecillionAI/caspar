@@ -12,7 +12,7 @@ func (d SubBaseTrxInput) GetData() any {
 	return "dummy"
 }
 
-func (d SubBaseTrxInput) GetPointId() string {
+func (d SubBaseTrxInput) GetStoreId() string {
 	return ""
 }
 

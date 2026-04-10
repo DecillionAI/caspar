@@ -9,7 +9,7 @@ func (d MetaInput) GetData() any {
 	return "dummy"
 }
 
-func (d MetaInput) GetPointId() string {
+func (d MetaInput) GetStoreId() string {
 	return ""
 }
 

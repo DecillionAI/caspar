@@ -11,5 +11,5 @@ type CreateInput struct {
 }
 
 func (d CreateInput) GetData() any       { return "dummy" }
-func (d CreateInput) GetPointId() string { return "" }
+func (d CreateInput) GetStoreId() string { return "" }
 func (d CreateInput) Origin() string     { return "global" }

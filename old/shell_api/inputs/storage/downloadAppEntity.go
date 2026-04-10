@@ -9,7 +9,7 @@ func (d DownloadAppEntityInput) GetData() any {
 	return "dummy"
 }
 
-func (d DownloadAppEntityInput) GetPointId() string {
+func (d DownloadAppEntityInput) GetStoreId() string {
 	return ""
 }
 

@@ -38,9 +38,9 @@ func hostCall(key string, input map[string]any) {
 	writePacket(packet, true)
 }
 
-func SignalPoint(typ string, pointID string, userID string, data any) {
+func SignalStore(typ string, storeID string, userID string, data any) {
 	body, _ := json.Marshal(data)
-	hostCall("signalPoint", map[string]any{"type": typ, "pointId": pointID, "userId": userID, "data": string(body)})
+	hostCall("signalStore", map[string]any{"type": typ, "storeId": storeID, "userId": userID, "data": string(body)})
 }
 
 func HttpPost(url string, headers string, body string) {
@@ -62,16 +62,16 @@ func CopyToVm(machineID string, imageName string, containerName string, fileName
 func CheckTokenValidity(token string) { hostCall("checkTokenValidity", map[string]any{"token": token}) }
 func TerminateVm(machineID string)    { hostCall("terminateVm", map[string]any{"machineId": machineID}) }
 
-func PlantTrigger(tag string, input string, pointID string, count int) {
-	hostCall("plantTrigger", map[string]any{"tag": tag, "input": input, "pointId": pointID, "count": count})
+func PlantTrigger(tag string, input string, storeID string, count int) {
+	hostCall("plantTrigger", map[string]any{"tag": tag, "input": input, "storeId": storeID, "count": count})
 }
 
-func SendMessageOnChain(pointID string, payload string) {
-	hostCall("sendMessageOnChain", map[string]any{"pointId": pointID, "payload": payload})
+func SendMessageOnChain(storeID string, payload string) {
+	hostCall("sendMessageOnChain", map[string]any{"storeId": storeID, "payload": payload})
 }
 
-func RunDocker(machineID string, pointID string, containerMeta string) {
-	hostCall("runVm", map[string]any{"machineId": machineID, "pointId": pointID, "containerMeta": containerMeta, "vmType": "docker"})
+func RunDocker(machineID string, storeID string, containerMeta string) {
+	hostCall("runVm", map[string]any{"machineId": machineID, "storeId": storeID, "containerMeta": containerMeta, "vmType": "docker"})
 }
 
 func ExecDocker(machineID string, imageName string, containerName string, command string) {
@@ -96,7 +96,7 @@ func processPacket(data []byte) {
 		return
 	}
 	if payload["type"] == "textMessage" {
-		SignalPoint("broadcast", packet["point"].(map[string]any)["id"].(string), packet["user"].(map[string]any)["id"].(string), map[string]any{
+		SignalStore("broadcast", packet["store"].(map[string]any)["id"].(string), packet["user"].(map[string]any)["id"].(string), map[string]any{
 			"type": "textMessage",
 			"text": "docker sdk echo: " + payload["text"].(string),
 		})

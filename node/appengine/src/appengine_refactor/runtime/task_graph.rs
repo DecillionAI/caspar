@@ -243,7 +243,7 @@ pub fn plant_trigger(
     let pi_l = _input[5].to_i32();
     let pi_bytes = mem.get_data(pi_offset.cast_unsigned(), pi_l.cast_unsigned());
     let pi_bytes_next = pi_bytes.unwrap();
-    let point_id = str::from_utf8(&pi_bytes_next).unwrap();
+    let store_id = str::from_utf8(&pi_bytes_next).unwrap();
 
     let count = _input[6].to_i32();
 
@@ -251,7 +251,7 @@ pub fn plant_trigger(
         "key": "plantTrigger",
         "input": {
             "machineId": rt.machine_id,
-            "pointId": point_id,
+            "storeId": store_id,
             "input": text,
             "tag": tag,
             "count": count
@@ -355,7 +355,7 @@ pub fn run_docker(
         "input": {
             "runtime": "docker",
             "machineId": rt.machine_id,
-            "pointId": rt.point_id,
+            "storeId": rt.store_id,
             "inputFiles": text,
             "imageName": image_name,
             "containerName": container_name
@@ -518,7 +518,7 @@ pub fn copy_to_docker(
     Ok(vec![WasmValue::from_i64(c)])
 }
 
-pub fn signal_point(
+pub fn signal_store(
     host_data: &mut HostData,
     _inst: &mut Instance,
     _caller: &mut CallingFrame,
@@ -538,7 +538,7 @@ pub fn signal_point(
     let key_l = _input[3].to_i32();
     let key_bytes = mem.get_data(key_offset.cast_unsigned(), key_l.cast_unsigned());
     let key_bytes_next = key_bytes.unwrap();
-    let point_id = str::from_utf8(&key_bytes_next).unwrap();
+    let store_id = str::from_utf8(&key_bytes_next).unwrap();
 
     let co_offset = _input[4].to_i32();
     let co_l = _input[5].to_i32();
@@ -553,11 +553,11 @@ pub fn signal_point(
     let payload = str::from_utf8(&cn_bytes_next).unwrap();
 
     let j = json!({
-        "key": "signalPoint",
+        "key": "signalStore",
         "input": {
             "machineId": rt.machine_id,
             "type": typ,
-            "pointId": point_id,
+            "storeId": store_id,
             "userId": user_id,
             "data": payload
         }

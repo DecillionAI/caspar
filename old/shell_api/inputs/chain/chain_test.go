@@ -8,22 +8,22 @@ import (
 
 func TestChainInputsImplementInterface(t *testing.T) {
 	var _ input.IInput = CreateInput{}
-	var _ input.IInput = CreateFromPointInput{}
+	var _ input.IInput = CreateFromStoreInput{}
 	var _ input.IInput = CreateShardInput{}
 	var _ input.IInput = RegisterNodeInput{}
 	var _ input.IInput = SubBaseTrxInput{}
 }
 
-func TestChainInputOriginsAndPointIds(t *testing.T) {
-	point := "pt@fedorigin"
-	if in := (CreateFromPointInput{PointId: point}); in.GetPointId() != point || in.Origin() != "fedorigin" {
-		t.Fatalf("unexpected create_from_point values point=%q origin=%q", in.GetPointId(), in.Origin())
+func TestChainInputOriginsAndStoreIds(t *testing.T) {
+	store := "pt@fedorigin"
+	if in := (CreateFromStoreInput{StoreId: store}); in.GetStoreId() != store || in.Origin() != "fedorigin" {
+		t.Fatalf("unexpected create_from_store values store=%q origin=%q", in.GetStoreId(), in.Origin())
 	}
 
 	globalInputs := []input.IInput{CreateInput{}, RegisterNodeInput{}, CreateShardInput{}, SubBaseTrxInput{}}
 	for _, in := range globalInputs {
-		if in.GetPointId() != "" || in.Origin() != "global" {
-			t.Fatalf("unexpected global input values point=%q origin=%q", in.GetPointId(), in.Origin())
+		if in.GetStoreId() != "" || in.Origin() != "global" {
+			t.Fatalf("unexpected global input values store=%q origin=%q", in.GetStoreId(), in.Origin())
 		}
 	}
 }

@@ -16,7 +16,7 @@ const (
 	Babbling State = iota
 
 	// CatchingUp is the state in which a node attempts to fast-forward to a
-	// future point in the hashgraph as part of the FastSync protocol.
+	// future store in the hashgraph as part of the FastSync protocol.
 	CatchingUp
 
 	// Joining is the state in which a node attempts to join a Babble group by

@@ -2,7 +2,7 @@
 
 This folder contains separate deployable wasm creature projects for namespaces previously served by shell API directly:
 
-- `points`
+- `stores`
 - `invites`
 - `storage`
 - `pc`
@@ -12,14 +12,14 @@ Each module is intended to run inside VM and use imported host functions for all
 
 Migration approach:
 
-- Each creature module reads `/input.json` with `{path,payload,userId,pointId}`.
+- Each creature module reads `/input.json` with `{path,payload,userId,storeId}`.
 - The module validates the requested endpoint path against its namespace allow-list.
 - The module calls host op `execShellAction`, which executes the same secure action parser/algorithm on host.
 - This keeps execution in VM creatures while ensuring all mutations happen through host functions.
 
 Per-endpoint wasm projects:
 
-- `endpoints/points/*`
+- `endpoints/stores/*`
 - `endpoints/invites/*`
 - `endpoints/storage/*`
 - `endpoints/pc/*`

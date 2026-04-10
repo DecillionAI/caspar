@@ -8,7 +8,7 @@ func (d FindInput) GetData() any {
 	return "dummy"
 }
 
-func (d FindInput) GetPointId() string {
+func (d FindInput) GetStoreId() string {
 	return ""
 }
 

@@ -9,7 +9,7 @@ func (d DeleteUserEntityInput) GetData() any {
 	return "dummy"
 }
 
-func (d DeleteUserEntityInput) GetPointId() string {
+func (d DeleteUserEntityInput) GetStoreId() string {
 	return ""
 }
 

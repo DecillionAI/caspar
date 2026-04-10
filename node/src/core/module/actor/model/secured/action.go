@@ -32,7 +32,7 @@ func (a *SecureAction) ParseInput(protocol string, raw interface{}) (input.IInpu
 }
 
 func (a *SecureAction) SecurlyActChain(userId string, packetId string, packetBinary []byte, packetSignature string, input input.IInput, origin string, tag string) (int, any, error) {
-	success, info := a.Guard.CheckValidityForChain(a.core, packetBinary, packetSignature, userId, input.GetPointId())
+	success, info := a.Guard.CheckValidityForChain(a.core, packetBinary, packetSignature, userId, input.GetStoreId())
 	if !success {
 		return 403, nil, errors.New("authorization failed")
 	} else {
@@ -78,7 +78,7 @@ func (a *SecureAction) SecurelyAct(userId string, packetId string, packetBinary 
 		return sc, res, e
 	}
 	if a.core.Id() == origin {
-		success, info := a.Guard.CheckValidity(a.core, packetBinary, packetSignature, userId, input.GetPointId(), insider...)
+		success, info := a.Guard.CheckValidity(a.core, packetBinary, packetSignature, userId, input.GetStoreId(), insider...)
 		if !success {
 			return -1, nil, errors.New("authorization failed")
 		} else {
@@ -120,7 +120,7 @@ func (a *SecureAction) SecurelyAct(userId string, packetId string, packetBinary 
 }
 
 func (a *SecureAction) SecurelyActFed(userId string, packetBinary []byte, packetSignature string, input input.IInput) (int, any, error) {
-	success, info := a.Guard.CheckValidity(a.core, packetBinary, packetSignature, userId, input.GetPointId())
+	success, info := a.Guard.CheckValidity(a.core, packetBinary, packetSignature, userId, input.GetStoreId())
 	if !success {
 		return -1, nil, nil
 	}

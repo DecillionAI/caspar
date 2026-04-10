@@ -12,8 +12,8 @@ func TestAuthInputsImplementInterfaceAndScope(t *testing.T) {
 
 	all := []input.IInput{GetServersMapInput{}, GetServerKeyInput{}}
 	for _, in := range all {
-		if in.GetPointId() != "" || in.Origin() != "" {
-			t.Fatalf("unexpected auth input values point=%q origin=%q", in.GetPointId(), in.Origin())
+		if in.GetStoreId() != "" || in.Origin() != "" {
+			t.Fatalf("unexpected auth input values store=%q origin=%q", in.GetStoreId(), in.Origin())
 		}
 	}
 }

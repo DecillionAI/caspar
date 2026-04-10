@@ -9,7 +9,7 @@ func (d ReadBuildLogsInput) GetData() any {
 	return "dummy"
 }
 
-func (d ReadBuildLogsInput) GetPointId() string {
+func (d ReadBuildLogsInput) GetStoreId() string {
 	return ""
 }
 

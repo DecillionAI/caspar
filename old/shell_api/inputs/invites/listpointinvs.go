@@ -2,18 +2,18 @@ package inputs_invites
 
 import "kasper/src/shell/utils/origin"
 
-type ListPointInvitesInput struct {
-	PointId string `json:"pointId" validate:"required"`
+type ListStoreInvitesInput struct {
+	StoreId string `json:"storeId" validate:"required"`
 }
 
-func (d ListPointInvitesInput) GetData() any {
+func (d ListStoreInvitesInput) GetData() any {
 	return "dummy"
 }
 
-func (d ListPointInvitesInput) GetPointId() string {
-	return d.PointId
+func (d ListStoreInvitesInput) GetStoreId() string {
+	return d.StoreId
 }
 
-func (d ListPointInvitesInput) Origin() string {
-	return origin.FindOriginLocal(d.PointId)
+func (d ListStoreInvitesInput) Origin() string {
+	return origin.FindOriginLocal(d.StoreId)
 }

@@ -19,7 +19,7 @@ type ISignaler interface {
 }
 
 type Group struct {
-	Points   *cmap.ConcurrentMap[string, string]
+	Stores   *cmap.ConcurrentMap[string, string]
 	Listener *Listener
 	Override bool
 }

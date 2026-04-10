@@ -3,6 +3,6 @@ package info
 type IInfo interface {
 	IsGod() bool
 	UserId() string
-	PointId() string
+	StoreId() string
 	Identity() (string, string)
 }

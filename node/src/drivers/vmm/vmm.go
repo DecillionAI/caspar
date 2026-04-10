@@ -14,11 +14,11 @@ import (
 	"kasper/src/abstract/models/worker"
 	"kasper/src/abstract/state"
 	"kasper/src/core/module/actor/model/base"
-	inputs_points "kasper/src/shell/api/inputs/points"
+	inputs_stores "kasper/src/shell/api/inputs/stores"
 	inputs_users "kasper/src/shell/api/inputs/users"
 	"kasper/src/shell/api/model"
 	model "kasper/src/shell/api/model"
-	updates_points "kasper/src/shell/api/updates/points"
+	updates_stores "kasper/src/shell/api/updates/stores"
 	"kasper/src/shell/utils/future"
 	"log"
 	"os"
@@ -104,23 +104,23 @@ func (wm *Vmm) resolveVmExecutionTarget(machineId string, entityId string) (stri
 	return astPath, vmType
 }
 
-func (wm *Vmm) RunVm(machineId string, pointId string, data string) {
-	wm.RunVmEntity(machineId, pointId, data, "")
+func (wm *Vmm) RunVm(machineId string, storeId string, data string) {
+	wm.RunVmEntity(machineId, storeId, data, "")
 }
 
-func (wm *Vmm) RunVmEntity(machineId string, pointId string, data string, entityId string) {
-	point := model.Point{Id: pointId}
-	isMemberOfPoint := false
+func (wm *Vmm) RunVmEntity(machineId string, storeId string, data string, entityId string) {
+	store := model.Store{Id: storeId}
+	isMemberOfStore := false
 	wm.app.ModifyState(true, func(trx trx.ITrx) error {
-		point.Pull(trx)
-		isMemberOfPoint = (trx.GetLink("hasaccess::"+machineId+"::"+pointId) == "true")
+		store.Pull(trx)
+		isMemberOfStore = (trx.GetLink("hasaccess::"+machineId+"::"+storeId) == "true")
 		return nil
 	})
-	if !isMemberOfPoint {
+	if !isMemberOfStore {
 		return
 	}
 	astPath, vmType := wm.resolveVmExecutionTarget(machineId, entityId)
-	b, _ := json.Marshal(updates_points.Send{User: model.User{}, Point: point, Action: "single", Data: data})
+	b, _ := json.Marshal(updates_stores.Send{User: model.User{}, Store: store, Action: "single", Data: data})
 	input := string(b)
 	str, _ := json.Marshal(map[string]any{
 		"type":      "runVm",
@@ -159,14 +159,14 @@ func (wm *Vmm) handleRunDocker(input map[string]any, reqId int64) (string, int64
 		println(err)
 		return err.Error(), reqId
 	}
-	pointId, err := checkField(input, "pointId", "")
+	storeId, err := checkField(input, "storeId", "")
 	if err != nil {
 		println(err)
 		return err.Error(), reqId
 	}
 	found := false
 	wm.app.ModifyState(true, func(trx trx.ITrx) error {
-		if trx.GetLink("hasaccess::"+machineId+"::"+pointId) == "true" {
+		if trx.GetLink("hasaccess::"+machineId+"::"+storeId) == "true" {
 			found = true
 		}
 		return nil
@@ -189,12 +189,12 @@ func (wm *Vmm) handleRunDocker(input map[string]any, reqId int64) (string, int64
 	}
 	finalInputFiles := map[string]string{}
 	for k, v := range inputFiles {
-		if !wm.file.CheckFileFromStorage(wm.storageRoot, pointId, k) {
+		if !wm.file.CheckFileFromStorage(wm.storageRoot, storeId, k) {
 			err := errors.New("input file does not exist")
 			println(err)
 			return err.Error(), reqId
 		}
-		path := fmt.Sprintf("%s/files/%s/%s", wm.storageRoot, pointId, k)
+		path := fmt.Sprintf("%s/files/%s/%s", wm.storageRoot, storeId, k)
 		finalInputFiles[path] = v
 	}
 	imageName, err := checkField(input, "imageName", "")
@@ -253,11 +253,11 @@ func (wm *Vmm) handleRunDocker(input map[string]any, reqId int64) (string, int64
 					wm.docker.Assign(machineId + "_" + imageName + "_" + containerName)
 				}
 				wm.docker.SaRContainer(machineId, imageName, containerName)
-				wm.docker.RunContainer(machineId, pointId, imageName, containerName, finalInputFiles, false)
+				wm.docker.RunContainer(machineId, storeId, imageName, containerName, finalInputFiles, false)
 			}, false)
 		} else {
 			wm.docker.SaRContainer(machineId, imageName, containerName)
-			outputFile, err := wm.docker.RunContainer(machineId, pointId, imageName, containerName, finalInputFiles, false)
+			outputFile, err := wm.docker.RunContainer(machineId, storeId, imageName, containerName, finalInputFiles, false)
 			if err != nil {
 				println(err)
 				return err.Error(), reqId
@@ -379,7 +379,7 @@ func (wm *Vmm) handlePlantTrigger(input map[string]any, reqId int64) (string, in
 		println(err)
 		return err.Error(), reqId
 	}
-	pointId, err := checkField(input, "pointId", "")
+	storeId, err := checkField(input, "storeId", "")
 	if err != nil {
 		println(err)
 		return err.Error(), reqId
@@ -392,29 +392,29 @@ func (wm *Vmm) handlePlantTrigger(input map[string]any, reqId int64) (string, in
 	if tag == "alarm" {
 		future.Async(func() {
 			wm.app.ModifyState(false, func(trx trx.ITrx) error {
-				trx.PutLink("vmAlarmPointId::"+machineId, pointId)
+				trx.PutLink("vmAlarmStoreId::"+machineId, storeId)
 				trx.PutLink("vmAlarmData::"+machineId, data)
 				trx.PutLink("vmAlarmTime::"+machineId, fmt.Sprintf("%d", time.Now().UnixMilli()+(int64(count)*1000)))
 				return nil
 			})
 			time.Sleep(time.Duration(count) * time.Second)
 			wm.app.ModifyState(false, func(trx trx.ITrx) error {
-				trx.DelKey("link::vmAlarmPointId::" + machineId)
+				trx.DelKey("link::vmAlarmStoreId::" + machineId)
 				trx.DelKey("link::vmAlarmData::" + machineId)
 				trx.DelKey("link::vmAlarmTime::" + machineId)
 				return nil
 			})
-			if wm.app.Tools().Security().HasAccessToPoint(machineId, pointId) {
-				wm.RunVm(machineId, pointId, data)
+			if wm.app.Tools().Security().HasAccessToStore(machineId, storeId) {
+				wm.RunVm(machineId, storeId, data)
 			}
 		}, false)
 	} else {
-		wm.app.PlantChainTrigger(int(count), machineId, tag, machineId, pointId, data)
+		wm.app.PlantChainTrigger(int(count), machineId, tag, machineId, storeId, data)
 	}
 	return "{}", reqId
 }
 
-func (wm *Vmm) handleSignalPoint(input map[string]any, reqId int64) (string, int64) {
+func (wm *Vmm) handleSignalStore(input map[string]any, reqId int64) (string, int64) {
 	machineId, err := checkField(input, "machineId", "")
 	if err != nil {
 		println(err)
@@ -436,7 +436,7 @@ func (wm *Vmm) handleSignalPoint(input map[string]any, reqId int64) (string, int
 			temp = parts[1] == "true"
 		}
 	}
-	pointId, err := checkField(input, "pointId", "")
+	storeId, err := checkField(input, "storeId", "")
 	if err != nil {
 		println(err)
 		return err.Error(), reqId
@@ -451,11 +451,11 @@ func (wm *Vmm) handleSignalPoint(input map[string]any, reqId int64) (string, int
 		println(err)
 		return err.Error(), reqId
 	}
-	wm.app.ModifyStateSecurly(false, base.NewInfo(machineId, pointId), func(s state.IState) error {
-		_, _, err := wm.app.Actor().FetchAction("/points/signal").Act(s, inputs_points.SignalInput{
+	wm.app.ModifyStateSecurly(false, base.NewInfo(machineId, storeId), func(s state.IState) error {
+		_, _, err := wm.app.Actor().FetchAction("/stores/signal").Act(s, inputs_stores.SignalInput{
 			Type:    typ,
 			Data:    data,
-			PointId: pointId,
+			StoreId: storeId,
 			UserId:  userId,
 			Temp:    temp,
 		})
@@ -471,7 +471,7 @@ func (wm *Vmm) handleRunVM(input map[string]any, reqId int64) (string, int64) {
 	if err != nil {
 		return err.Error(), reqId
 	}
-	targetPointId, _ := checkField(input, "pointId", "")
+	targetStoreId, _ := checkField(input, "storeId", "")
 	entityId, _ := checkField(input, "entityId", "")
 	if targetRuntime == "" && entityId != "" {
 		_, targetRuntime = wm.resolveVmExecutionTarget(targetMachineId, entityId)
@@ -495,7 +495,7 @@ func (wm *Vmm) handleRunVM(input map[string]any, reqId int64) (string, int64) {
 			return "{}", reqId
 		}
 		data, _ := checkField(input, "data", "{}")
-		wm.RunVmEntity(targetMachineId, targetPointId, data, entityId)
+		wm.RunVmEntity(targetMachineId, targetStoreId, data, entityId)
 		return "{}", reqId
 	}
 	if targetRuntime == "docker" {
@@ -576,8 +576,8 @@ func parseChainPayPacket(input map[string]any) *chain.ChainPayPacket {
 	if v, ok := payMap["lockSignature"].(string); ok {
 		pay.LockSignature = v
 	}
-	if v, ok := payMap["pointId"].(string); ok {
-		pay.PointId = v
+	if v, ok := payMap["storeId"].(string); ok {
+		pay.StoreId = v
 	}
 	if v, ok := payMap["vmPayload"].(string); ok {
 		pay.VmPayload = v
@@ -623,10 +623,10 @@ func (wm *Vmm) handleSendMessageOnChain(input map[string]any, reqId int64) (stri
 	signature, _ := checkField(input, "signature", "")
 	userId, _ := checkField(input, "userId", wm.app.OwnerId())
 	replyTo, _ := checkField(input, "replyTo", "")
-	pointId, _ := checkField(input, "pointId", "")
+	storeId, _ := checkField(input, "storeId", "")
 	receivers := parseChainReceivers(input)
 	pay := parseChainPayPacket(input)
-	wm.app.SendTypedMessageOnChain(chainId, key, messageType, []byte(payloadStr), signature, userId, receivers, replyTo, pointId, pay, nil)
+	wm.app.SendTypedMessageOnChain(chainId, key, messageType, []byte(payloadStr), signature, userId, receivers, replyTo, storeId, pay, nil)
 	return "{}", reqId
 }
 

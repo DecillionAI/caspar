@@ -9,7 +9,7 @@ func (d UpdateAppInput) GetData() any {
 	return "dummy"
 }
 
-func (d UpdateAppInput) GetPointId() string {
+func (d UpdateAppInput) GetStoreId() string {
 	return ""
 }
 

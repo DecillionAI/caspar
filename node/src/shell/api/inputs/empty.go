@@ -7,7 +7,7 @@ func (d EmptyInput) GetData() any {
 	return "dummy"
 }
 
-func (d EmptyInput) GetPointId() string {
+func (d EmptyInput) GetStoreId() string {
 	return ""
 }
 

@@ -483,7 +483,7 @@ func (h *Hashgraph) initEventCoordinates(event *Event) error {
 	return nil
 }
 
-// update first descendant of each ancestor to point to event
+// update first descendant of each ancestor to store to event
 func (h *Hashgraph) updateAncestorFirstDescendant(event *Event) error {
 	for _, c := range event.lastAncestors {
 		ah := c.Hash

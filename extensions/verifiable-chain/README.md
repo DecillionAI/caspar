@@ -40,7 +40,7 @@ The extension calls host op `chainDriverApi` with:
 ```json
 {
   "type": "onchainExecutionRequest",
-  "data": "{\"type\":\"onchainExecutionRequest\",\"requestId\":\"req-1\",\"machineId\":\"m1\",\"pointId\":\"p1\",\"masmPath\":\"/programs/demo.masm\",\"inputs\":[1,2],\"outputs\":[3],\"proof\":[1,2,3],\"userId\":\"u1\",\"userSignature\":\"...\",\"executionPayload\":{\"result\":3}}"
+  "data": "{\"type\":\"onchainExecutionRequest\",\"requestId\":\"req-1\",\"machineId\":\"m1\",\"storeId\":\"p1\",\"masmPath\":\"/programs/demo.masm\",\"inputs\":[1,2],\"outputs\":[3],\"proof\":[1,2,3],\"userId\":\"u1\",\"userSignature\":\"...\",\"executionPayload\":{\"result\":3}}"
 }
 ```
 

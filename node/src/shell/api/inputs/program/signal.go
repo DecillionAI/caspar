@@ -10,7 +10,7 @@ func (d SignalInput) GetData() any {
 	return "dummy"
 }
 
-func (d SignalInput) GetPointId() string {
+func (d SignalInput) GetStoreId() string {
 	return ""
 }
 

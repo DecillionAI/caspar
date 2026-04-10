@@ -6,7 +6,7 @@ func (d GetServerKeyInput) GetData() any {
 	return "dummy"
 }
 
-func (d GetServerKeyInput) GetPointId() string {
+func (d GetServerKeyInput) GetStoreId() string {
 	return ""
 }
 

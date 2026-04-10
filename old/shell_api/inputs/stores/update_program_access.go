@@ -1,0 +1,21 @@
+package inputs_stores
+
+import "kasper/src/shell/utils/origin"
+
+type UpdateProgramAccessInput struct {
+	ProgramId string          `json:"programId" validate:"required"`
+	StoreId   string          `json:"storeId" validate:"required"`
+	Access    map[string]bool `json:"access" validate:"required"`
+}
+
+func (d UpdateProgramAccessInput) GetData() any {
+	return "dummy"
+}
+
+func (d UpdateProgramAccessInput) GetStoreId() string {
+	return d.StoreId
+}
+
+func (d UpdateProgramAccessInput) Origin() string {
+	return origin.FindOriginLocal(d.StoreId)
+}

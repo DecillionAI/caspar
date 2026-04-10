@@ -6,7 +6,7 @@ func (d AuthenticateInput) GetData() any {
 	return "dummy"
 }
 
-func (d AuthenticateInput) GetPointId() string {
+func (d AuthenticateInput) GetStoreId() string {
 	return ""
 }
 

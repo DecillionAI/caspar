@@ -51,13 +51,13 @@ pub enum ValType {
     ///
     /// Integers are not inherently signed or unsigned, their interpretation is determined by individual operations.
     I64,
-    /// 32-bit floating-point data as defined by the [IEEE 754-2019](https://ieeexplore.ieee.org/document/8766229).
+    /// 32-bit floating-store data as defined by the [IEEE 754-2019](https://ieeexplore.ieee.org/document/8766229).
     F32,
-    /// 64-bit floating-point data as defined by the [IEEE 754-2019](https://ieeexplore.ieee.org/document/8766229).
+    /// 64-bit floating-store data as defined by the [IEEE 754-2019](https://ieeexplore.ieee.org/document/8766229).
     F64,
-    /// 128-bit vector of packed integer or floating-point data.
+    /// 128-bit vector of packed integer or floating-store data.
     ///
-    /// The packed data can be interpreted as signed or unsigned integers, single or double precision floating-point
+    /// The packed data can be interpreted as signed or unsigned integers, single or double precision floating-store
     /// values, or a single 128 bit type. The interpretation is determined by individual operations.
     V128,
     /// A reference to a host function.

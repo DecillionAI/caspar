@@ -1,7 +1,7 @@
 pub struct WasmMac {
     pub callback: Box<dyn (Fn(JsonValue) -> String) + Send + Sync>,
     pub machine_id: String,
-    pub point_id: String,
+    pub store_id: String,
     pub trx: Box<Trx>,
     pub mod_path: String,
     pub cost: u64,
@@ -93,7 +93,7 @@ pub struct HostData {
 impl WasmMac {
     pub fn new_vm(
         machine_id: String,
-        point_id: String,
+        store_id: String,
         mod_path: String,
         cb: Box<dyn (Fn(JsonValue) -> String) + Send + Sync>,
     ) -> Self {
@@ -103,7 +103,7 @@ impl WasmMac {
         WasmMac {
             callback: cb,
             machine_id,
-            point_id,
+            store_id,
             trx: Box::new(Trx::new()),
             mod_path,
             execution_result: "".to_string(),

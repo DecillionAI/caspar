@@ -13,7 +13,7 @@ func (d DeployInput) GetData() any {
 	return "dummy"
 }
 
-func (d DeployInput) GetPointId() string {
+func (d DeployInput) GetStoreId() string {
 	return ""
 }
 

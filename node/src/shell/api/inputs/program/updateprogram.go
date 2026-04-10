@@ -10,7 +10,7 @@ func (d UpdateProgramInput) GetData() any {
 	return "dummy"
 }
 
-func (d UpdateProgramInput) GetPointId() string {
+func (d UpdateProgramInput) GetStoreId() string {
 	return ""
 }
 

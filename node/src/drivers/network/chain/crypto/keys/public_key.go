@@ -10,7 +10,7 @@ import (
 
 // ToPublicKey is a wrapper around elliptic.Unmarshal which calls Curve() to
 // determine which elliptic.Curve to use. The argument pub is expected to be the
-// uncompressed form of a point on the curve, as returned by FromPublicKey.
+// uncompressed form of a store on the curve, as returned by FromPublicKey.
 func ToPublicKey(pub []byte) *ecdsa.PublicKey {
 	if len(pub) == 0 {
 		return nil
@@ -20,7 +20,7 @@ func ToPublicKey(pub []byte) *ecdsa.PublicKey {
 }
 
 // FromPublicKey is a wrapper around elliptic.Marshal which calls Curve() to
-// determine which elliptic.Curve to use. It outputs the point in uncompressed
+// determine which elliptic.Curve to use. It outputs the store in uncompressed
 // form.
 func FromPublicKey(pub *ecdsa.PublicKey) []byte {
 	if pub == nil || pub.X == nil || pub.Y == nil {
