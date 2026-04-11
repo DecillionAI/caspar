@@ -11,6 +11,8 @@ static GLOBAL_ELPIFY_VMS: Lazy<Arc<Mutex<HashMap<String, Arc<ElpifyManagedVm>>>>
     Lazy::new(|| Arc::new(Mutex::new(HashMap::new())));
 static GLOBAL_FIRE_VMS: Lazy<Arc<Mutex<HashMap<String, FireVmProcess>>>> =
     Lazy::new(|| Arc::new(Mutex::new(HashMap::new())));
+static GLOBAL_VM_CONTEXT: Lazy<Arc<Mutex<HashMap<String, (String, String)>>>> =
+    Lazy::new(|| Arc::new(Mutex::new(HashMap::new())));
 static GLOBAL_RESOURCE_LOCKS: Lazy<Arc<Mutex<HashMap<String, Arc<ResourceLockEntry>>>>> =
     Lazy::new(|| Arc::new(Mutex::new(HashMap::new())));
 static GLOBAL_DB: Lazy<Arc<Mutex<TransactionDB>>> = Lazy::new(|| {
