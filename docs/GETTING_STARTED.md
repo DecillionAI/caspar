@@ -44,6 +44,8 @@ Fill at least these variables:
 | `BLOCKCHAIN_API_PORT` | chain network port |
 | `ENTITY_API_PORT` | HTTPS entity API port |
 | `VM_API_PORT` | HTTPS VM stream API port |
+| `TELEMETRY_API_PORT` | telemetry HTTP API port (default `9099`) |
+| `TELEMETRY_DB_PATH` | optional Badger path for cached telemetry snapshots |
 | `IPADDR` | chain advertise address |
 | `ROOT_NODE` | bootstrap/root origin for free-node logic |
 | `IS_HEAD` | head-node mode toggle |
@@ -73,7 +75,34 @@ CGO_ENABLED=1 go build -o kasper .
 
 ## 5) Run
 
-### Option A: Direct binary
+### Option A: Full CLI-managed Docker flow (recommended)
+
+```bash
+cd cmd/casparctl
+go install .
+
+cd ../../node
+# one-command install + dependency encapsulation in container
+casparctl install --name caspar-node
+
+# realtime TUI dashboard
+casparctl stats
+```
+
+When the repository layout is standard (`cmd/` and `node/` as siblings), `casparctl` auto-detects the node project directory. The chosen install name is saved to `.casparctl-name` in the project folder and reused by all control/dashboard commands.
+
+Lifecycle control commands:
+
+```bash
+casparctl start
+casparctl pause
+casparctl resume
+casparctl stop
+casparctl uninstall
+casparctl purge
+```
+
+### Option B: Direct binary
 
 ```bash
 cd node
@@ -85,11 +114,12 @@ When running directly, also start dependencies used by storage/runtime paths (fo
 Node process starts:
 
 - pprof server on `0.0.0.0:9999`
+- telemetry server on `0.0.0.0:${TELEMETRY_API_PORT:-9099}` (`/telemetry/snapshot`)
 - TLS TCP/WS client servers
 - federation + chain listeners
 - HTTPS entity + stream gateways
 
-### Option B: Scripted multi-node/testnet flow
+### Option C: Scripted multi-node/testnet flow
 
 - `node/scripts/prepare-testnet.sh`
 - `node/scripts/build-conf.sh`

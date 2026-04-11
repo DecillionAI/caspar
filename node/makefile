@@ -44,4 +44,10 @@ lint:
 doc:
 	GO111MODULE=off godoc -play -goroot .
 
-.PHONY: vendor install build dist test flagtest extratests alltests tests mobile-dist
+.PHONY: vendor install build dist test flagtest extratests alltests tests mobile-dist casparctl-build casparctl-install
+
+casparctl-build:
+	cd .. && go build -o node/build/casparctl ./cmd/casparctl
+
+casparctl-install:
+	cd ../cmd/casparctl && go install .

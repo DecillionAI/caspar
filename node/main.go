@@ -7,6 +7,7 @@ import (
 	"kasper/src/abstract/models/action"
 	kasper "kasper/src/shell"
 	plugger_api "kasper/src/shell/api/main"
+	"kasper/src/telemetry"
 	"log"
 	"os"
 	"os/signal"
@@ -43,6 +44,10 @@ func main() {
 	err2 := godotenv.Load()
 	if err2 != nil {
 		panic(err2)
+	}
+
+	if err := telemetry.StartFromEnv(); err != nil {
+		log.Println("telemetry server start failed: " + err.Error())
 	}
 
 	ownerId := os.Getenv("OWNER_ID")

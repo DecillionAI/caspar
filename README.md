@@ -65,6 +65,39 @@ cd ../ && CGO_ENABLED=1 go build -o kasper .
 
 Direct mode typically requires supporting services to be available (for example QuestDB and appengine).
 
+## Caspar CLI (`casparctl`) 🛠️
+
+The repository now includes a dedicated CLI for full container lifecycle control and a live terminal dashboard.
+
+Build/install it:
+
+```bash
+cd cmd/casparctl
+go install .
+```
+
+Then use it:
+
+```bash
+# One-command install (build image + run container)
+casparctl install --name caspar-node
+
+# Lifecycle controls
+casparctl pause
+casparctl resume
+casparctl stop
+
+# Realtime multi-section TUI dashboard (overview, resources, ports, mounts, logs, actions)
+casparctl stats
+
+# Cleanup
+casparctl uninstall
+casparctl purge
+```
+When `node/` exists near `cmd/`, project-dir is auto-detected. The chosen `--name` is saved to `node/.casparctl-name` and reused by all lifecycle commands (`start`, `pause`, `resume`, `stop`, `uninstall`, `purge`, `stats`).
+
+Caspar node now exposes telemetry APIs on `TELEMETRY_API_PORT` (default `9099`), including `GET /telemetry/snapshot`, and the `casparctl stats` dashboard pulls this endpoint every refresh cycle (default 2 seconds).
+
 ## Route Naming Note ⚠️
 
 Current API naming is historical and intentionally preserved:
