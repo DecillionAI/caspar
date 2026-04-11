@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"strings"
 	"unsafe"
 )
 
@@ -11,10 +12,9 @@ func hostCall(offset uint32, length uint32) uint64
 var retBuf []byte
 
 type packet struct {
-	Payload   map[string]any `json:"payload"`
-	UserID    string         `json:"userId,omitempty"`
-	StoreID   string         `json:"storeId,omitempty"`
-	MachineID string         `json:"machineId,omitempty"`
+	Payload    map[string]any `json:"payload"`
+	CreatureID string         `json:"creatureId,omitempty"`
+	StoreID    string         `json:"storeId,omitempty"`
 }
 
 func bytesAt(offset uint32, length uint32) []byte {
@@ -33,10 +33,91 @@ func hostRequest(req string) string {
 	return stringAt(retOffset, retLen)
 }
 
+var hostCreatureID string
+var hostProgramID string
+var hostEntityName string
+var hostEntityPath string
+
+func extractContextString(input map[string]any, keys ...string) string {
+	if input == nil {
+		return ""
+	}
+	for _, key := range keys {
+		if v, ok := input[key].(string); ok && v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+func setHostContext(creatureID string, payload map[string]any) {
+	hostCreatureID = creatureID
+	if hostCreatureID == "" {
+		hostCreatureID = extractContextString(payload, "creatureId", "userId")
+	}
+
+	hostProgramID = extractContextString(payload, "programId", "targetCreatureId", "machineId")
+	if hostProgramID == "" {
+		hostProgramID = hostCreatureID
+	}
+
+	hostEntityName = extractContextString(payload, "entityId", "entityName", "entity", "name")
+	hostEntityPath = extractContextString(payload, "entityPath", "astPath", "astpath", "path")
+}
+
 func hostReq(op string, input map[string]any) string {
-	req := map[string]any{"op": op, "input": input}
+	creatureID := hostCreatureID
+	programID := hostProgramID
+	entityName := hostEntityName
+	entityPath := hostEntityPath
+	if input != nil {
+		if v := extractContextString(input, "creatureId", "userId"); v != "" {
+			creatureID = v
+		}
+		if v := extractContextString(input, "programId", "targetCreatureId", "machineId"); v != "" {
+			programID = v
+		}
+		if v := extractContextString(input, "entityId", "entityName", "entity", "name"); v != "" {
+			entityName = v
+		}
+		if v := extractContextString(input, "entityPath", "astPath", "astpath", "path"); v != "" {
+			entityPath = v
+		}
+	}
+
+	if programID == "" {
+		programID = "system"
+	}
+
+	req := map[string]any{
+		"creatureId": creatureID,
+		"programId":  programID,
+		"entityId":   entityName,
+		"entityPath": entityPath,
+		"op":         op,
+		"input":      input,
+	}
 	b, _ := json.Marshal(req)
 	return hostRequest(string(b))
+}
+
+func hostResMap(raw string) map[string]any {
+	m := map[string]any{}
+	if raw == "" {
+		return m
+	}
+	_ = json.Unmarshal([]byte(raw), &m)
+	return m
+}
+
+func hostResString(raw string, keys ...string) string {
+	m := hostResMap(raw)
+	for _, k := range keys {
+		if v, _ := m[k].(string); v != "" {
+			return v
+		}
+	}
+	return strings.Trim(raw, "\"")
 }
 
 func makeReturn(s string) int32 {
@@ -49,8 +130,10 @@ func process(input string) string {
 	if input != "" {
 		_ = json.Unmarshal([]byte(input), &p)
 	}
-	if "create" == "create" || "create" == "createFromStore" || "create" == "createShard" {
-		hostReq("genId", map[string]any{"source": "chains.create"})
+	setHostContext(p.CreatureID, p.Payload)
+	targetCreatureID, _ := p.Payload["targetCreatureId"].(string)
+	if targetCreatureID == "" {
+		targetCreatureID, _ = p.Payload["machineId"].(string)
 	}
 	hostReq("putJson", map[string]any{
 		"key":   "Json::CreatureEndpoint::chains::create",
@@ -58,19 +141,35 @@ func process(input string) string {
 		"data":  p.Payload,
 		"merge": true,
 	})
-	if p.UserID != "" {
-		hostReq("dbOp", map[string]any{"op": "put", "key": "creatureEndpoint::chains::create::lastUser", "val": p.UserID})
+	packetBytes, _ := json.Marshal(map[string]any{"endpoint": "/chains/create", "payload": p.Payload})
+	signalKey := "chains/create"
+	if p.CreatureID != "" {
+		hostReq("dbOp", map[string]any{"op": "put", "key": "creatureEndpoint::chains::create::lastCreature", "val": p.CreatureID})
 	}
 	if p.StoreID != "" {
-		hostReq("signalGroup", map[string]any{"key": "creatures/signal", "groupId": p.StoreID, "packet": "{}", "system": true})
+		hostReq("signalGroup", map[string]any{"key": signalKey, "groupId": p.StoreID, "packet": string(packetBytes), "system": true})
 	}
-	if p.UserID != "" {
-		hostReq("signalUser", map[string]any{"key": "creatures/signal", "userId": p.UserID, "packet": "{}", "system": true})
+	if p.CreatureID != "" {
+		hostReq("signalUser", map[string]any{"key": signalKey, "userId": p.CreatureID, "creatureId": p.CreatureID, "packet": string(packetBytes), "system": true})
 	}
-	if p.MachineID != "" && p.StoreID != "" {
-		hostReq("hasAccessToStore", map[string]any{"machineId": p.MachineID, "storeId": p.StoreID})
+	if targetCreatureID != "" && p.StoreID != "" {
+		hostReq("hasAccessToStore", map[string]any{"machineId": targetCreatureID, "targetCreatureId": targetCreatureID, "storeId": p.StoreID})
 	}
-	out, _ := json.Marshal(map[string]any{"ok": true, "endpoint": "/chains/create"})
+	chainID, _ := p.Payload["chainId"].(string)
+	isTemp, _ := p.Payload["isTemp"].(bool)
+	if chainID == "" {
+		createRes := hostReq("createWorkChain", map[string]any{"storeId": p.StoreID, "isTemp": isTemp})
+		chainID = hostResString(createRes, "chainId", "id")
+		if chainID == "" {
+			genRes := hostReq("genId", map[string]any{"source": "chains.create.chain"})
+			chainID = hostResString(genRes, "id")
+		}
+	}
+	storeID, _ := p.Payload["storeId"].(string)
+	if storeID == "" {
+		storeID = p.StoreID
+	}
+	out, _ := json.Marshal(map[string]any{"chainId": chainID, "storeId": storeID})
 	hostReq("output", map[string]any{"text": string(out)})
 	return string(out)
 }

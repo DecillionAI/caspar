@@ -35,11 +35,13 @@ impl FireVmController {
             return Err("machineId is required".to_string());
         }
         let vm_id = packet["vmId"].as_str().unwrap_or("main").trim();
+        let vm_cache_key = if vm_id.is_empty() { "main" } else { vm_id };
         let requester_user_id = packet["requesterUserId"]
             .as_str()
             .unwrap_or("")
             .trim()
             .to_string();
+        let requester_user_id_for_cache = requester_user_id.clone();
         let stream_store_id = packet["storeId"].as_str().unwrap_or("").trim().to_string();
         let process_key = fire_process_key(machine_id, vm_id);
         let socket_path = fire_socket_path(machine_id, vm_id);
@@ -150,6 +152,11 @@ impl FireVmController {
                 stderr_thread: Some(stderr_thread),
             },
         );
+        let mut vm_ctx = GLOBAL_VM_CONTEXT.lock().unwrap();
+        vm_ctx.insert(
+            vm_cache_key.to_string(),
+            (requester_user_id_for_cache, machine_id.to_string()),
+        );
 
         Ok(json!({
             "ok": true,
@@ -166,8 +173,11 @@ impl FireVmController {
             return Err("machineId is required".to_string());
         }
         let vm_id = packet["vmId"].as_str().unwrap_or("main").trim();
+        let vm_cache_key = if vm_id.is_empty() { "main" } else { vm_id };
         let process_key = fire_process_key(machine_id, vm_id);
         self.terminate_by_key(&process_key);
+        let mut vm_ctx = GLOBAL_VM_CONTEXT.lock().unwrap();
+        vm_ctx.remove(vm_cache_key);
 
         Ok(json!({
             "ok": true,
@@ -280,9 +290,11 @@ impl FireVmController {
             }
             let _ = std::fs::remove_file(proc.socket_path);
             let _machine_id = proc.machine_id;
-            let _vm_id = proc.vm_id;
+            let vm_id = proc.vm_id;
             let _requester_user_id = proc.requester_user_id;
             let _stream_store_id = proc.stream_store_id;
+            let mut vm_ctx = GLOBAL_VM_CONTEXT.lock().unwrap();
+            vm_ctx.remove(vm_id.as_str());
         }
     }
 }

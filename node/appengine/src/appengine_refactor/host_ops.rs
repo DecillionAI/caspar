@@ -1,7 +1,102 @@
-fn run_docker_db_op(machine_id: &str, input: &JsonValue) -> Result<String, String> {
+struct HostHierarchy {
+    creature_id: String,
+    program_id: String,
+    entity_name: String,
+    entity_path: String,
+}
+
+#[derive(Default)]
+struct CachedVmHierarchy {
+    creature_id: String,
+    program_id: String,
+}
+
+fn resolve_cached_vm_hierarchy(input: &JsonValue) -> CachedVmHierarchy {
+    let vm_id = input["vmId"].as_str().unwrap_or("").trim();
+    if vm_id.is_empty() {
+        return CachedVmHierarchy::default();
+    }
+
+    let vm_ctx = GLOBAL_VM_CONTEXT.lock().unwrap();
+    if let Some((creature_id, program_id)) = vm_ctx.get(vm_id) {
+        return CachedVmHierarchy {
+            creature_id: creature_id.clone(),
+            program_id: program_id.clone(),
+        };
+    }
+    CachedVmHierarchy::default()
+}
+
+fn value_from_packet_or_input<'a>(
+    packet: &'a JsonValue,
+    input: &'a JsonValue,
+    key: &str,
+) -> &'a str {
+    packet[key]
+        .as_str()
+        .filter(|v| !v.is_empty())
+        .or_else(|| input[key].as_str().filter(|v| !v.is_empty()))
+        .unwrap_or("")
+}
+
+fn resolve_host_hierarchy(packet: &JsonValue, input: &JsonValue) -> HostHierarchy {
+    let cached = resolve_cached_vm_hierarchy(input);
+
+    let creature_from_req = value_from_packet_or_input(packet, input, "creatureId");
+    let creature_id_owned = if !cached.creature_id.is_empty() {
+        cached.creature_id
+    } else {
+        creature_from_req.to_string()
+    };
+
+    let program_from_req = value_from_packet_or_input(packet, input, "programId");
+    let program_id_owned = if !cached.program_id.is_empty() {
+        cached.program_id
+    } else {
+        program_from_req.to_string()
+    };
+
+    let entity_name = value_from_packet_or_input(packet, input, "entityName").to_string();
+    let entity_path = packet["entityPath"]
+        .as_str()
+        .filter(|v| !v.is_empty())
+        .or_else(|| packet["astPath"].as_str().filter(|v| !v.is_empty()))
+        .or_else(|| input["entityPath"].as_str().filter(|v| !v.is_empty()))
+        .or_else(|| input["astPath"].as_str().filter(|v| !v.is_empty()))
+        .or_else(|| input["astpath"].as_str().filter(|v| !v.is_empty()))
+        .unwrap_or("")
+        .to_string();
+    HostHierarchy {
+        creature_id: creature_id_owned,
+        program_id: program_id_owned,
+        entity_name,
+        entity_path,
+    }
+}
+
+fn run_docker_db_op(ctx: &HostHierarchy, input: &JsonValue) -> Result<String, String> {
     let op = input["op"].as_str().unwrap_or("");
     let key = input["key"].as_str().unwrap_or("");
-    let namespaced_key = format!("{}::{}", machine_id, key);
+    let db_prefix = if !ctx.creature_id.is_empty() && !ctx.program_id.is_empty() {
+        if !ctx.entity_name.is_empty() && !ctx.entity_path.is_empty() {
+            format!(
+                "{}::{}::{}::{}",
+                ctx.creature_id, ctx.program_id, ctx.entity_name, ctx.entity_path
+            )
+        } else if !ctx.entity_name.is_empty() {
+            format!(
+                "{}::{}::{}",
+                ctx.creature_id, ctx.program_id, ctx.entity_name
+            )
+        } else {
+            format!("{}::{}", ctx.creature_id, ctx.program_id)
+        }
+    } else if !ctx.program_id.is_empty() {
+        ctx.program_id.to_string()
+    } else {
+        ctx.creature_id.to_string()
+    };
+    let namespaced_key = format!("{}::{}", db_prefix, key);
     let db = GLOBAL_DB.lock().unwrap();
     match op {
         "put" => {
@@ -28,7 +123,7 @@ fn run_docker_db_op(machine_id: &str, input: &JsonValue) -> Result<String, Strin
         }
         "getByPrefix" => {
             let prefix = input["prefix"].as_str().unwrap_or("");
-            let namespaced_prefix = format!("{}::{}", machine_id, prefix);
+            let namespaced_prefix = format!("{}::{}", db_prefix, prefix);
             let mut vals = Vec::<String>::new();
             for item in db.prefix_iterator(namespaced_prefix.as_bytes()) {
                 let (_, val) = item.map_err(|e| format!("db prefix iteration failed: {}", e))?;
@@ -46,11 +141,7 @@ fn perform_http_request(input: &JsonValue) -> Result<String, String> {
         return Err("url is required".to_string());
     }
 
-    let mut method = input["method"]
-        .as_str()
-        .unwrap_or("")
-        .trim()
-        .to_uppercase();
+    let mut method = input["method"].as_str().unwrap_or("").trim().to_uppercase();
     if method.is_empty() {
         if let Some((prefixed_method, rest_url)) = url.split_once('|') {
             method = prefixed_method.trim().to_uppercase();
@@ -112,21 +203,45 @@ fn perform_http_request(input: &JsonValue) -> Result<String, String> {
 }
 
 fn handle_unified_host_call(packet: &JsonValue) -> String {
-    let machine_id = packet["machineId"].as_str().unwrap_or("");
     let op = packet["op"]
         .as_str()
         .or_else(|| packet["key"].as_str())
         .unwrap_or("");
-    let input = if packet["input"].is_null() {
+    let mut input = if packet["input"].is_null() {
         JsonValue::Null
     } else {
         packet["input"].clone()
     };
-    if machine_id.is_empty() {
-        return json!({"ok": false, "error": "machineId is required"}).to_string();
+    let ctx = resolve_host_hierarchy(packet, &input);
+    if ctx.program_id.is_empty() {
+        return json!({"ok": false, "error": "programId is required"}).to_string();
+    }
+    if let Some(input_obj) = input.as_object_mut() {
+        if input_obj
+            .get("programId")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .is_empty()
+        {
+            input_obj.insert(
+                "programId".to_string(),
+                JsonValue::String(ctx.program_id.clone()),
+            );
+        }
+        if input_obj
+            .get("machineId")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .is_empty()
+        {
+            input_obj.insert(
+                "machineId".to_string(),
+                JsonValue::String(ctx.program_id.clone()),
+            );
+        }
     }
     match op {
-        "dbOp" => match run_docker_db_op(machine_id, &input) {
+        "dbOp" => match run_docker_db_op(&ctx, &input) {
             Ok(res) => res,
             Err(err) => json!({"ok": false, "error": err}).to_string(),
         },

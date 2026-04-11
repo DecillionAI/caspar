@@ -26,7 +26,17 @@ impl DockerVmController {
         if machine_id.is_empty() {
             return Err("machineId is required".to_string());
         }
+        let creature_id = packet["creatureId"]
+            .as_str()
+            .or_else(|| packet["userId"].as_str())
+            .unwrap_or("")
+            .to_string();
         let (image_name, container_name, _standalone, vm_id) = extract_docker_identity(packet);
+        let vm_cache_key = if vm_id.is_empty() {
+            "main".to_string()
+        } else {
+            vm_id.clone()
+        };
         let container_id = docker_container_id(machine_id, &image_name, &container_name, &vm_id);
         let image_ref = packet["imageRef"]
             .as_str()
@@ -71,9 +81,12 @@ impl DockerVmController {
             self.docker
                 .start_container::<String>(&container_id, None::<StartContainerOptions<String>>),
         )?;
+        let mut vm_ctx = GLOBAL_VM_CONTEXT.lock().unwrap();
+        vm_ctx.insert(vm_cache_key.clone(), (creature_id, machine_id.to_string()));
         Ok(json!({
             "ok": true,
             "machineId": machine_id,
+            "vmId": vm_cache_key,
             "containerId": container_id,
             "runtime": "docker"
         }))
@@ -90,8 +103,15 @@ impl DockerVmController {
             .unwrap_or("main")
             .to_string();
         let vm_id = packet["vmId"].as_str().unwrap_or("").to_string();
+        let vm_cache_key = if vm_id.is_empty() {
+            "main".to_string()
+        } else {
+            vm_id.clone()
+        };
         let container_id = docker_container_id(machine_id, &image_name, &container_name, &vm_id);
         self.stop_and_remove_if_exists(&container_id)?;
+        let mut vm_ctx = GLOBAL_VM_CONTEXT.lock().unwrap();
+        vm_ctx.remove(vm_cache_key.as_str());
         Ok(json!({
             "ok": true,
             "machineId": machine_id,
@@ -356,4 +376,3 @@ fn build_context_from_path(path: &str) -> Result<Vec<u8>, String> {
     }
     Ok(buf)
 }
-

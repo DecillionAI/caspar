@@ -11,10 +11,10 @@ func hostCall(offset uint32, length uint32) uint64
 var retBuf []byte
 
 type packet struct {
-	Path    string         `json:"path"`
-	Payload map[string]any `json:"payload"`
-	UserID  string         `json:"userId,omitempty"`
-	StoreID string         `json:"storeId,omitempty"`
+	Path       string         `json:"path"`
+	Payload    map[string]any `json:"payload"`
+	CreatureID string         `json:"creatureId,omitempty"`
+	StoreID    string         `json:"storeId,omitempty"`
 }
 
 func bytesAt(offset uint32, length uint32) []byte {
@@ -33,8 +33,70 @@ func hostRequest(req string) string {
 	return stringAt(retOffset, retLen)
 }
 
+var hostCreatureID string
+var hostProgramID string
+var hostEntityName string
+var hostEntityPath string
+
+func extractContextString(input map[string]any, keys ...string) string {
+	if input == nil {
+		return ""
+	}
+	for _, key := range keys {
+		if v, ok := input[key].(string); ok && v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+func setHostContext(creatureID string, payload map[string]any) {
+	hostCreatureID = creatureID
+	if hostCreatureID == "" {
+		hostCreatureID = extractContextString(payload, "creatureId", "userId")
+	}
+
+	hostProgramID = extractContextString(payload, "programId", "targetCreatureId", "machineId")
+	if hostProgramID == "" {
+		hostProgramID = hostCreatureID
+	}
+
+	hostEntityName = extractContextString(payload, "entityId", "entityName", "entity", "name")
+	hostEntityPath = extractContextString(payload, "entityPath", "astPath", "astpath", "path")
+}
+
 func hostReq(op string, input map[string]any) string {
-	req := map[string]any{"op": op, "input": input}
+	creatureID := hostCreatureID
+	programID := hostProgramID
+	entityName := hostEntityName
+	entityPath := hostEntityPath
+	if input != nil {
+		if v := extractContextString(input, "creatureId", "userId"); v != "" {
+			creatureID = v
+		}
+		if v := extractContextString(input, "programId", "targetCreatureId", "machineId"); v != "" {
+			programID = v
+		}
+		if v := extractContextString(input, "entityId", "entityName", "entity", "name"); v != "" {
+			entityName = v
+		}
+		if v := extractContextString(input, "entityPath", "astPath", "astpath", "path"); v != "" {
+			entityPath = v
+		}
+	}
+
+	if programID == "" {
+		programID = "system"
+	}
+
+	req := map[string]any{
+		"creatureId": creatureID,
+		"programId":  programID,
+		"entityId":   entityName,
+		"entityPath": entityPath,
+		"op":         op,
+		"input":      input,
+	}
 	b, _ := json.Marshal(req)
 	return hostRequest(string(b))
 }
@@ -49,6 +111,7 @@ func process(input string) string {
 	if input != "" {
 		_ = json.Unmarshal([]byte(input), &p)
 	}
+	setHostContext(p.CreatureID, p.Payload)
 	hostReq("putJson", map[string]any{"key": "Json::CreatureNamespace::chain", "path": "lastInput", "data": p.Payload, "merge": true})
 	if p.Path != "" {
 		hostReq("dbOp", map[string]any{"op": "put", "key": "creatureNamespace::chain::lastPath", "val": p.Path})
