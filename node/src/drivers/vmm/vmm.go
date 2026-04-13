@@ -138,12 +138,14 @@ func (wm *Vmm) TerminateVm(machineId string) {
 	wm.aeSocket <- string(str)
 }
 
-func (wm *Vmm) BuildVmImage(machineId string, imageName string, dockerfilePath string) {
+func (wm *Vmm) BuildVmImage(machineId string, entityId string, buildPath string, buildType string) {
 	str, _ := json.Marshal(map[string]any{
 		"type":           "buildVmImage",
+		"runtime":        buildType,
 		"machineId":      machineId,
-		"imageName":      imageName,
-		"dockerfilePath": dockerfilePath,
+		"entityId":       entityId,
+		"imageBuildPath": buildPath,
+		"buildType":      buildType,
 	})
 	wm.aeSocket <- string(str)
 }
@@ -392,13 +394,16 @@ func (wm *Vmm) handleTerminateVM(input map[string]any, reqId int64) (string, int
 	if targetRuntime == "docker" {
 		vmId, _ := checkField(input, "vmId", "")
 		if vmId != "" {
-			imageName, _ := checkField(input, "imageName", "main")
+			entityId, _ := checkField(input, "entityId", "")
+			if entityId == "" {
+				entityId, _ = checkField(input, "imageName", "main")
+			}
 			containerName, _ := checkField(input, "containerName", "main")
 			str, _ := json.Marshal(map[string]any{
 				"type":          "terminateVm",
 				"runtime":       "docker",
 				"machineId":     targetMachineId,
-				"imageName":     imageName,
+				"entityId":      entityId,
 				"containerName": containerName,
 				"vmId":          vmId,
 			})

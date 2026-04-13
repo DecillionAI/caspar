@@ -6,7 +6,7 @@ type IVmm interface {
 	Assign(machineId string)
 	RunVm(machineId string, storeId string, data string)
 	TerminateVm(machineId string)
-	BuildVmImage(machineId string, imageName string, dockerfilePath string)
+	BuildVmImage(machineId string, entityId string, buildPath string, buildType string)
 	ExecuteChainTrxsGroup(trxs []*worker.Trx)
 	ExecuteChainEffects(effects string)
 	CloseKVDB()

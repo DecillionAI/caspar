@@ -46,7 +46,7 @@ func isSupportedEntityType(entityType string) bool {
 func entityRuntimeFileName(entityType string) string {
 	switch normalizeEntityType(entityType) {
 	case "elpify":
-		return "module.masm"
+		return "module.elpify.js"
 	case "javascript":
 		return "module.js"
 	case "elpian":
@@ -267,7 +267,7 @@ func (a *Actions) terminateStandaloneVm(machineId string, entityId string, vmId 
 			"vmId":      vmId,
 		}
 		if entityType == "docker" {
-			stopInput["imageName"] = entity.ImageName
+			stopInput["entityId"] = entity.EntityId
 			stopInput["containerName"] = tx.GetLink("VmContainerName::" + machineId + "::" + entityId + "::" + vmId)
 		}
 		msg, _ := json.Marshal(map[string]any{
@@ -422,7 +422,7 @@ func (a *Actions) RunProgramEntity(state state.IState, input inputs_machiner.Run
 	}
 	trx.PutLink("VmInstance::"+program.MachineId+"::"+input.EntityId+"::"+vmId, "true")
 	if entityType == "docker" {
-		imageName := model.Entity{ProgramId: program.MachineId, EntityId: input.EntityId}.Pull(trx).ImageName
+		entityImageId := input.EntityId
 		containerName := uuid.NewString()
 		trx.PutLink("VmContainerName::"+program.MachineId+"::"+input.EntityId+"::"+vmId, containerName)
 		future.Async(func() {
@@ -432,11 +432,10 @@ func (a *Actions) RunProgramEntity(state state.IState, input inputs_machiner.Run
 					"runtime":       entityType,
 					"machineId":     input.MachineId,
 					"entityId":      input.EntityId,
-					"imageName":     imageName,
 					"containerName": containerName,
 					"standalone":    true,
 					"vmId":          vmId,
-					"imageRef":      strings.ReplaceAll(input.MachineId, "@", "_") + "/" + entity.ImageName,
+					"imageRef":      strings.ReplaceAll(input.MachineId, "@", "_") + "/" + entityImageId,
 					"inputFiles":    params,
 				},
 			})
@@ -490,7 +489,7 @@ func (a *Actions) StopProgramEntity(state state.IState, input inputs_machiner.Ru
 	trx.DelKey("link::VmInstance::" + program.MachineId + "::" + input.EntityId + "::" + vmId)
 	trx.DelKey("link::VmBilling::" + vmId)
 	trx.DelJson("Json::VmBilling::"+vmId, "payment")
-	imageName := entity.ImageName
+	entityImageId := entity.EntityId
 	containerName := trx.GetLink("VmContainerName::" + program.MachineId + "::" + input.EntityId + "::" + vmId)
 	trx.DelKey("link::vmStandaloneImageName::" + program.MachineId + "::" + input.EntityId)
 	trx.DelKey("link::vmStandaloneContainerName::" + program.MachineId + "::" + input.EntityId)
@@ -501,10 +500,10 @@ func (a *Actions) StopProgramEntity(state state.IState, input inputs_machiner.Ru
 		"vmId":      vmId,
 	}
 	if entityType == "docker" {
-		if imageName == "" || containerName == "" {
+		if entityImageId == "" || containerName == "" {
 			return nil, errors.New("entity runtime links are not found")
 		}
-		stopInput["imageName"] = imageName
+		stopInput["entityId"] = entityImageId
 		stopInput["containerName"] = containerName
 	}
 	msg, _ := json.Marshal(map[string]any{
@@ -549,8 +548,9 @@ func (a *Actions) Deploy(state state.IState, input inputs_machiner.DeployInput) 
 	if machine.OwnerId != state.Info().UserId() {
 		return nil, errors.New("access to vm denied")
 	}
-	if !isSupportedEntityType(input.EntityType) {
-		return nil, errors.New("invalid entityType, expected one of docker|wasm|elpify|javascript|elpian")
+	entityType := normalizeEntityType(input.EntityType)
+	if !isSupportedEntityType(entityType) {
+		return nil, errors.New("invalid entityType, expected one of docker|wasm|elpify|javascript|elpian|fire")
 	}
 	data, err := base64.StdEncoding.DecodeString(input.Payload)
 	if err != nil {
@@ -559,13 +559,11 @@ func (a *Actions) Deploy(state state.IState, input inputs_machiner.DeployInput) 
 	entityModel := model.Entity{
 		ProgramId:  program.MachineId,
 		EntityId:   input.EntityId,
-		EntityType: input.EntityType,
-		ImageName:  "",
+		EntityType: entityType,
+		ImageName:  input.EntityId,
 	}
 	vmId := uuid.NewString()
-	if input.EntityType == "docker" {
-		imageName := uuid.NewString()
-		entityModel.ImageName = imageName
+	if entityType == "docker" || entityType == "wasm" {
 		files := map[string]any{}
 		if input.Metadata != nil {
 			filesRaw, ok := input.Metadata["files"]
@@ -577,8 +575,12 @@ func (a *Actions) Deploy(state state.IState, input inputs_machiner.DeployInput) 
 				files = filesCast
 			}
 		}
-		dockerfileFolderPath := fmt.Sprintf("%s%s%s/entities/%s", a.App.Tools().Storage().StorageRoot(), pluginsTemplateName, program.MachineId, input.EntityId)
-		err2 := a.App.Tools().File().SaveDataToGlobalStorage(dockerfileFolderPath, data, "Dockerfile", true)
+		buildFolderPath := fmt.Sprintf("%s%s%s/entities/%s", a.App.Tools().Storage().StorageRoot(), pluginsTemplateName, program.MachineId, input.EntityId)
+		buildFileName := "Dockerfile"
+		if entityType == "wasm" {
+			buildFileName = "build.sh"
+		}
+		err2 := a.App.Tools().File().SaveDataToGlobalStorage(buildFolderPath, data, buildFileName, true)
 		if err2 != nil {
 			return nil, err2
 		}
@@ -593,7 +595,7 @@ func (a *Actions) Deploy(state state.IState, input inputs_machiner.DeployInput) 
 			if err != nil {
 				return nil, err
 			}
-			err2 := a.App.Tools().File().SaveDataToGlobalStorage(dockerfileFolderPath, data, k, true)
+			err2 := a.App.Tools().File().SaveDataToGlobalStorage(buildFolderPath, data, k, true)
 			if err2 != nil {
 				return nil, err2
 			}
@@ -601,19 +603,26 @@ func (a *Actions) Deploy(state state.IState, input inputs_machiner.DeployInput) 
 		buildId := uuid.NewString()
 		trx.PutLink("VmBuilds::"+vmId+"::"+buildId, "true")
 		future.Async(func() {
-			a.App.Tools().Vmm().BuildVmImage(program.MachineId, imageName, dockerfileFolderPath)
+			a.App.Tools().Vmm().BuildVmImage(program.MachineId, input.EntityId, buildFolderPath, entityType)
 		}, false)
 	} else {
-		fileName := entityRuntimeFileName(input.EntityType)
+		fileName := entityRuntimeFileName(entityType)
 		entityFolderPath := fmt.Sprintf("%s%s%s/entities/%s", a.App.Tools().Storage().StorageRoot(), pluginsTemplateName, program.MachineId, input.EntityId)
 		err2 := a.App.Tools().File().SaveDataToGlobalStorage(entityFolderPath, data, fileName, true)
 		if err2 != nil {
 			return nil, err2
 		}
+		if entityType == "elpify" {
+			buildId := uuid.NewString()
+			trx.PutLink("VmBuilds::"+vmId+"::"+buildId, "true")
+			future.Async(func() {
+				a.App.Tools().Vmm().BuildVmImage(program.MachineId, input.EntityId, entityFolderPath, entityType)
+			}, false)
+		}
 		program.Push(trx)
 		a.App.Tools().Vmm().Assign(program.MachineId)
 	}
-	entityModel.EntityType = input.EntityType
+	entityModel.EntityType = entityType
 	entityModel.Push(trx)
 	return outputs_machiner.PlugInput{}, nil
 }
