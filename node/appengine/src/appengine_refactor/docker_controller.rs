@@ -31,17 +31,17 @@ impl DockerVmController {
             .or_else(|| packet["userId"].as_str())
             .unwrap_or("")
             .to_string();
-        let (image_name, container_name, _standalone, vm_id) = extract_docker_identity(packet);
+        let (entity_id, container_name, _standalone, vm_id) = extract_docker_identity(packet);
         let vm_cache_key = if vm_id.is_empty() {
             "main".to_string()
         } else {
             vm_id.clone()
         };
-        let container_id = docker_container_id(machine_id, &image_name, &container_name, &vm_id);
+        let container_id = docker_container_id(machine_id, &entity_id, &container_name, &vm_id);
         let image_ref = packet["imageRef"]
             .as_str()
             .map(|s| s.to_string())
-            .unwrap_or_else(|| docker_image_ref(machine_id, &image_name));
+            .unwrap_or_else(|| docker_image_ref(machine_id, &entity_id));
 
         self.stop_and_remove_if_exists(&container_id)?;
 
@@ -84,8 +84,8 @@ impl DockerVmController {
         let mut vm_ctx = GLOBAL_VM_CONTEXT.lock().unwrap();
         vm_ctx.insert(vm_cache_key.clone(), (creature_id, machine_id.to_string()));
         Ok(json!({
-            "ok": true,
-            "machineId": machine_id,
+        "ok": true,
+        "machineId": machine_id,
             "vmId": vm_cache_key,
             "containerId": container_id,
             "runtime": "docker"
@@ -97,7 +97,11 @@ impl DockerVmController {
         if machine_id.is_empty() {
             return Err("machineId is required".to_string());
         }
-        let image_name = packet["imageName"].as_str().unwrap_or("main").to_string();
+        let entity_id = packet["entityId"]
+            .as_str()
+            .or_else(|| packet["imageName"].as_str())
+            .unwrap_or("main")
+            .to_string();
         let container_name = packet["containerName"]
             .as_str()
             .unwrap_or("main")
@@ -108,7 +112,7 @@ impl DockerVmController {
         } else {
             vm_id.clone()
         };
-        let container_id = docker_container_id(machine_id, &image_name, &container_name, &vm_id);
+        let container_id = docker_container_id(machine_id, &entity_id, &container_name, &vm_id);
         self.stop_and_remove_if_exists(&container_id)?;
         let mut vm_ctx = GLOBAL_VM_CONTEXT.lock().unwrap();
         vm_ctx.remove(vm_cache_key.as_str());
@@ -122,7 +126,7 @@ impl DockerVmController {
 
     fn exec_vm(&self, packet: &JsonValue) -> Result<JsonValue, String> {
         let machine_id = packet["machineId"].as_str().unwrap_or("");
-        let (image_name, container_name, _standalone, vm_id) = extract_docker_identity(packet);
+        let (entity_id, container_name, _standalone, vm_id) = extract_docker_identity(packet);
         let command = packet["command"].as_str().unwrap_or("");
         if machine_id.is_empty() {
             return Err("machineId is required".to_string());
@@ -130,7 +134,7 @@ impl DockerVmController {
         if command.is_empty() {
             return Err("command is required".to_string());
         }
-        let container_id = docker_container_id(machine_id, &image_name, &container_name, &vm_id);
+        let container_id = docker_container_id(machine_id, &entity_id, &container_name, &vm_id);
         let create_res = self.with_async(self.docker.create_exec(
             &container_id,
             CreateExecOptions {
@@ -179,7 +183,7 @@ impl DockerVmController {
 
     fn copy_to_vm(&self, packet: &JsonValue) -> Result<JsonValue, String> {
         let machine_id = packet["machineId"].as_str().unwrap_or("");
-        let (image_name, container_name, _standalone, vm_id) = extract_docker_identity(packet);
+        let (entity_id, container_name, _standalone, vm_id) = extract_docker_identity(packet);
         let file_name = packet["fileName"].as_str().unwrap_or("");
         let content = packet["content"].as_str().unwrap_or("");
         let target_path = packet["targetPath"].as_str().unwrap_or("/app/input");
@@ -189,7 +193,7 @@ impl DockerVmController {
         if file_name.is_empty() {
             return Err("fileName is required".to_string());
         }
-        let container_id = docker_container_id(machine_id, &image_name, &container_name, &vm_id);
+        let container_id = docker_container_id(machine_id, &entity_id, &container_name, &vm_id);
         let mut files = HashMap::new();
         files.insert(file_name.to_string(), content.as_bytes().to_vec());
         self.upload_files(&container_id, target_path, &files)?;
@@ -245,19 +249,69 @@ impl DockerVmController {
         if machine_id.is_empty() {
             return Err("machineId is required".to_string());
         }
-        let image_name = packet["imageName"].as_str().unwrap_or("main").to_string();
-        let dockerfile_path = packet["dockerfilePath"]
+        let build_type = packet["buildType"]
             .as_str()
+            .or_else(|| packet["runtime"].as_str())
+            .unwrap_or("docker")
+            .to_lowercase();
+        let entity_id = packet["entityId"]
+            .as_str()
+            .or_else(|| packet["imageName"].as_str())
+            .unwrap_or("main")
+            .to_string();
+        let image_build_path = packet["imageBuildPath"]
+            .as_str()
+            .or_else(|| packet["dockerfilePath"].as_str())
             .or_else(|| packet["path"].as_str())
             .unwrap_or("");
-        if dockerfile_path.is_empty() {
-            return Err("dockerfilePath is required".to_string());
+        if image_build_path.is_empty() {
+            return Err("build path is required".to_string());
         }
+
+        if build_type == "wasm" {
+            let script_path = resolve_script_path(image_build_path, "build.sh")?;
+            run_local_build_script(&script_path)?;
+            return Ok(json!({
+                "ok": true,
+                "machineId": machine_id,
+                "scriptPath": script_path,
+                "runtime": "wasm"
+            }));
+        }
+
+        if build_type == "elpify" {
+            let source_path = resolve_script_path(image_build_path, "module.elpify.js")?;
+            let source = std::fs::read_to_string(&source_path)
+                .map_err(|e| format!("failed to read elpify source {}: {}", source_path, e))?;
+            let masm = transpile_js_to_masm(&source)
+                .map_err(|e| format!("failed to transpile elpify source: {}", e))?;
+            let masm_path = if source_path.ends_with(".elpify.js") {
+                source_path.replace(".elpify.js", ".masm")
+            } else {
+                let source_ref = Path::new(&source_path);
+                source_ref
+                    .parent()
+                    .unwrap_or_else(|| Path::new("."))
+                    .join("module.masm")
+                    .to_string_lossy()
+                    .to_string()
+            };
+            std::fs::write(&masm_path, masm.as_bytes())
+                .map_err(|e| format!("failed to write MASM output {}: {}", masm_path, e))?;
+            return Ok(json!({
+                "ok": true,
+                "machineId": machine_id,
+                "sourcePath": source_path,
+                "masmPath": masm_path,
+                "runtime": "elpify"
+            }));
+        }
+
         let image_ref = packet["imageRef"]
             .as_str()
             .map(|s| s.to_string())
-            .unwrap_or_else(|| docker_image_ref(machine_id, &image_name));
-        let context = build_context_from_path(dockerfile_path)?;
+            .unwrap_or_else(|| docker_image_ref(machine_id, &entity_id));
+        let context = build_context_from_path(image_build_path)?;
         let options = BuildImageOptions {
             dockerfile: "Dockerfile".to_string(),
             t: image_ref.clone(),
@@ -283,14 +337,15 @@ impl DockerVmController {
         Ok(json!({
             "ok": true,
             "machineId": machine_id,
-            "imageRef": image_ref
+            "imageRef": image_ref,
+            "runtime": "docker"
         }))
     }
 }
 
 fn docker_container_id(
     machine_id: &str,
-    image_name: &str,
+    entity_id: &str,
     container_name: &str,
     vm_id: &str,
 ) -> String {
@@ -300,25 +355,29 @@ fn docker_container_id(
     format!(
         "{}_{}_{}",
         machine_id.replace('@', "_"),
-        image_name,
+        entity_id,
         container_name
     )
 }
 
-fn docker_image_ref(machine_id: &str, image_name: &str) -> String {
-    format!("{}/{}", machine_id.replace('@', "_"), image_name)
+fn docker_image_ref(machine_id: &str, entity_id: &str) -> String {
+    format!("{}/{}", machine_id.replace('@', "_"), entity_id)
 }
 
 fn extract_docker_identity(packet: &JsonValue) -> (String, String, bool, String) {
     let standalone = packet["standalone"].as_bool().unwrap_or(false)
         || packet["isStandalone"].as_bool().unwrap_or(false);
-    let image_name = packet["imageName"].as_str().unwrap_or("main").to_string();
+    let entity_id = packet["entityId"]
+        .as_str()
+        .or_else(|| packet["imageName"].as_str())
+        .unwrap_or("main")
+        .to_string();
     let container_name = packet["containerName"]
         .as_str()
         .unwrap_or("main")
         .to_string();
     let vm_id = packet["vmId"].as_str().unwrap_or("").to_string();
-    (image_name, container_name, standalone, vm_id)
+    (entity_id, container_name, standalone, vm_id)
 }
 
 fn build_tar(files: &HashMap<String, Vec<u8>>) -> Result<Vec<u8>, String> {
@@ -375,4 +434,49 @@ fn build_context_from_path(path: &str) -> Result<Vec<u8>, String> {
         tar.finish().map_err(|e| e.to_string())?;
     }
     Ok(buf)
+}
+
+fn resolve_script_path(path: &str, default_script_name: &str) -> Result<String, String> {
+    let path_ref = Path::new(path);
+    if !path_ref.exists() {
+        return Err(format!("build path does not exist: {}", path));
+    }
+    if path_ref.is_file() {
+        return Ok(path.to_string());
+    }
+    let script_path = path_ref.join(default_script_name);
+    if !script_path.exists() {
+        return Err(format!(
+            "required build script not found at {}",
+            script_path.to_string_lossy()
+        ));
+    }
+    Ok(script_path.to_string_lossy().to_string())
+}
+
+fn run_local_build_script(script_path: &str) -> Result<(), String> {
+    let script_ref = Path::new(script_path);
+    let script_name = script_ref
+        .file_name()
+        .ok_or_else(|| format!("invalid build script path: {}", script_path))?
+        .to_string_lossy()
+        .to_string();
+    let cwd = script_ref
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .to_path_buf();
+    let output = Command::new("bash")
+        .arg(script_name)
+        .current_dir(cwd)
+        .output()
+        .map_err(|e| format!("failed to execute wasm build script {}: {}", script_path, e))?;
+    if output.status.success() {
+        return Ok(());
+    }
+    Err(format!(
+        "wasm build script failed (status={}): {}{}",
+        output.status,
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    ))
 }

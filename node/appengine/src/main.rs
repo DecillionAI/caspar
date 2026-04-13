@@ -12,8 +12,8 @@ use bollard::models::HostConfig;
 use bollard::Docker;
 use elpian_vm::api as elpian_api;
 use elpify_lang::{
-    execute_masm_file_with_proof, stack_outputs_from_ints, verify_execution, ExecutionEngine,
-    TaskInput,
+    execute_masm_file_with_proof, stack_outputs_from_ints, transpile_js_to_masm, verify_execution,
+    ExecutionEngine, TaskInput,
 };
 use futures_util::stream::TryStreamExt;
 use once_cell::sync::Lazy;
@@ -27,7 +27,7 @@ use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::io::Cursor;
 use std::ops::DerefMut;
 use std::path::Path;
-use std::process::Child;
+use std::process::{Child, Command};
 use std::str;
 use std::sync::atomic::AtomicI32;
 use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
