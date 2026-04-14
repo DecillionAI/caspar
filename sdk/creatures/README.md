@@ -1,8 +1,10 @@
 # VM Creatures (WASM Go Projects) 🧬
 
-> Updated: **2026-04-10**
+> Updated: **2026-04-14**
 
-This folder contains deployable WASM creature projects for namespaces previously served directly by shell API:
+`creatures` are deployable wasm-go projects that mirror action namespaces and execute through host operations.
+
+## Namespaces
 
 - `stores`
 - `invites`
@@ -10,17 +12,7 @@ This folder contains deployable WASM creature projects for namespaces previously
 - `pc`
 - `chain`
 
-Each module runs inside VM and uses imported host functions for host/system effects.
-
-## Migration Model
-
-- Each creature reads `/input.json` with `{ path, payload, userId, storeId }`.
-- The creature validates the requested endpoint path against its namespace allow-list.
-- The creature calls host op `execShellAction`, which runs the same secure action parser/algorithm on host.
-
-This keeps execution inside VM creatures while ensuring all mutations flow through secure host functions.
-
-## Endpoint Layout
+## Endpoint folders
 
 - `endpoints/stores/*`
 - `endpoints/invites/*`
@@ -28,4 +20,14 @@ This keeps execution inside VM creatures while ensuring all mutations flow throu
 - `endpoints/pc/*`
 - `endpoints/chains/*`
 
-Each endpoint project is a standalone wasm-go module and reimplements endpoint behavior via host functions (state/json/link updates, security checks, signaling, and related operations).
+## Execution model
+
+1. Read `/input.json` (`path`, `payload`, `userId`, `storeId`)
+2. Validate route against namespace allow-list
+3. Call host `execShellAction`
+4. Return result/update packets
+
+## Recent updates 📌
+
+- Creatures are now organized under SDK and aligned with active shell route namespaces.
+- Endpoint modules have been kept in sync with host-op naming updates and runtime behavior.

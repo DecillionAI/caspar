@@ -1,197 +1,86 @@
 # API Reference 📡
 
-> Updated: **2026-04-10**
+> Updated: **2026-04-14**
 
-Caspar exposes three interfaces:
+Caspar exposes:
 
-1. **Signed binary action protocol** over TLS TCP and TLS WebSocket
-2. **HTTPS entity/stream gateways** for file/entity transfer
-3. **Hashgraph service HTTP API** for network and chain observability
+1. Signed binary action protocol (TLS TCP + TLS WS)
+2. HTTPS entity/stream endpoints
+3. Hashgraph service HTTP endpoints
+4. Telemetry snapshot HTTP endpoint
 
-All route names below are aligned with current action declarations in `node/src/shell/api/actions/*`.
+## 1) Binary Action Protocol
 
-## 1) Action Protocol (TCP + WS)
-
-### TCP Frame Format
+### TCP framing
 
 ```text
 [4 bytes body_len (big-endian)]
 [body]
 ```
 
-`body` format:
+`body` layout:
 
 ```text
-[4 bytes signature_len]
-[signature bytes]
-[4 bytes user_id_len]
-[user_id bytes]
-[4 bytes path_len]
-[path bytes]               # e.g. /stores/signal
-[4 bytes request_id_len]
-[request_id bytes]
-[payload bytes]            # JSON action input
+[4 bytes signature_len][signature]
+[4 bytes user_id_len][user_id]
+[4 bytes path_len][path]
+[4 bytes request_id_len][request_id]
+[payload_json]
 ```
 
-### WS Behavior
+### Frame bytes
 
-WS uses the same packet body semantics as TCP request packets and shares the same action processing pipeline.
+- ACK: `0x01`
+- Response frame starts with: `0x02`
+- Update/signal frame starts with: `0x01`
 
-### ACK Byte
+### Status codes
 
-```text
-0x01
-```
+- `0` success
+- `1` action not found
+- `2` parse/validation error
+- `3` execution error
+- `4` auth/authorization failure
 
-### Server Response Frame
-
-```text
-0x02
-[4 bytes request_id_len]
-[request_id]
-[4 bytes status_code]
-[json response bytes]
-```
-
-### Server Update Frame
-
-```text
-0x01
-...update payload...
-```
-
-## 2) Status Codes
-
-| Code | Meaning |
-|---|---|
-| `0` | success |
-| `1` | action not found |
-| `2` | input parse/validation error |
-| `3` | action execution error |
-| `4` | authentication/authorization failure |
-
-## 3) Authentication Commands
-
-Special command paths handled by the network layer:
-
-- `authenticate`
-- `logout`
-
-After successful `authenticate`, queued user signals can be replayed.
-
-## 4) Action Routes (Current)
-
-> Methods/routes listed from current action comments and plugger wiring.
+## 2) Route Groups
 
 ### Auth
-
 - `GET /auths/getServerPublicKey`
 - `GET /auths/getServersMap`
 
 ### Users
-
-- `POST /users/authenticate`
-- `POST /users/transfer`
-- `POST /users/mint`
-- `POST /users/checkSign`
-- `POST /users/lockToken`
-- `POST /users/consumeLock`
-- `POST /users/login`
-- `POST /users/create`
-- `POST /users/delete`
-- `POST /users/update`
-- `GET /users/meta`
-- `GET /users/get`
-- `GET /users/getByUsername`
-- `GET /users/find`
-- `GET /users/list`
+- `POST /users/authenticate`, `/users/transfer`, `/users/mint`, `/users/checkSign`
+- `POST /users/lockToken`, `/users/consumeLock`, `/users/login`, `/users/create`, `/users/delete`, `/users/update`
+- `GET /users/meta`, `/users/get`, `/users/getByUsername`, `/users/find`, `/users/list`
 
 ### Stores
-
-- `POST /stores/addMachine`
-- `POST /stores/listMachines`
-- `POST /stores/updateProgram`
-- `POST /stores/removeMachine`
-- `POST /stores/addProgram`
-- `POST /stores/removeProgram`
-- `POST /stores/addMember`
-- `POST /stores/updateMember`
-- `POST /stores/updateMemberAccess`
-- `POST /stores/updateProgramAccess`
-- `POST /stores/getDefaultAccess`
-- `POST /stores/readMembers`
-- `POST /stores/removeMember`
-- `POST /stores/create`
-- `PUT /stores/update`
-- `DELETE /stores/delete`
-- `GET /stores/meta`
-- `GET /stores/get`
-- `GET /stores/read`
-- `POST /stores/join`
-- `POST /stores/leave`
-- `POST /stores/signal`
-- `POST /stores/history`
-- `GET /stores/list`
+- `POST /stores/addMachine`, `/stores/listMachines`, `/stores/updateProgram`, `/stores/removeMachine`
+- `POST /stores/addProgram`, `/stores/removeProgram`, `/stores/addMember`, `/stores/updateMember`
+- `POST /stores/updateMemberAccess`, `/stores/updateProgramAccess`, `/stores/getDefaultAccess`, `/stores/readMembers`, `/stores/removeMember`
+- `POST /stores/create`, `/stores/join`, `/stores/leave`, `/stores/signal`, `/stores/history`
+- `PUT /stores/update`, `DELETE /stores/delete`
+- `GET /stores/meta`, `/stores/get`, `/stores/read`, `/stores/list`
 
 ### Invites
+- `POST /invites/create`, `/invites/listStoreInvites`, `/invites/listUserInvites`, `/invites/cancel`, `/invites/accept`, `/invites/decline`
 
-- `POST /invites/create`
-- `POST /invites/listStoreInvites`
-- `POST /invites/listUserInvites`
-- `POST /invites/cancel`
-- `POST /invites/accept`
-- `POST /invites/decline`
-
-### Machines and Programs
-
-> Naming note: `/machines/*` actions operate on **Machine** models; `/programs/*` actions operate on **Program** models attached to a machine.
-
-- `POST /machines/create`
-- `POST /machines/delete`
-- `POST /machines/update`
-- `GET /machines/myCreated`
-- `POST /machines/signal`
-- `POST /machines/runProgramEntity`
-- `POST /machines/stopProgramEntity`
-- `POST /machines/readBuildLogs`
-- `POST /machines/readMachineBuilds`
-- `POST /machines/deploy`
-- `GET /machines/list`
-- `GET /machines/listProgramMachines`
-- `POST /programs/create`
-- `POST /programs/delete`
-- `GET /programs/list`
+### Machines + Programs
+- Machines: `/machines/create`, `/machines/delete`, `/machines/update`, `/machines/myCreated`, `/machines/signal`, `/machines/runProgramEntity`, `/machines/stopProgramEntity`, `/machines/readBuildLogs`, `/machines/readMachineBuilds`, `/machines/deploy`, `/machines/list`, `/machines/listProgramMachines`
+- Programs: `/programs/create`, `/programs/delete`, `/programs/list`
 
 ### Storage
+- `POST /storage/upload`, `/storage/uploadUserEntity`, `/storage/deleteUserEntity`, `/storage/uploadStoreEntity`, `/storage/uploadAppEntity`, `/storage/deleteStoreEntity`, `/storage/download`
 
-- `POST /storage/upload`
-- `POST /storage/uploadUserEntity`
-- `POST /storage/deleteUserEntity`
-- `POST /storage/uploadStoreEntity`
-- `POST /storage/uploadAppEntity`
-- `POST /storage/deleteStoreEntity`
-- `POST /storage/download`
+### Chains
+- `POST /chains/create`, `/chains/createShard`, `/chains/createFromStore`, `/chains/submitBaseTrx`, `/chains/registerNode`
 
-### Chain
+### PC + Misc
+- `POST /pc/runPc`, `/pc/execCommand`
+- `GET /api/hello`, `/api/time`, `/api/ping`
 
-- `POST /chains/create`
-- `POST /chains/createShard`
-- `POST /chains/createFromStore`
-- `POST /chains/submitBaseTrx`
-- `POST /chains/registerNode`
+## 3) HTTPS APIs
 
-### PC + Dummy
-
-- `POST /pc/runPc`
-- `POST /pc/execCommand`
-- `GET /api/hello`
-- `GET /api/time`
-- `GET /api/ping`
-
-## 5) HTTPS Entity + Stream APIs
-
-Entity server (`ENTITY_API_PORT`) registers:
-
+### Entity API (`ENTITY_API_PORT`)
 - `/storage/downloadUserEntity`
 - `/storage/uploadUserEntity`
 - `/storage/uploadStoreEntity`
@@ -201,19 +90,8 @@ Entity server (`ENTITY_API_PORT`) registers:
 - `/stream/get`
 - `/stream/send`
 
-VM gateway (`VM_API_PORT`) registers:
-
+### VM stream API (`VM_API_PORT`)
 - `/stream/send`
 
-## 6) Hashgraph Service API
-
-Default handlers:
-
-- `/stats`
-- `/block/{index}`
-- `/blocks/{start}?count=n`
-- `/graph`
-- `/peers`
-- `/genesispeers`
-- `/validators/{index}`
-- `/history`
+### Telemetry API (`TELEMETRY_API_PORT`, default `9099`) 📈
+- `GET /telemetry/snapshot`
