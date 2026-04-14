@@ -105,11 +105,9 @@ func (wm *Vmm) VmCallback(dataRaw string) (string, int64) {
 	case "joinGroup":
 		return wm.handleMicroHostAction("joinGroup", input, reqId)
 	case "log":
-		_, err := checkField(input, "text", "")
-		if err != nil {
-			println(err)
-			return err.Error(), reqId
-		}
+		return wm.handleVmLogEvent(input, reqId)
+	case "vmLog", "buildLog":
+		return wm.handleVmLogEvent(input, reqId)
 	}
 
 	return "{}", reqId

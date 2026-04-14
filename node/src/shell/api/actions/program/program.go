@@ -514,12 +514,76 @@ func (a *Actions) StopProgramEntity(state state.IState, input inputs_machiner.Ru
 	return map[string]any{}, nil
 }
 
-// ReadBuildLogs /machines/readBuildLogs check [ true false false ] access [ true false false false POST ]
-func (a *Actions) ReadBuildLogs(state state.IState, input inputs_machiner.ReadBuildLogsInput) (any, error) {
-	if state.Trx().GetLink("VmBuilds::"+input.MachineId+"::"+input.BuildId) != "true" {
-		return nil, errors.New("build not found")
+// ReadVmLogs /machines/readVmLogs check [ true false false ] access [ true false false false POST ]
+func (a *Actions) ReadVmLogs(state state.IState, input inputs_machiner.ReadVmLogsInput) (any, error) {
+	ownerUserId := ""
+	links, err := state.Trx().GetLinksList("VmInstance::", -1, -1)
+	if err == nil {
+		suffix := "::" + input.VmId
+		for _, link := range links {
+			if !strings.HasSuffix(link, suffix) {
+				continue
+			}
+			parts := strings.Split(link, "::")
+			if len(parts) < 4 {
+				continue
+			}
+			program := model.Program{MachineId: parts[1]}.Pull(state.Trx())
+			if program.MachineId == "" {
+				break
+			}
+			machine := model.Machine{Id: program.AppId}.Pull(state.Trx())
+			ownerUserId = machine.OwnerId
+			break
+		}
 	}
-	return map[string]any{"logs": a.App.Tools().Storage().ReadBuildLogs(input.BuildId, input.MachineId)}, nil
+	if ownerUserId == "" {
+		return nil, errors.New("vm not found")
+	}
+	if ownerUserId != "" && ownerUserId != state.Info().UserId() {
+		return nil, errors.New("you are not owner of this vm")
+	}
+	count := input.Count
+	if count <= 0 {
+		count = 100
+	}
+	offset := input.Offset
+	if offset < 0 {
+		offset = 0
+	}
+	return map[string]any{
+		"logs": a.App.Tools().Storage().ReadVmLogs(input.VmId, input.LogType, offset, count),
+	}, nil
+}
+
+// OpenVmTerminal /machines/openVmTerminal check [ true false false ] access [ true false false false POST ]
+func (a *Actions) OpenVmTerminal(state state.IState, input inputs_machiner.VmTerminalInput) (any, error) {
+	trx := state.Trx()
+	if !trx.HasObj("Program", input.CreatureId) {
+		return nil, errors.New("program does not exist")
+	}
+	program := model.Program{MachineId: input.CreatureId}.Pull(trx)
+	machine := model.Machine{Id: program.AppId}.Pull(trx)
+	if machine.OwnerId != state.Info().UserId() {
+		return nil, errors.New("you are not owner of this creature")
+	}
+	trx.PutLink("VmTerminal::"+input.CreatureId+"::"+input.VmId+"::"+state.Info().UserId(), "true")
+	return map[string]any{"terminal": "on"}, nil
+}
+
+// CloseVmTerminal /machines/closeVmTerminal check [ true false false ] access [ true false false false POST ]
+func (a *Actions) CloseVmTerminal(state state.IState, input inputs_machiner.VmTerminalInput) (any, error) {
+	trx := state.Trx()
+	if !trx.HasObj("Program", input.CreatureId) {
+		return nil, errors.New("program does not exist")
+	}
+	program := model.Program{MachineId: input.CreatureId}.Pull(trx)
+	machine := model.Machine{Id: program.AppId}.Pull(trx)
+	if machine.OwnerId != state.Info().UserId() {
+		return nil, errors.New("you are not owner of this creature")
+	}
+	trx.DelKey("link::VmTerminal::" + input.CreatureId + "::" + input.VmId + "::" + state.Info().UserId())
+	return map[string]any{"terminal": "off"}, nil
 }
 
 // ReadMachineBuilds /machines/readMachineBuilds check [ true false false ] access [ true false false false POST ]

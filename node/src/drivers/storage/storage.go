@@ -39,29 +39,49 @@ func (sm *StorageManager) TsDb() *sql.DB {
 	return sm.tsdb
 }
 
-func (sm *StorageManager) LogBuild(buildId string, machineId string, data string) packet.BuildPacket {
+func (sm *StorageManager) LogVm(vmId string, logType string, data string, timeVal int64) packet.BuildPacket {
 	sm.lock.Lock()
 	defer sm.lock.Unlock()
 	ctx := context.Background()
 	id := uuid.NewString()
+	if logType == "" {
+		logType = "runtime"
+	}
+	if timeVal == 0 {
+		timeVal = time.Now().UnixMilli()
+	}
 	_, err := sm.tsdb.ExecContext(ctx,
-		"INSERT INTO buildlogs (id, build_id, machine_id, data) VALUES ($1, $2, $3, $4)",
-		id, buildId, machineId, data,
+		"INSERT INTO buildlogs (id, build_id, machine_id, vm_id, log_type, data, time) VALUES ($1, $2, $3, $4, $5, $6, $7)",
+		id, "", "", vmId, logType, data, timeVal,
 	)
 	if err != nil {
 		log.Println("Insert error: " + err.Error())
 	}
-	packet := packet.BuildPacket{Id: id, BuildId: buildId, MachineId: machineId, Data: data}
+	packet := packet.BuildPacket{Id: id, BuildId: "", CreatureId: "", VmId: vmId, LogType: logType, Time: timeVal, Data: data}
 	return packet
 }
 
-func (sm *StorageManager) ReadBuildLogs(buildId string, machineId string) []packet.BuildPacket {
+func (sm *StorageManager) ReadVmLogs(vmId string, logType string, offset int, count int) []packet.BuildPacket {
 	sm.lock.Lock()
 	defer sm.lock.Unlock()
 	ctx := context.Background()
-	var rows *sql.Rows
-	var err error
-	rows, err = sm.tsdb.QueryContext(ctx, "SELECT id, data FROM storage WHERE build_id = $1 and machine_id = $2", buildId, machineId)
+	if count <= 0 {
+		count = 100
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	query := "SELECT id, build_id, machine_id, vm_id, log_type, data, time FROM buildlogs WHERE vm_id = $1"
+	args := []any{vmId}
+	if logType != "" {
+		args = append(args, logType)
+		query += fmt.Sprintf(" AND log_type = $%d", len(args))
+	}
+	args = append(args, count)
+	query += fmt.Sprintf(" ORDER BY time DESC LIMIT $%d", len(args))
+	args = append(args, offset)
+	query += fmt.Sprintf(" OFFSET $%d", len(args))
+	rows, err := sm.tsdb.QueryContext(ctx, query, args...)
 	if err != nil {
 		log.Println(err)
 		return []packet.BuildPacket{}
@@ -70,11 +90,24 @@ func (sm *StorageManager) ReadBuildLogs(buildId string, machineId string) []pack
 	logs := []packet.BuildPacket{}
 	for rows.Next() {
 		var id string
+		var logBuildId string
+		var logCreatureId string
+		var logVmId string
+		var rowLogType string
 		var data string
-		if err := rows.Scan(&id, &data); err != nil {
+		var timeVal int64
+		if err := rows.Scan(&id, &logBuildId, &logCreatureId, &logVmId, &rowLogType, &data, &timeVal); err != nil {
 			log.Println(err)
 		}
-		logs = append(logs, packet.BuildPacket{Id: id, BuildId: buildId, MachineId: machineId, Data: data})
+		logs = append(logs, packet.BuildPacket{
+			Id:         id,
+			BuildId:    logBuildId,
+			CreatureId: logCreatureId,
+			VmId:       logVmId,
+			LogType:    rowLogType,
+			Time:       timeVal,
+			Data:       data,
+		})
 	}
 	return logs
 }
@@ -237,10 +270,13 @@ func NewStorage(core core.ICore, storageRoot string, baseDbPath string, logsDbPa
 		}
 	}
 	_, err = tsdb.ExecContext(context.Background(),
-		"create table if not exists buildlogs(id text, build_id text, machine_id text, data text);",
+		"create table if not exists buildlogs(id text, build_id text, machine_id text, vm_id text, log_type text, data text, time bigint);",
 	)
 	if err != nil {
 		panic(err)
 	}
+	_, _ = tsdb.ExecContext(context.Background(), "alter table buildlogs add column if not exists vm_id text;")
+	_, _ = tsdb.ExecContext(context.Background(), "alter table buildlogs add column if not exists log_type text;")
+	_, _ = tsdb.ExecContext(context.Background(), "alter table buildlogs add column if not exists time bigint;")
 	return &StorageManager{core: core, tsdb: tsdb, kvdb: kvdb, storageRoot: storageRoot}
 }

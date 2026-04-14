@@ -17,6 +17,6 @@ type IStorage interface {
 	UpdateLog(storeId string, userId string, signalId string, data string, timeVal int64) packet.LogPacket
 	ReadStoreLogs(storeId string, beforeTime int64, count int) []packet.LogPacket
 	PickStoreLogs(storeId string, ids []string) []packet.LogPacket
-	LogBuild(buildId string, machineId string, data string) packet.BuildPacket
-	ReadBuildLogs(buildId string, machineId string) []packet.BuildPacket
+	LogVm(vmId string, logType string, data string, timeVal int64) packet.BuildPacket
+	ReadVmLogs(vmId string, logType string, offset int, count int) []packet.BuildPacket
 }

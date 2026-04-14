@@ -15,8 +15,11 @@ type LogPacket struct {
 }
 
 type BuildPacket struct {
-	Id        string `json:"id"`
-	BuildId   string `json:"buildId"`
-	MachineId string `json:"machineId"`
-	Data      string `json:"data"`
+	Id         string `json:"id"`
+	BuildId    string `json:"buildId"`
+	CreatureId string `json:"creatureId"`
+	VmId       string `json:"vmId,omitempty"`
+	LogType    string `json:"logType,omitempty"`
+	Time       int64  `json:"time"`
+	Data       string `json:"data"`
 }

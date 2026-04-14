@@ -269,6 +269,15 @@ impl FireVmController {
         if machine_id.is_empty() {
             return Err("machineId is required".to_string());
         }
+        let vm_id = packet["vmId"].as_str().unwrap_or("main");
+        let _ = wasm_send(json!({
+            "key": "vmLog",
+            "input": {
+                "vmId": vm_id,
+                "logType": "build",
+                "text": "fire vm build image request accepted",
+            }
+        }));
         Ok(json!({
             "ok": true,
             "runtime": "fire",
@@ -312,7 +321,7 @@ fn fire_socket_path(machine_id: &str, vm_id: &str) -> PathBuf {
 }
 
 fn emit_fire_output_signal(
-    machine_id: &str,
+    creature_id: &str,
     vm_id: &str,
     requester_user_id: &str,
     store_id: &str,
@@ -323,7 +332,7 @@ fn emit_fire_output_signal(
     }
     let payload = json!({
         "event": "fireVmOutput",
-        "machineId": machine_id,
+        "creatureId": creature_id,
         "vmId": vm_id,
         "requesterUserId": requester_user_id,
         "output": output_line,
@@ -332,7 +341,8 @@ fn emit_fire_output_signal(
     let signal_packet = json!({
         "key": "signal",
         "input": {
-            "machineId": machine_id,
+            "machineId": creature_id,
+            "creatureId": creature_id,
             "storeId": store_id,
             "userId": requester_user_id,
             "type": "fire.vm.output",
@@ -341,4 +351,13 @@ fn emit_fire_output_signal(
         }
     });
     let _ = wasm_send(signal_packet);
+    let vm_log_packet = json!({
+        "key": "vmLog",
+        "input": {
+            "vmId": vm_id,
+            "logType": "runtime",
+            "text": output_line,
+        }
+    });
+    let _ = wasm_send(vm_log_packet);
 }

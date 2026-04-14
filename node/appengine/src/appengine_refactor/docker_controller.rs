@@ -81,6 +81,44 @@ impl DockerVmController {
             self.docker
                 .start_container::<String>(&container_id, None::<StartContainerOptions<String>>),
         )?;
+        let container_id_for_logs = container_id.clone();
+        let vm_id_for_logs = vm_cache_key.clone();
+        thread::spawn(move || {
+            let docker = match Docker::connect_with_local_defaults() {
+                Ok(d) => d,
+                Err(_) => return,
+            };
+            let rt = match tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+            {
+                Ok(r) => r,
+                Err(_) => return,
+            };
+            rt.block_on(async move {
+                let mut stream = docker.logs(
+                    &container_id_for_logs,
+                    Some(LogsOptions::<String> {
+                        follow: true,
+                        stdout: true,
+                        stderr: true,
+                        tail: "0".to_string(),
+                        ..Default::default()
+                    }),
+                );
+                while let Some(msg) = stream.try_next().await.unwrap_or(None) {
+                    match msg {
+                        LogOutput::StdOut { message }
+                        | LogOutput::StdErr { message }
+                        | LogOutput::Console { message }
+                        | LogOutput::StdIn { message } => {
+                            let line = String::from_utf8_lossy(&message).to_string();
+                            emit_vm_log(&vm_id_for_logs, "runtime", line.trim());
+                        }
+                    }
+                }
+            });
+        });
         let mut vm_ctx = GLOBAL_VM_CONTEXT.lock().unwrap();
         vm_ctx.insert(vm_cache_key.clone(), (creature_id, machine_id.to_string()));
         Ok(json!({
@@ -327,7 +365,11 @@ impl DockerVmController {
             .block_on(async {
                 let mut stream = self.docker.build_image(options, None, Some(context.into()));
                 while let Some(update) = stream.try_next().await.map_err(|e| e.to_string())? {
+                    if let Some(status) = update.stream.clone() {
+                        emit_vm_log("main", "build", status.trim());
+                    }
                     if let Some(error) = update.error {
+                        emit_vm_log("main", "build", error.trim());
                         return Err(format!("docker build failed: {}", error));
                     }
                 }
@@ -413,6 +455,21 @@ fn parse_input_files(input_files: &JsonValue) -> Result<HashMap<String, Vec<u8>>
         files.insert(key.to_string(), raw.as_bytes().to_vec());
     }
     Ok(files)
+}
+
+fn emit_vm_log(vm_id: &str, log_type: &str, text: &str) {
+    if vm_id.trim().is_empty() || text.trim().is_empty() {
+        return;
+    }
+    let packet = json!({
+        "key": "vmLog",
+        "input": {
+            "vmId": vm_id,
+            "logType": log_type,
+            "text": text
+        }
+    });
+    let _ = wasm_send(packet);
 }
 
 fn build_context_from_path(path: &str) -> Result<Vec<u8>, String> {

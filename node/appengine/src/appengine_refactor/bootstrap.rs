@@ -34,6 +34,7 @@ fn main() {
                     let ast_path = packet["astPath"].as_str().unwrap().to_string();
                     let input = packet["input"].as_str().unwrap().to_string();
                     let machine_id = packet["machineId"].as_str().unwrap().to_string();
+                    let vm_id = packet["vmId"].as_str().unwrap_or("main").to_string();
                     let runtime = detect_vm_runtime(&packet, &ast_path);
                     if runtime == VmRuntime::Elpify {
                         let vm_handle = {
@@ -45,12 +46,17 @@ fn main() {
                         if let Err(e) = vm_handle.enqueue(ElpifyTask {
                             masm_path: ast_path.clone(),
                             input_raw: input.clone(),
+                            vm_id: vm_id.clone(),
                         }) {
                             log(format!("failed to schedule elpify task: {}", e));
                         }
                     } else if runtime == VmRuntime::Elpian {
-                        if let Err(e) =
-                            execute_elpian_task(&machine_id, ast_path.clone(), input.clone())
+                        if let Err(e) = execute_elpian_task(
+                            &machine_id,
+                            vm_id.clone(),
+                            ast_path.clone(),
+                            input.clone(),
+                        )
                         {
                             log(format!(
                                 "elpian task failed for machine {}: {}",
@@ -68,6 +74,7 @@ fn main() {
                         };
                     } else {
                         thread::spawn(move || {
+                            set_log_vm_context(&vm_id);
                             let inp1 = input.clone();
                             let input_json: JsonValue = serde_json::from_str(&inp1).unwrap();
                             let store_id = input_json["store"].as_object().unwrap()["id"]
@@ -77,6 +84,7 @@ fn main() {
 
                             let mut rt = WasmMac::new_vm(
                                 machine_id.clone(),
+                                vm_id.clone(),
                                 store_id,
                                 ast_path.clone(),
                                 Box::new(wasm_send),
