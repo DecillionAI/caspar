@@ -9,7 +9,15 @@ import (
 //go:wasmimport env hostCall
 func hostCall(offset uint32, length uint32) uint64
 
-var retBuf []byte
+var heap = make([]byte, 1024*1024)
+var heapPtr uint32 = 8
+
+//export malloc
+func malloc(size uint32) uint32 {
+	ptr := heapPtr
+	heapPtr += size
+	return ptr
+}
 
 type packet struct {
 	Payload    map[string]any `json:"payload"`
@@ -120,11 +128,6 @@ func hostResString(raw string, keys ...string) string {
 	return strings.Trim(raw, "\"")
 }
 
-func makeReturn(s string) int32 {
-	retBuf = append([]byte(s), 0)
-	return int32(uintptr(unsafe.Pointer(&retBuf[0])))
-}
-
 func process(input string) string {
 	p := packet{}
 	if input != "" {
@@ -175,9 +178,10 @@ func process(input string) string {
 }
 
 //export run
-func run(inputPtr int32, inputLen int32) int32 {
-	input := stringAt(uint32(inputPtr), uint32(inputLen))
-	return makeReturn(process(input))
+func run(arg uint64) int64 {
+	input := stringAt(uint32(arg>>32), uint32(arg))
+	process(input)
+	return 0
 }
 
 func main() {}

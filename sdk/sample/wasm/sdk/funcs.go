@@ -50,7 +50,7 @@ func SignalStore(typ string, storeID string, userID string, data string) string 
 }
 
 func RunDocker(machineID string, storeID string, containerMeta string) string {
-	return call("runVm", fmt.Sprintf(`{"machineId":%s,"storeId":%s,"containerMeta":%s,"vmType":"docker"}`, quote(machineID), quote(storeID), quote(containerMeta)))
+	return call("runVm", fmt.Sprintf(`{"machineId":%s,"storeId":%s,"containerMeta":%s,"runtime":"docker"}`, quote(machineID), quote(storeID), quote(containerMeta)))
 }
 
 func ExecDocker(machineID string, imageName string, containerName string, command string) string {
@@ -116,8 +116,8 @@ func SendMessageOnChain(storeID string, payload string) string {
 	return call("sendMessageOnChain", fmt.Sprintf(`{"storeId":%s,"payload":%s}`, quote(storeID), quote(payload)))
 }
 
-func RunVm(machineID string, input string, astPath string, vmType string) string {
-	return call("runVm", fmt.Sprintf(`{"machineId":%s,"input":%s,"astPath":%s,"vmType":%s}`, quote(machineID), quote(input), quote(astPath), quote(vmType)))
+func RunVm(machineID string, input string, astPath string, runtime string) string {
+	return call("runVm", fmt.Sprintf(`{"machineId":%s,"input":%s,"astPath":%s,"runtime":%s}`, quote(machineID), quote(input), quote(astPath), quote(runtime)))
 }
 
 func TerminateVm(machineID string) string {
