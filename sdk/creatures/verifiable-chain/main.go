@@ -259,7 +259,7 @@ func runVm(machineID, storeID, masmPath string, inputs []uint64) {
 		"machineId": machineID,
 		"storeId":   storeID,
 		"astPath":   masmPath,
-		"vmType":    "elpify",
+		"runtime":   "docker",
 		"input":     string(payload),
 	})
 }

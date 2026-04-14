@@ -47,8 +47,8 @@ func HttpPost(url string, headers string, body string) {
 	hostCall("httpPost", map[string]any{"url": url, "headers": headers, "body": body})
 }
 
-func RunVm(machineID string, input string, astPath string, vmType string) {
-	hostCall("runVm", map[string]any{"machineId": machineID, "input": input, "astPath": astPath, "vmType": vmType})
+func RunVm(machineID string, input string, astPath string, runtime string) {
+	hostCall("runVm", map[string]any{"machineId": machineID, "input": input, "astPath": astPath, "runtime": runtime})
 }
 
 func ExecVm(machineID string, imageName string, containerName string, command string) {
@@ -71,7 +71,7 @@ func SendMessageOnChain(storeID string, payload string) {
 }
 
 func RunDocker(machineID string, storeID string, containerMeta string) {
-	hostCall("runVm", map[string]any{"machineId": machineID, "storeId": storeID, "containerMeta": containerMeta, "vmType": "docker"})
+	hostCall("runVm", map[string]any{"machineId": machineID, "storeId": storeID, "containerMeta": containerMeta, "runtime": "docker"})
 }
 
 func ExecDocker(machineID string, imageName string, containerName string, command string) {
