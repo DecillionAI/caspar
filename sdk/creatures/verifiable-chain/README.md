@@ -30,7 +30,7 @@ This extension is a container-VM toolkit for verifiable execution workflows on t
 ## Build
 
 ```bash
-docker build -t caspar-verifiable-chain extensions/verifiable-chain
+docker build -t caspar-verifiable-chain sdk/creatures/verifiable-chain
 ```
 
 ## Security note ⚠️
