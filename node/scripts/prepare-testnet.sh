@@ -1,6 +1,6 @@
 #!/bin/bash
 
-docker network create \
+docker network inspect kasper >/dev/null 2>&1 || docker network create \
   --driver bridge \
   --subnet 10.10.0.0/16 \
   --gateway 10.10.0.1 \
@@ -9,8 +9,8 @@ docker network create \
 bash build-conf.sh 1
 
 mkdir -p /home/kasper/data/docker_proxy/ssl
-mkdir /home/kasper/certs
-mkdir /home/kasper/packets
+mkdir -p /home/kasper/certs
+mkdir -p /home/kasper/packets
 
 openssl req -x509 -newkey ed25519 -days 3650 \
   -noenc -keyout nginx-selfsigned.key -out nginx-selfsigned.crt -subj "/CN=example.com" \
