@@ -2,7 +2,7 @@
 
 > **Status:** Documentation updated on **2026-04-14**.
 
-Caspar is a decentralized protocol stack with hashgraph-style consensus, federation-native messaging, and multi-runtime execution (`wasm`, `docker`, `javascript`, `elpify`, `elpian`).
+Caspar is a decentralized protocol stack with hashgraph-style consensus, federation-native messaging, and multi-runtime execution (`wasm`, `docker`, `javascript`, `elpify`, `elpian`, `firecracker`).
 
 ## ✨ Highlights
 
