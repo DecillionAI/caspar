@@ -1,18 +1,20 @@
 package inputs_machiner
 
-type ReadBuildLogsInput struct {
-	MachineId string `json:"machineId" validate:"required"`
-	BuildId   string `json:"buildId" validate:"required"`
+type ReadVmLogsInput struct {
+	VmId    string `json:"vmId" validate:"required"`
+	LogType string `json:"logType"`
+	Offset  int    `json:"offset"`
+	Count   int    `json:"count"`
 }
 
-func (d ReadBuildLogsInput) GetData() any {
+func (d ReadVmLogsInput) GetData() any {
 	return "dummy"
 }
 
-func (d ReadBuildLogsInput) GetStoreId() string {
+func (d ReadVmLogsInput) GetStoreId() string {
 	return ""
 }
 
-func (d ReadBuildLogsInput) Origin() string {
+func (d ReadVmLogsInput) Origin() string {
 	return "global"
 }

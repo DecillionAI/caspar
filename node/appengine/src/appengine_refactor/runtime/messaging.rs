@@ -1,3 +1,35 @@
+thread_local! {
+    static LOG_VM_CONTEXT: std::cell::RefCell<String> = std::cell::RefCell::new("main".to_string());
+}
+
+fn set_log_vm_context(vm_id: &str) {
+    let next = if vm_id.trim().is_empty() {
+        "main".to_string()
+    } else {
+        vm_id.trim().to_string()
+    };
+    LOG_VM_CONTEXT.with(|ctx| {
+        *ctx.borrow_mut() = next;
+    });
+}
+
+fn current_log_vm_context() -> String {
+    LOG_VM_CONTEXT.with(|ctx| ctx.borrow().clone())
+}
+
+fn log_vm(text: String, vm_id: String, log_type: &str) {
+    let j = json!({
+        "key": "vmLog",
+        "input": {
+            "text": text,
+            "data": text,
+            "vmId": vm_id,
+            "logType": log_type
+        }
+    });
+    wasm_send(j);
+}
+
 fn wasm_send(mut data: JsonValue) -> std::string::String {
     let req_id = REQ_ID_COUNTER.fetch_add(1, Ordering::Relaxed);
     data["requestId"] = JsonValue::from(req_id);
@@ -34,12 +66,6 @@ fn wasm_send(mut data: JsonValue) -> std::string::String {
 }
 
 fn log(text: String) {
-    let j = json!({
-        "key": "log",
-        "input": {
-            "text": text
-        }
-    });
-    wasm_send(j);
+    let vm_id = current_log_vm_context();
+    log_vm(text, vm_id, "runtime");
 }
-

@@ -41,8 +41,16 @@ func (c *Plugger) StopProgramEntity() iaction.IAction {
 	return utils.ExtractSecureAction(c.Core, c.Actions.StopProgramEntity)
 }
 
-func (c *Plugger) ReadBuildLogs() iaction.IAction {
-	return utils.ExtractSecureAction(c.Core, c.Actions.ReadBuildLogs)
+func (c *Plugger) OpenVmTerminal() iaction.IAction {
+	return utils.ExtractSecureAction(c.Core, c.Actions.OpenVmTerminal)
+}
+
+func (c *Plugger) CloseVmTerminal() iaction.IAction {
+	return utils.ExtractSecureAction(c.Core, c.Actions.CloseVmTerminal)
+}
+
+func (c *Plugger) ReadVmLogs() iaction.IAction {
+	return utils.ExtractSecureAction(c.Core, c.Actions.ReadVmLogs)
 }
 
 func (c *Plugger) ReadMachineBuilds() iaction.IAction {

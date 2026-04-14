@@ -24,7 +24,11 @@ pub fn host_call(
             "{}".to_string()
         }
         "consoleLog" => {
-            log(req["input"]["text"].as_str().unwrap_or("").to_string());
+            log_vm(
+                req["input"]["text"].as_str().unwrap_or("").to_string(),
+                rt.vm_id.clone(),
+                "runtime",
+            );
             "{}".to_string()
         }
         "dbOp" => {
@@ -198,11 +202,12 @@ pub fn output(
 }
 
 pub fn console_log(
-    _: &mut HostData,
+    host_data: &mut HostData,
     _inst: &mut Instance,
     _caller: &mut CallingFrame,
     _input: Vec<WasmValue>,
 ) -> Result<Vec<WasmValue>, CoreError> {
+    let rt: &mut WasmMac = unsafe { &mut *host_data.runtime };
     let mem = _caller.memory_ref(0).unwrap();
 
     let key_offset = _input[0].to_i32();
@@ -211,7 +216,7 @@ pub fn console_log(
     let text_bytes_next = text_bytes.unwrap();
     let text = str::from_utf8(&text_bytes_next).unwrap();
 
-    log(text.to_string());
+    log_vm(text.to_string(), rt.vm_id.clone(), "runtime");
 
     Ok(vec![WasmValue::from_i64(0)])
 }

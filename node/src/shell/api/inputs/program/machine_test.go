@@ -8,7 +8,7 @@ import (
 
 func TestMachineInputsImplementInterface(t *testing.T) {
 	var _ input.IInput = ListAppMachsInput{}
-	var _ input.IInput = ReadBuildLogsInput{}
+	var _ input.IInput = ReadVmLogsInput{}
 	var _ input.IInput = CreateAppInput{}
 	var _ input.IInput = CreateMachineInput{}
 	var _ input.IInput = DeleteAppInput{}
@@ -20,6 +20,7 @@ func TestMachineInputsImplementInterface(t *testing.T) {
 	var _ input.IInput = SignalInput{}
 	var _ input.IInput = UpdateAppInput{}
 	var _ input.IInput = UpdateProgramInput{}
+	var _ input.IInput = VmTerminalInput{}
 }
 
 func TestMachineInputOriginsAndStoreIds(t *testing.T) {
@@ -30,7 +31,7 @@ func TestMachineInputOriginsAndStoreIds(t *testing.T) {
 		{ListAppMachsInput{}, ""},
 		{ListInput{}, ""},
 		{SignalInput{}, ""},
-		{ReadBuildLogsInput{}, "global"},
+		{ReadVmLogsInput{}, "global"},
 		{CreateAppInput{}, "global"},
 		{CreateMachineInput{}, "global"},
 		{DeleteAppInput{}, "global"},
@@ -40,6 +41,7 @@ func TestMachineInputOriginsAndStoreIds(t *testing.T) {
 		{RunProgramEntityInput{}, "global"},
 		{UpdateAppInput{}, "global"},
 		{UpdateProgramInput{}, "global"},
+		{VmTerminalInput{}, "global"},
 	}
 	for i, c := range cases {
 		if c.in.GetStoreId() != "" {

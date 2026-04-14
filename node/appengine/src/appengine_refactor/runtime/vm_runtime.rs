@@ -1,6 +1,7 @@
 pub struct WasmMac {
     pub callback: Box<dyn (Fn(JsonValue) -> String) + Send + Sync>,
     pub machine_id: String,
+    pub vm_id: String,
     pub store_id: String,
     pub trx: Box<Trx>,
     pub mod_path: String,
@@ -28,6 +29,7 @@ enum VmRuntime {
 struct ElpifyTask {
     masm_path: String,
     input_raw: String,
+    vm_id: String,
 }
 
 struct ElpifyManagedVm {
@@ -63,6 +65,7 @@ impl ElpifyManagedVm {
                     &mut deployed_programs,
                     task.masm_path,
                     task.input_raw,
+                    task.vm_id,
                 ) {
                     log(format!(
                         "elpify task failed for machine {}: {}",
@@ -94,6 +97,7 @@ pub struct HostData {
 impl WasmMac {
     pub fn new_vm(
         machine_id: String,
+        vm_id: String,
         store_id: String,
         mod_path: String,
         cb: Box<dyn (Fn(JsonValue) -> String) + Send + Sync>,
@@ -104,6 +108,7 @@ impl WasmMac {
         WasmMac {
             callback: cb,
             machine_id,
+            vm_id,
             store_id,
             trx: Box::new(Trx::new()),
             mod_path,
@@ -356,7 +361,9 @@ fn execute_elpify_task(
     deployed_programs: &mut HashMap<String, u64>,
     masm_path: String,
     input_raw: String,
+    vm_id: String,
 ) -> Result<(), String> {
+    set_log_vm_context(&vm_id);
     let masm_source = std::fs::read_to_string(&masm_path)
         .map_err(|e| format!("failed to read MASM file {}: {}", masm_path, e))?;
 
@@ -395,9 +402,11 @@ fn execute_elpify_task(
 
 fn execute_elpian_task(
     machine_id: &str,
+    vm_id: String,
     ast_path: String,
     input_raw: String,
 ) -> Result<(), String> {
+    set_log_vm_context(&vm_id);
     let ast_source = std::fs::read_to_string(&ast_path)
         .map_err(|e| format!("failed to read elpian AST file {}: {}", ast_path, e))?;
 
