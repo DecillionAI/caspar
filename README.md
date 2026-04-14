@@ -18,7 +18,7 @@ Caspar is a decentralized protocol stack with hashgraph-style consensus, federat
 - `cmd/casparctl/` — operator CLI for install/control/dashboard
 - `sdk/` — runtime examples + VM creatures
 - `docs/` — architecture, API, setup guides
-- `extensions/verifiable-chain/` — optional chain extension toolkit
+- `sdk/creatures/verifiable-chain/` — optional chain extension toolkit
 
 ## 🕘 Recent Changes History
 
@@ -35,7 +35,7 @@ Caspar is a decentralized protocol stack with hashgraph-style consensus, federat
   - Updated VM host hierarchy resolution to use a universal runtime context cache.
 - **2026-04-10**
   - Moved `creatures` into `sdk/creatures`.
-  - Added verifiable-chain extension scaffolding with PoS election + shard planning.
+  - Added verifiable-chain scaffolding with PoS election + shard planning (now in `sdk/creatures/`).
   - Refreshed markdown docs and route naming notes.
 
 ## 🚀 Quick Start
@@ -72,4 +72,4 @@ casparctl purge
 - `docs/ARCHITECTURE.md`
 - `sdk/README.md`
 - `sdk/creatures/README.md`
-- `extensions/verifiable-chain/README.md`
+- `sdk/creatures/verifiable-chain/README.md`
