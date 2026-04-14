@@ -313,10 +313,9 @@ fn fire_process_key(machine_id: &str, vm_id: &str) -> String {
 }
 
 fn fire_socket_path(machine_id: &str, vm_id: &str) -> PathBuf {
-    PathBuf::from(format!(
-        "/opt/firecracker/vms/fc.{}.{}.sock",
-        machine_id.replace('@', "_"),
-        vm_id
+    PathBuf::from(VmNetworkService::firecracker_socket(
+        &machine_id.replace('@', "_"),
+        vm_id,
     ))
 }
 
@@ -360,4 +359,51 @@ fn emit_fire_output_signal(
         }
     });
     let _ = wasm_send(vm_log_packet);
+}
+
+impl VmController for FireVmController {
+    fn build_image(packet: &JsonValue) -> Result<JsonValue, String> {
+        let controller = Self::new()?;
+        controller.build_image(packet)
+    }
+
+    fn create(packet: &JsonValue) -> Result<JsonValue, String> {
+        let controller = Self::new()?;
+        controller.run_vm(packet)
+    }
+
+    fn starts(packet: &JsonValue) -> Result<JsonValue, String> {
+        let controller = Self::new()?;
+        controller.run_vm(packet)
+    }
+
+    fn stop(packet: &JsonValue) -> Result<JsonValue, String> {
+        let controller = Self::new()?;
+        controller.terminate_vm(packet)
+    }
+
+    fn resume(packet: &JsonValue) -> Result<JsonValue, String> {
+        let controller = Self::new()?;
+        controller.run_vm(packet)
+    }
+
+    fn pause(packet: &JsonValue) -> Result<JsonValue, String> {
+        let controller = Self::new()?;
+        controller.terminate_vm(packet)
+    }
+
+    fn exec(packet: &JsonValue) -> Result<JsonValue, String> {
+        let controller = Self::new()?;
+        controller.exec_vm(packet)
+    }
+
+    fn copy_to(packet: &JsonValue) -> Result<JsonValue, String> {
+        let controller = Self::new()?;
+        controller.copy_to_vm(packet)
+    }
+
+    fn copy_from(packet: &JsonValue) -> Result<JsonValue, String> {
+        let _ = packet;
+        Err("copy_from is not implemented yet for fire runtime".to_string())
+    }
 }

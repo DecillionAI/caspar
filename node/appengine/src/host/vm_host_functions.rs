@@ -74,7 +74,7 @@ fn resolve_host_hierarchy(packet: &JsonValue, input: &JsonValue) -> HostHierarch
     }
 }
 
-fn run_docker_db_op(ctx: &HostHierarchy, input: &JsonValue) -> Result<String, String> {
+fn run_db_op(ctx: &HostHierarchy, input: &JsonValue) -> Result<String, String> {
     let op = input["op"].as_str().unwrap_or("");
     let key = input["key"].as_str().unwrap_or("");
     let db_prefix = if !ctx.creature_id.is_empty() && !ctx.program_id.is_empty() {
@@ -202,6 +202,27 @@ fn perform_http_request(input: &JsonValue) -> Result<String, String> {
     Ok(BASE64_STANDARD.encode(bytes))
 }
 
+include!("functions/db_op.rs");
+include!("functions/run_vm.rs");
+include!("functions/terminate_vm.rs");
+include!("functions/exec_vm.rs");
+include!("functions/copy_to_vm.rs");
+include!("functions/build_vm_image.rs");
+include!("functions/http_request.rs");
+include!("functions/verify_program.rs");
+include!("functions/protocol_api.rs");
+include!("functions/signal.rs");
+include!("functions/access.rs");
+include!("functions/store.rs");
+include!("functions/creature.rs");
+include!("functions/validate_sign.rs");
+include!("functions/transfer.rs");
+include!("functions/consume_lock.rs");
+include!("functions/lock_token.rs");
+include!("functions/create_program.rs");
+include!("functions/delete_program.rs");
+include!("functions/deploy_entity.rs");
+
 fn handle_unified_host_call(packet: &JsonValue) -> String {
     let op = packet["op"]
         .as_str()
@@ -241,85 +262,34 @@ fn handle_unified_host_call(packet: &JsonValue) -> String {
         }
     }
     match op {
-        "dbOp" => match run_docker_db_op(&ctx, &input) {
-            Ok(res) => res,
-            Err(err) => json!({"ok": false, "error": err}).to_string(),
-        },
-        "runVm" => {
-            let runtime = input["runtime"].as_str().unwrap_or("").to_lowercase();
-            let result = if runtime == "fire" {
-                with_fire_controller(|controller| controller.run_vm(&input))
-            } else {
-                with_docker_controller(|controller| controller.run_vm(&input))
-            };
-            match result {
-                Ok(res) => res.to_string(),
-                Err(err) => json!({"ok": false, "error": err}).to_string(),
-            }
+        "dbOp" => host_fn_db_op(&ctx, &input),
+        "runVm" => host_fn_run_vm(&input),
+        "terminateVm" => host_fn_terminate_vm(&input),
+        "execVm" | "execDocker" => host_fn_exec_vm(&input),
+        "copyToVm" | "copyToDocker" => host_fn_copy_to_vm(&input),
+        "buildVmImage" | "buildDockerImage" => host_fn_build_vm_image(&input),
+        "httpPost" | "httpRequest" => host_fn_http_request(&input),
+        "elpifyProof" | "verifyProgramExecution" => host_fn_verify_program(&input),
+        "protocolApi" | "callProtocolApi" => host_fn_protocol_api(&input),
+        "signal" => host_fn_signal(&input),
+        "createAccess" | "createOwnedAccess" => host_fn_create_access(&input),
+        "deleteAccess" | "removeAccess" | "deleteOwnedAccess" | "removeOwnedAccess" => {
+            host_fn_delete_access(&input)
         }
-        "terminateVm" => {
-            let runtime = input["runtime"].as_str().unwrap_or("").to_lowercase();
-            let result = if runtime == "fire" {
-                with_fire_controller(|controller| controller.terminate_vm(&input))
-            } else {
-                with_docker_controller(|controller| controller.terminate_vm(&input))
-            };
-            match result {
-                Ok(res) => res.to_string(),
-                Err(err) => json!({"ok": false, "error": err}).to_string(),
-            }
+        "createStore" | "createOwnedStore" => host_fn_create_store(&input),
+        "deleteStore" | "removeStore" | "deleteOwnedStore" | "removeOwnedStore" => {
+            host_fn_delete_store(&input)
         }
-        "execVm" | "execDocker" => {
-            let runtime = input["runtime"].as_str().unwrap_or("").to_lowercase();
-            let result = if runtime == "fire" {
-                with_fire_controller(|controller| controller.exec_vm(&input))
-            } else {
-                with_docker_controller(|controller| controller.exec_vm(&input))
-            };
-            match result {
-                Ok(res) => res.to_string(),
-                Err(err) => json!({"ok": false, "error": err}).to_string(),
-            }
-        }
-        "copyToVm" | "copyToDocker" => {
-            let runtime = input["runtime"].as_str().unwrap_or("").to_lowercase();
-            let result = if runtime == "fire" {
-                with_fire_controller(|controller| controller.copy_to_vm(&input))
-            } else {
-                with_docker_controller(|controller| controller.copy_to_vm(&input))
-            };
-            match result {
-                Ok(res) => res.to_string(),
-                Err(err) => json!({"ok": false, "error": err}).to_string(),
-            }
-        }
-        "buildVmImage" | "buildDockerImage" => {
-            let runtime = input["runtime"].as_str().unwrap_or("").to_lowercase();
-            let result = if runtime == "fire" {
-                with_fire_controller(|controller| controller.build_image(&input))
-            } else {
-                with_docker_controller(|controller| controller.build_image(&input))
-            };
-            match result {
-                Ok(res) => res.to_string(),
-                Err(err) => json!({"ok": false, "error": err}).to_string(),
-            }
-        }
-        "httpPost" | "httpRequest" => match perform_http_request(&input) {
-            Ok(res) => res,
-            Err(err) => json!({"ok": false, "error": err}).to_string(),
-        },
-        "elpifyProof" | "verifyProgramExecution" => {
-            let masm_path = input["masmPath"].as_str().unwrap_or("").to_string();
-            let inputs = parse_u64_array_field(&input, "inputs");
-            let outputs = parse_u64_array_field(&input, "outputs");
-            let proof_bytes = parse_u8_array_field(&input, "proof");
-
-            match verify_program_execution_from_packet(&masm_path, &inputs, &outputs, &proof_bytes)
-            {
-                Ok(security) => json!({"ok": true, "security": security}).to_string(),
-                Err(err) => json!({"ok": false, "error": err}).to_string(),
-            }
+        "createCreature" | "createOwnedCreature" => host_fn_create_creature(&input),
+        "validateSign" => host_fn_validate_sign(&input),
+        "transfer" => host_fn_transfer(&input),
+        "consumeLock" => host_fn_consume_lock(&input),
+        "lockToken" => host_fn_lock_token(&input),
+        "createProgram" => host_fn_create_program(&input),
+        "deleteProgram" | "deleteOwnedProgram" => host_fn_delete_program(&input),
+        "deployEntity" | "deploy entity" => host_fn_deploy_entity(&input),
+        "deleteCreature" | "removeCreature" | "deleteOwnedCreature" | "removeOwnedCreature" => {
+            host_fn_delete_creature(&input)
         }
         _ => {
             let packet = json!({

@@ -65,7 +65,7 @@ impl DockerVmController {
                 cmd,
                 host_config: Some(HostConfig {
                     runtime: Some("runsc".to_string()),
-                    network_mode: Some("kasper".to_string()),
+                    network_mode: Some(VmNetworkService::gateway_network_name().to_string()),
                     ..Default::default()
                 }),
                 ..Default::default()
@@ -536,4 +536,51 @@ fn run_local_build_script(script_path: &str) -> Result<(), String> {
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     ))
+}
+
+impl VmController for DockerVmController {
+    fn build_image(packet: &JsonValue) -> Result<JsonValue, String> {
+        let controller = Self::new()?;
+        controller.build_image(packet)
+    }
+
+    fn create(packet: &JsonValue) -> Result<JsonValue, String> {
+        let controller = Self::new()?;
+        controller.run_vm(packet)
+    }
+
+    fn starts(packet: &JsonValue) -> Result<JsonValue, String> {
+        let controller = Self::new()?;
+        controller.run_vm(packet)
+    }
+
+    fn stop(packet: &JsonValue) -> Result<JsonValue, String> {
+        let controller = Self::new()?;
+        controller.terminate_vm(packet)
+    }
+
+    fn resume(packet: &JsonValue) -> Result<JsonValue, String> {
+        let controller = Self::new()?;
+        controller.run_vm(packet)
+    }
+
+    fn pause(packet: &JsonValue) -> Result<JsonValue, String> {
+        let controller = Self::new()?;
+        controller.terminate_vm(packet)
+    }
+
+    fn exec(packet: &JsonValue) -> Result<JsonValue, String> {
+        let controller = Self::new()?;
+        controller.exec_vm(packet)
+    }
+
+    fn copy_to(packet: &JsonValue) -> Result<JsonValue, String> {
+        let controller = Self::new()?;
+        controller.copy_to_vm(packet)
+    }
+
+    fn copy_from(packet: &JsonValue) -> Result<JsonValue, String> {
+        let _ = packet;
+        Err("copy_from is not implemented yet for docker runtime".to_string())
+    }
 }
