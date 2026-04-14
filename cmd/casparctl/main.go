@@ -25,6 +25,7 @@ var dockerNamePattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]*$`)
 
 const (
 	nameFileName   = ".casparctl-name"
+	imageFileName  = ".casparctl-image"
 	trendMaxPoints = 30
 )
 
@@ -119,7 +120,7 @@ Usage:
   casparctl <command> [flags]
 
 Commands:
-  install    Build image, create volumes, and run Caspar with one command
+  install    Full node setup (docker/gvisor/storage/certs/testnet bootstrap)
   uninstall  Stop and remove the Caspar container
   purge      Uninstall + remove image and volumes
   start      Start the Caspar container
@@ -135,12 +136,13 @@ func runInstall(args []string) error {
 	fs := flag.NewFlagSet("install", flag.ContinueOnError)
 	projectDir := fs.String("project-dir", "", "path to Caspar node directory (auto-detected when omitted)")
 	envFile := fs.String("env-file", ".env", "environment file relative to project-dir")
-	name := fs.String("name", "", "name to use for both docker image and container")
+	name := fs.String("name", "kasper", "docker image name for node image tags")
+	containerName := fs.String("container-name", "node1", "container name expected by testnet run script")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 
-	if err := requireDocker(); err != nil {
+	if err := ensureDockerReady(); err != nil {
 		return err
 	}
 
@@ -149,11 +151,11 @@ func runInstall(args []string) error {
 		return err
 	}
 
-	if strings.TrimSpace(*name) == "" {
-		return errors.New("--name is required for install (this name is used for image + container)")
-	}
 	if err := validateDockerName(*name); err != nil {
 		return fmt.Errorf("invalid --name value: %w", err)
+	}
+	if err := validateDockerName(*containerName); err != nil {
+		return fmt.Errorf("invalid --container-name value: %w", err)
 	}
 
 	dockerfile := filepath.Join(absProject, "Dockerfile")
@@ -166,33 +168,66 @@ func runInstall(args []string) error {
 		return fmt.Errorf("env file not found at %s (copy sample.env to .env first)", absEnv)
 	}
 
+	fmt.Println("→ Installing and validating gVisor runtime...")
+	scriptsDir := filepath.Join(absProject, "scripts")
+	installGVisorScript := filepath.Join(scriptsDir, "install-gvisor.sh")
+	if _, err := os.Stat(installGVisorScript); err != nil {
+		return fmt.Errorf("required script not found at %s", installGVisorScript)
+	}
+	if err := runCommand(scriptsDir, "bash", "install-gvisor.sh"); err != nil {
+		return err
+	}
+	if err := configureRunscRuntime(); err != nil {
+		return err
+	}
+
+	fmt.Println("→ Pulling nginx:alpine image...")
+	if err := runCommand("", "docker", "pull", "nginx:alpine"); err != nil {
+		return err
+	}
+
+	fmt.Println("→ Creating storage directories used by the node runtime...")
+	if err := ensureStorageFolders(); err != nil {
+		return err
+	}
+
+	fmt.Println("→ Generating TLS certificate files (cert.pem / cert.key)...")
+	if err := ensureTLSCerts("/home/kasper/certs"); err != nil {
+		return err
+	}
+
 	fmt.Println("→ Building Caspar Docker image (this may take several minutes)...")
-	if err := runCommand("", "docker", "build", "-t", *name, "-f", dockerfile, absProject); err != nil {
+	if err := runCommand("", "docker", "build", "-t", *name+":latest", "-f", dockerfile, absProject); err != nil {
+		return err
+	}
+	if *name != "kasper" {
+		if err := runCommand("", "docker", "tag", *name+":latest", "kasper:latest"); err != nil {
+			return err
+		}
+	}
+
+	_ = runCommandQuiet("", "docker", "rm", "-f", "kasper-proxy")
+	_ = runCommandQuiet("", "docker", "rm", "-f", *containerName)
+
+	fmt.Println("→ Running prepare-testnet.sh...")
+	if err := runCommand(scriptsDir, "bash", "prepare-testnet.sh"); err != nil {
 		return err
 	}
 
-	volumeName := *name + "-storage"
-	_ = runCommandQuiet("", "docker", "volume", "create", volumeName)
-	_ = runCommandQuiet("", "docker", "rm", "-f", *name)
-
-	fmt.Println("→ Starting Caspar container...")
-	if err := runCommand("", "docker", "run", "-d",
-		"--name", *name,
-		"--restart", "unless-stopped",
-		"--env-file", absEnv,
-		"-v", volumeName+":/app/storage",
-		"-p", "9999:9999",
-		"-p", "9099:9099",
-		*name,
-	); err != nil {
+	fmt.Println("→ Running run-testnet.sh...")
+	if err := runCommand(scriptsDir, "bash", "run-testnet.sh"); err != nil {
 		return err
 	}
 
-	if err := writeSavedName(absProject, *name); err != nil {
+	if err := writeSavedName(absProject, *containerName); err != nil {
+		return err
+	}
+	if err := writeSavedImage(absProject, *name); err != nil {
 		return err
 	}
 
-	fmt.Printf("✓ Caspar installed and running in container %q\n", *name)
+	_ = absEnv
+	fmt.Printf("✓ Caspar testnet node installed and running in container %q\n", *containerName)
 	fmt.Printf("  View live dashboard: casparctl stats\n")
 	return nil
 }
@@ -244,10 +279,14 @@ func runPurge(args []string) error {
 	}
 
 	_ = runCommandQuiet("", "docker", "rm", "-f", name)
-	_ = runCommandQuiet("", "docker", "rmi", name)
-	_ = runCommandQuiet("", "docker", "volume", "rm", name+"-storage")
+	_ = runCommandQuiet("", "docker", "rm", "-f", "kasper-proxy")
+	imageName, imgErr := loadSavedImage(absProject)
+	if imgErr == nil {
+		_ = runCommandQuiet("", "docker", "rmi", imageName+":latest")
+	}
+	_ = runCommandQuiet("", "docker", "rmi", "kasper:latest")
 
-	fmt.Printf("✓ Purged Caspar container %q, image %q, and storage volume\n", name, name)
+	fmt.Printf("✓ Purged Caspar containers and images for %q\n", name)
 	return nil
 }
 
@@ -737,6 +776,133 @@ func requireDocker() error {
 	return nil
 }
 
+func ensureDockerReady() error {
+	if err := requireDocker(); err == nil {
+		return nil
+	}
+	if runtime.GOOS != "linux" {
+		return errors.New("docker is required and auto-install is only implemented on linux")
+	}
+	fmt.Println("→ Docker was not detected; attempting automatic installation...")
+	if err := runPrivilegedCommand("apt-get", "update"); err != nil {
+		return fmt.Errorf("docker install failed during apt-get update: %w", err)
+	}
+	if err := runPrivilegedCommand("apt-get", "install", "-y", "docker.io"); err != nil {
+		return fmt.Errorf("docker install failed during apt-get install docker.io: %w", err)
+	}
+	_ = runPrivilegedCommand("systemctl", "enable", "--now", "docker")
+	return requireDocker()
+}
+
+func runPrivilegedCommand(name string, args ...string) error {
+	if err := runCommand("", name, args...); err == nil {
+		return nil
+	}
+	if _, err := exec.LookPath("sudo"); err == nil {
+		return runCommand("", "sudo", append([]string{name}, args...)...)
+	}
+	return runCommand("", name, args...)
+}
+
+func configureRunscRuntime() error {
+	daemonPath := "/etc/docker/daemon.json"
+	cfg := map[string]interface{}{}
+
+	if raw, err := os.ReadFile(daemonPath); err == nil && len(bytes.TrimSpace(raw)) > 0 {
+		if err := json.Unmarshal(raw, &cfg); err != nil {
+			return fmt.Errorf("failed to parse %s: %w", daemonPath, err)
+		}
+	}
+
+	runtimes, _ := cfg["runtimes"].(map[string]interface{})
+	if runtimes == nil {
+		runtimes = map[string]interface{}{}
+	}
+	runscCfg := map[string]interface{}{
+		"path": "runsc",
+		"runtimeArgs": []string{
+			"--network=host",
+		},
+	}
+	runtimes["runsc"] = runscCfg
+	cfg["runtimes"] = runtimes
+
+	pretty, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp("", "casparctl-daemon-*.json")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(tmp.Name())
+	if _, err := tmp.Write(pretty); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := runPrivilegedCommand("cp", tmp.Name(), daemonPath); err != nil {
+		return fmt.Errorf("failed to write %s: %w", daemonPath, err)
+	}
+	_ = runPrivilegedCommand("systemctl", "restart", "docker")
+	return nil
+}
+
+func ensureStorageFolders() error {
+	dirs := []string{
+		"/home/kasper/data",
+		"/home/kasper/data/docker_proxy",
+		"/home/kasper/data/docker_proxy/ssl",
+		"/home/kasper/data/files",
+		"/home/kasper/data/keys",
+		"/home/kasper/data/chains",
+		"/home/kasper/data/vm_stores",
+		"/home/kasper/data/db",
+		"/home/kasper/data/db/base",
+		"/home/kasper/data/db/applet",
+		"/home/kasper/certs",
+		"/home/kasper/packets",
+		"/root/.babble",
+	}
+	for _, dir := range dirs {
+		if err := runPrivilegedCommand("mkdir", "-p", dir); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func ensureTLSCerts(certDir string) error {
+	certPath := filepath.Join(certDir, "cert.pem")
+	keyPath := filepath.Join(certDir, "cert.key")
+	if _, err := os.Stat(certPath); err == nil {
+		if _, keyErr := os.Stat(keyPath); keyErr == nil {
+			return nil
+		}
+	}
+	if err := runCommand("", "openssl", "req",
+		"-x509",
+		"-newkey", "rsa:2048",
+		"-nodes",
+		"-days", "3650",
+		"-keyout", keyPath,
+		"-out", certPath,
+		"-subj", "/CN=caspar.local",
+		"-addext", "subjectAltName=DNS:localhost,DNS:*.localhost,IP:127.0.0.1",
+	); err != nil {
+		return err
+	}
+	if err := runCommandQuiet("", "cp", certPath, filepath.Join(certDir, "fullchain.pem")); err != nil {
+		return err
+	}
+	if err := runCommandQuiet("", "cp", keyPath, filepath.Join(certDir, "privkey.pem")); err != nil {
+		return err
+	}
+	return nil
+}
+
 func validateDockerName(name string) error {
 	trimmed := strings.TrimSpace(name)
 	if trimmed == "" {
@@ -811,6 +977,41 @@ func writeSavedName(projectDir, name string) error {
 		return err
 	}
 	return os.WriteFile(path, []byte(strings.TrimSpace(name)+"\n"), 0o644)
+}
+
+func imageFilePath(projectDir string) (string, error) {
+	absProject, err := filepath.Abs(projectDir)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(absProject, imageFileName), nil
+}
+
+func writeSavedImage(projectDir, image string) error {
+	if err := validateDockerName(image); err != nil {
+		return err
+	}
+	path, err := imageFilePath(projectDir)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, []byte(strings.TrimSpace(image)+"\n"), 0o644)
+}
+
+func loadSavedImage(projectDir string) (string, error) {
+	path, err := imageFilePath(projectDir)
+	if err != nil {
+		return "", err
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("could not read %s; run install first to generate it", path)
+	}
+	name := strings.TrimSpace(string(data))
+	if err := validateDockerName(name); err != nil {
+		return "", fmt.Errorf("invalid image name stored in %s: %w", path, err)
+	}
+	return name, nil
 }
 
 func loadSavedName(projectDir string) (string, error) {
