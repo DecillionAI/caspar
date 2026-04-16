@@ -38,16 +38,6 @@ Caspar is a decentralized protocol stack with hashgraph-style consensus, federat
   - Added verifiable-chain scaffolding with PoS election + shard planning (now in `sdk/creatures/`).
   - Refreshed markdown docs and route naming notes.
 
-## 🚀 Quick Start
-
-```bash
-cd node
-cp sample.env .env
-cd appengine && cargo build
-cd .. && CGO_ENABLED=1 go build -o kasper .
-./kasper
-```
-
 ## 🛠️ `casparctl` CLI
 
 ```bash
