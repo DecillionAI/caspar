@@ -136,6 +136,7 @@ func runInstall(args []string) error {
 	fs := flag.NewFlagSet("install", flag.ContinueOnError)
 	projectDir := fs.String("project-dir", "", "path to Caspar node directory (auto-detected when omitted)")
 	envFile := fs.String("env-file", ".env", "environment file relative to project-dir")
+	envvpath := fs.String("envvpath", "", "path to a ready environment file to copy into project as --env-file")
 	name := fs.String("name", "kasper", "docker image name for node image tags")
 	containerName := fs.String("container-name", "node1", "container name expected by testnet run script")
 	if err := fs.Parse(args); err != nil {
@@ -164,6 +165,16 @@ func runInstall(args []string) error {
 	}
 
 	absEnv := filepath.Join(absProject, *envFile)
+	if strings.TrimSpace(*envvpath) != "" {
+		srcEnv, err := filepath.Abs(strings.TrimSpace(*envvpath))
+		if err != nil {
+			return fmt.Errorf("failed to resolve --envvpath: %w", err)
+		}
+		if err := copyFile(srcEnv, absEnv); err != nil {
+			return fmt.Errorf("failed to copy --envvpath file to %s: %w", absEnv, err)
+		}
+		fmt.Printf("→ Copied environment file from %s to %s\n", srcEnv, absEnv)
+	}
 	if _, err := os.Stat(absEnv); err != nil {
 		return fmt.Errorf("env file not found at %s (copy sample.env to .env first)", absEnv)
 	}
@@ -1032,6 +1043,30 @@ func loadSavedName(projectDir string) (string, error) {
 
 func containerExists(container string) bool {
 	return exec.Command("docker", "container", "inspect", container).Run() == nil
+}
+
+func copyFile(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		return err
+	}
+
+	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+
+	if _, err := io.Copy(out, in); err != nil {
+		return err
+	}
+
+	return out.Sync()
 }
 
 func runCommand(workdir, name string, args ...string) error {
