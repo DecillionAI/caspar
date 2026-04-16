@@ -2,21 +2,12 @@ package main
 
 import (
 	"encoding/json"
+	"runtime"
 	"unsafe"
 )
 
 //go:wasmimport env hostCall
 func hostCall(offset uint32, length uint32) uint64
-
-var heap = make([]byte, 1024*1024)
-var heapPtr uint32 = 8
-
-//export malloc
-func malloc(size uint32) uint32 {
-	ptr := heapPtr
-	heapPtr += size
-	return ptr
-}
 
 type packet struct {
 	Path       string         `json:"path"`
@@ -30,14 +21,29 @@ func bytesAt(offset uint32, length uint32) []byte {
 }
 
 func stringAt(offset uint32, length uint32) string {
+	if length == 0 {
+		return ""
+	}
 	return string(bytesAt(offset, length))
 }
 
+func bytesToPointer(data []byte) (uint32, uint32) {
+	if len(data) == 0 {
+		return 0, 0
+	}
+	return uint32(uintptr(unsafe.Pointer(&data[0]))), uint32(len(data))
+}
+
+func decodeHostResult(ret uint64) (uint32, uint32) {
+	return uint32(ret >> 32), uint32(ret)
+}
+
 func hostRequest(req string) string {
-	ptr := uint32(uintptr(unsafe.Pointer(unsafe.StringData(req))))
-	ret := hostCall(ptr, uint32(len(req)))
-	retOffset := uint32(ret >> 32)
-	retLen := uint32(ret)
+	reqBytes := []byte(req)
+	ptr, length := bytesToPointer(reqBytes)
+	ret := hostCall(ptr, length)
+	runtime.KeepAlive(reqBytes)
+	retOffset, retLen := decodeHostResult(ret)
 	return stringAt(retOffset, retLen)
 }
 
