@@ -25,9 +25,9 @@ import (
 const pluginsTemplateName = "/machines/"
 
 type Actions struct {
-	App             core.ICore
-	vmBillingLock   sync.Mutex
-	lastBillingHour int64
+	App            core.ICore
+	vmBillingLock  sync.Mutex
+	lastBillingMin int64
 }
 
 func normalizeEntityType(entityType string) string {
@@ -69,15 +69,46 @@ func toInt64(raw any) (int64, bool) {
 	}
 }
 
-func (a *Actions) vmHourlyCost() int64 {
-	cost := a.App.ExecutionCostPerSecond() * 3600
+type VmResources struct {
+	MaxExecTimeSeconds int64 `json:"maxExecTimeSeconds"`
+	RamMb              int64 `json:"ramMb"`
+	DiskGb             int64 `json:"diskGb"`
+	CpuCores           int64 `json:"cpuCores"`
+}
+
+func normalizeVmResources(in inputs_machiner.VmResourcesInput) VmResources {
+	res := VmResources{
+		MaxExecTimeSeconds: in.MaxExecTimeSeconds,
+		RamMb:              in.RamMb,
+		DiskGb:             in.DiskGb,
+		CpuCores:           in.CpuCores,
+	}
+	if res.MaxExecTimeSeconds <= 0 {
+		res.MaxExecTimeSeconds = 60
+	}
+	if res.RamMb <= 0 {
+		res.RamMb = 64
+	}
+	if res.DiskGb <= 0 {
+		res.DiskGb = 1
+	}
+	if res.CpuCores <= 0 {
+		res.CpuCores = 1
+	}
+	return res
+}
+
+func (a *Actions) vmPerMinuteCost(resources VmResources) int64 {
+	cost := (resources.RamMb * a.App.VmRamCostPerMbPerMinute()) +
+		(resources.CpuCores * a.App.VmCpuCoreCostPerMinute()) +
+		(resources.DiskGb * a.App.VmDiskCostPerGbPerMinute())
 	if cost <= 0 {
 		return 1
 	}
 	return cost
 }
 
-func (a *Actions) validateAndBuildVmBilling(trx trx.ITrx, payerId string, lockId string, paymentSignatures []string) (map[string]any, error) {
+func (a *Actions) validateAndBuildVmBilling(trx trx.ITrx, payerId string, lockId string, paymentSignatures []string, resources VmResources) (map[string]any, error) {
 	if lockId == "" {
 		return nil, errors.New("paymentLockId is required for standalone vm execution")
 	}
@@ -96,7 +127,7 @@ func (a *Actions) validateAndBuildVmBilling(trx trx.ITrx, payerId string, lockId
 	if len(paymentSignatures) != len(stepsRaw) {
 		return nil, errors.New("paymentSignatures count must match lock steps count")
 	}
-	hourlyCost := a.vmHourlyCost()
+	perMinuteCost := a.vmPerMinuteCost(resources)
 	stepUnlocks := make([]int64, len(stepsRaw))
 	for i, rawStep := range stepsRaw {
 		step, ok := rawStep.(map[string]any)
@@ -104,16 +135,16 @@ func (a *Actions) validateAndBuildVmBilling(trx trx.ITrx, payerId string, lockId
 			return nil, errors.New("invalid payment lock step")
 		}
 		stepAmount, ok := toInt64(step["amount"])
-		if !ok || stepAmount != hourlyCost {
-			return nil, errors.New("payment lock step amount must match vm hourly cost")
+		if !ok || stepAmount != perMinuteCost {
+			return nil, errors.New("payment lock step amount must match vm per-minute resource cost")
 		}
 		unlockAt, ok := toInt64(step["unlockAt"])
 		if !ok || unlockAt <= 0 {
 			return nil, errors.New("payment lock step unlockAt is invalid")
 		}
 		stepUnlocks[i] = unlockAt
-		if i > 0 && (stepUnlocks[i]-stepUnlocks[i-1] != int64(time.Hour/time.Millisecond)) {
-			return nil, errors.New("payment lock steps must be one-hour apart")
+		if i > 0 && (stepUnlocks[i]-stepUnlocks[i-1] != int64(time.Minute/time.Millisecond)) {
+			return nil, errors.New("payment lock steps must be one-minute apart")
 		}
 		signPayload := []byte(fmt.Sprintf("%s:%d:%d:%d:%s", lockId, i, unlockAt, stepAmount, a.App.OwnerId()))
 		if success, _, _ := a.App.Tools().Security().AuthWithSignature(payerId, signPayload, paymentSignatures[i]); !success {
@@ -121,13 +152,14 @@ func (a *Actions) validateAndBuildVmBilling(trx trx.ITrx, payerId string, lockId
 		}
 	}
 	return map[string]any{
-		"payerUserId":    payerId,
-		"lockId":         lockId,
-		"hourlyCost":     hourlyCost,
-		"currentStep":    0,
-		"stepCount":      len(stepsRaw),
-		"lastChargeHour": int64(-1),
-		"signatures":     paymentSignatures,
+		"payerUserId":      payerId,
+		"lockId":           lockId,
+		"perMinuteCost":    perMinuteCost,
+		"currentStep":      0,
+		"stepCount":        len(stepsRaw),
+		"lastChargeMinute": int64(-1),
+		"signatures":       paymentSignatures,
+		"resources":        resources,
 	}, nil
 }
 
@@ -135,8 +167,8 @@ func (a *Actions) chargeRunningStandaloneVmsIfNeeded() {
 	a.vmBillingLock.Lock()
 	defer a.vmBillingLock.Unlock()
 	now := time.Now().UTC()
-	currentHour := now.Unix() / int64(time.Hour.Seconds())
-	if a.lastBillingHour == currentHour {
+	currentMinute := now.Unix() / int64(time.Minute.Seconds())
+	if a.lastBillingMin == currentMinute {
 		return
 	}
 	chargeTargets := []map[string]any{}
@@ -160,15 +192,15 @@ func (a *Actions) chargeRunningStandaloneVmsIfNeeded() {
 			}
 			payerId, _ := billing["payerUserId"].(string)
 			lockId, _ := billing["lockId"].(string)
-			hourlyCost, _ := toInt64(billing["hourlyCost"])
-			lastChargeHour, _ := toInt64(billing["lastChargeHour"])
+			perMinuteCost, _ := toInt64(billing["perMinuteCost"])
+			lastChargeMinute, _ := toInt64(billing["lastChargeMinute"])
 			machineId, _ := billing["machineId"].(string)
 			entityId, _ := billing["entityId"].(string)
 			signaturesRaw, _ := billing["signatures"].([]any)
-			if payerId == "" || lockId == "" || hourlyCost <= 0 || machineId == "" || entityId == "" {
+			if payerId == "" || lockId == "" || perMinuteCost <= 0 || machineId == "" || entityId == "" {
 				continue
 			}
-			if lastChargeHour == currentHour {
+			if lastChargeMinute == currentMinute {
 				continue
 			}
 			signatures := make([]string, len(signaturesRaw))
@@ -180,7 +212,7 @@ func (a *Actions) chargeRunningStandaloneVmsIfNeeded() {
 				continue
 			}
 			if int(nextStep) >= len(signatures) {
-				if lastChargeHour < currentHour {
+				if lastChargeMinute < currentMinute {
 					chargeTargets = append(chargeTargets, map[string]any{
 						"vmId":      vmId,
 						"machineId": machineId,
@@ -195,7 +227,7 @@ func (a *Actions) chargeRunningStandaloneVmsIfNeeded() {
 				"payerUserId": payerId,
 				"lockId":      lockId,
 				"step":        int(nextStep),
-				"amount":      hourlyCost,
+				"amount":      perMinuteCost,
 				"signature":   signatures[nextStep],
 				"machineId":   machineId,
 				"entityId":    entityId,
@@ -247,13 +279,13 @@ func (a *Actions) chargeRunningStandaloneVmsIfNeeded() {
 				tx.DelJson("Json::VmBilling::"+vmId, "payment")
 			} else if billing, e := tx.GetJson("Json::VmBilling::"+vmId, "payment"); e == nil {
 				billing["currentStep"] = int64(step + 1)
-				billing["lastChargeHour"] = currentHour
+				billing["lastChargeMinute"] = currentMinute
 				tx.PutJson("Json::VmBilling::"+vmId, "payment", billing, true)
 			}
 			return nil
 		})
 	}
-	a.lastBillingHour = currentHour
+	a.lastBillingMin = currentMinute
 }
 
 func (a *Actions) terminateStandaloneVm(machineId string, entityId string, vmId string) {
@@ -407,7 +439,8 @@ func (a *Actions) RunProgramEntity(state state.IState, input inputs_machiner.Run
 	}
 	vmId := uuid.NewString()
 	trx.PutLink("VmStatus::"+vmId, "running")
-	billingData, billingErr := a.validateAndBuildVmBilling(trx, state.Info().UserId(), input.PaymentLockId, input.PaymentSignatures)
+	resources := normalizeVmResources(input.Resources)
+	billingData, billingErr := a.validateAndBuildVmBilling(trx, state.Info().UserId(), input.PaymentLockId, input.PaymentSignatures, resources)
 	if billingErr != nil {
 		return nil, billingErr
 	}
@@ -435,6 +468,7 @@ func (a *Actions) RunProgramEntity(state state.IState, input inputs_machiner.Run
 					"containerName": containerName,
 					"standalone":    true,
 					"vmId":          vmId,
+					"resources":     resources,
 					"imageRef":      strings.ReplaceAll(input.MachineId, "@", "_") + "/" + entityImageId,
 					"inputFiles":    params,
 				},
@@ -456,6 +490,7 @@ func (a *Actions) RunProgramEntity(state state.IState, input inputs_machiner.Run
 				"entityId":   input.EntityId,
 				"standalone": true,
 				"vmId":       vmId,
+				"resources":  resources,
 				"data":       string(data),
 			},
 		})

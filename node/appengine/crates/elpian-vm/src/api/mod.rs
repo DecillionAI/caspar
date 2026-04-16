@@ -271,3 +271,10 @@ pub fn vm_exists(machine_id: String) -> bool {
     let vms = VMS.lock().unwrap();
     vms.contains_key(&machine_id)
 }
+
+/// Return estimated memory usage in bytes for a VM, if it exists.
+pub fn vm_memory_usage_bytes(machine_id: String) -> Option<u64> {
+    let vms = VMS.lock().unwrap();
+    vms.get(&machine_id)
+        .map(|vm| vm.estimated_memory_bytes() as u64)
+}

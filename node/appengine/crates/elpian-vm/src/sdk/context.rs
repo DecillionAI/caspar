@@ -157,4 +157,11 @@ impl Context {
     pub fn find_val_in_first_scope(&mut self, name: String) -> Val {
         self.memory.first().unwrap().borrow().find_val(name.clone())
     }
+
+    pub fn estimated_heap_bytes(&self) -> usize {
+        self.memory
+            .iter()
+            .map(|scope| scope.borrow().memory.borrow().estimated_heap_bytes())
+            .sum::<usize>()
+    }
 }

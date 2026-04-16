@@ -37,5 +37,8 @@ type ICore interface {
 	SignPacket(data []byte) string
 	SignPacketAsOwner(data []byte) string
 	ExecutionCostPerSecond() int64
+	VmRamCostPerMbPerMinute() int64
+	VmCpuCoreCostPerMinute() int64
+	VmDiskCostPerGbPerMinute() int64
 	Globe() globe.IGlobe
 }

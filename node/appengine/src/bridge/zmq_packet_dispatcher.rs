@@ -40,6 +40,7 @@ fn dispatch_run_vm_packet(packet: &JsonValue, env: &ZmqPacketEnvelope) -> String
     let machine_id = env.machine_id.clone();
     let vm_id = env.vm_id.clone();
     let runtime = detect_vm_runtime(packet, &ast_path);
+    let limits = parse_vm_resource_limits(packet);
 
     if runtime == VmRuntime::Elpify {
         let vm_handle = {
@@ -53,6 +54,7 @@ fn dispatch_run_vm_packet(packet: &JsonValue, env: &ZmqPacketEnvelope) -> String
             masm_path: ast_path,
             input_raw: input,
             vm_id,
+            limits,
         }) {
             return json!({"ok": false, "error": format!("failed to schedule elpify task: {}", e)})
                 .to_string();
@@ -61,7 +63,8 @@ fn dispatch_run_vm_packet(packet: &JsonValue, env: &ZmqPacketEnvelope) -> String
     }
 
     if runtime == VmRuntime::Elpian {
-        return match execute_elpian_task(&machine_id, vm_id, ast_path, input) {
+        let limits = parse_vm_resource_limits(packet);
+        return match execute_elpian_task(&machine_id, vm_id, ast_path, input, limits) {
             Ok(()) => json!({"ok": true, "runtime": "elpian", "machineId": machine_id}).to_string(),
             Err(e) => json!({"ok": false, "error": format!("elpian task failed for machine {}: {}", machine_id, e)}).to_string(),
         };
@@ -71,6 +74,7 @@ fn dispatch_run_vm_packet(packet: &JsonValue, env: &ZmqPacketEnvelope) -> String
         let fire_packet = json!({
             "machineId": machine_id,
             "vmId": packet["vmId"].as_str().unwrap_or("main"),
+            "resources": packet["resources"].clone(),
         });
         return match with_fire_controller(|controller| controller.run_vm(&fire_packet)) {
             Ok(res) => res.to_string(),
@@ -94,6 +98,7 @@ fn dispatch_run_vm_packet(packet: &JsonValue, env: &ZmqPacketEnvelope) -> String
             vm_id.clone(),
             store_id,
             ast_path.clone(),
+            limits.ram_mb,
             Box::new(wasm_send),
         );
         {
@@ -106,6 +111,19 @@ fn dispatch_run_vm_packet(packet: &JsonValue, env: &ZmqPacketEnvelope) -> String
                 },
             );
         }
+        let stop_flag = Arc::clone(&rt.stop_);
+        let timeout_machine = machine_id.clone();
+        let timeout_vm = vm_id.clone();
+        thread::spawn(move || {
+            thread::sleep(Duration::from_secs(limits.max_exec_time_secs));
+            if !stop_flag.load(Ordering::Relaxed) {
+                stop_flag.store(true, Ordering::Relaxed);
+                log(format!(
+                    "wasm vm timeout reached: machine={} vm={} limit={}s",
+                    timeout_machine, timeout_vm, limits.max_exec_time_secs
+                ));
+            }
+        });
         rt.execute_on_update(inp1);
         rt.finalize();
         let mut map = GLOBAL_MANAGED_VMS.lock().unwrap();

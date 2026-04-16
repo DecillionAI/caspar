@@ -18,7 +18,8 @@ impl VmController for ElpianVmController {
         let vm_id = packet["vmId"].as_str().unwrap_or("main").to_string();
         let ast_path = packet["astPath"].as_str().unwrap_or("").to_string();
         let input = packet["input"].as_str().unwrap_or("{}").to_string();
-        execute_elpian_task(machine_id, vm_id, ast_path, input)?;
+        let limits = parse_vm_resource_limits(packet);
+        execute_elpian_task(machine_id, vm_id, ast_path, input, limits)?;
         Ok(json!({"ok": true, "runtime": "elpian", "machineId": machine_id}))
     }
 

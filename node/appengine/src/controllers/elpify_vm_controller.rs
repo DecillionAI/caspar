@@ -21,6 +21,7 @@ impl VmController for ElpifyVmController {
         let vm_id = packet["vmId"].as_str().unwrap_or("main").to_string();
         let masm_path = packet["astPath"].as_str().unwrap_or("").to_string();
         let input_raw = packet["input"].as_str().unwrap_or("{}").to_string();
+        let limits = parse_vm_resource_limits(packet);
         let vm_handle = {
             let mut map = GLOBAL_ELPIFY_VMS.lock().unwrap();
             Arc::clone(
@@ -32,6 +33,7 @@ impl VmController for ElpifyVmController {
             masm_path,
             input_raw,
             vm_id,
+            limits,
         })?;
         Ok(json!({"ok": true, "runtime": "elpify", "machineId": machine_id}))
     }
