@@ -1,8 +1,8 @@
 package sdk
 
 import (
+	"encoding/json"
 	"fmt"
-	"strings"
 	"unsafe"
 )
 
@@ -10,6 +10,12 @@ import (
 //
 //go:wasmimport env hostCall
 func hostCall(offset uint32, length uint32) uint64
+
+type hostEnvelope struct {
+	Op    string      `json:"op"`
+	Key   string      `json:"key"`
+	Input interface{} `json:"input"`
+}
 
 func bytesAt(offset uint32, length uint32) []byte {
 	return unsafe.Slice((*byte)(unsafe.Pointer(uintptr(offset))), length)
@@ -19,66 +25,87 @@ func stringAt(offset uint32, length uint32) string {
 	return string(bytesAt(offset, length))
 }
 
-func hostRequest(req string) string {
-	ptr := uint32(uintptr(unsafe.Pointer(unsafe.StringData(req))))
+func hostRequestBytes(req []byte) string {
+	if len(req) == 0 {
+		return ""
+	}
+	ptr := uint32(uintptr(unsafe.Pointer(&req[0])))
 	ret := hostCall(ptr, uint32(len(req)))
 	retOffset := uint32(ret >> 32)
 	retLen := uint32(ret)
 	return stringAt(retOffset, retLen)
 }
 
-func call(op string, input string) string {
-	return hostRequest(fmt.Sprintf(`{"op":"%s","input":%s}`, op, input))
+func callWithKey(op string, key string, input interface{}) string {
+	env := hostEnvelope{Op: op, Key: key, Input: input}
+	payload, err := json.Marshal(env)
+	if err != nil {
+		return `{"ok":false,"error":"sdk marshal failed"}`
+	}
+	return hostRequestBytes(payload)
 }
 
-func quote(v string) string {
-	return `"` + strings.ReplaceAll(v, `"`, `\"`) + `"`
+func call(op string, input interface{}) string {
+	return callWithKey(op, op, input)
+}
+
+func callRaw(op string, input string) string {
+	var raw json.RawMessage = []byte(input)
+	if !json.Valid(raw) {
+		raw = json.RawMessage(`{}`)
+	}
+	env := hostEnvelope{Op: op, Key: op, Input: raw}
+	payload, err := json.Marshal(env)
+	if err != nil {
+		return `{"ok":false,"error":"sdk marshal failed"}`
+	}
+	return hostRequestBytes(payload)
 }
 
 // ---- Full helper surface mirroring machines/wasm sdk host capabilities ----
 
 func HttpPost(url string, headers string, body string) string {
-	return call("httpPost", fmt.Sprintf(`{"url":%s,"headers":%s,"body":%s}`, quote(url), quote(headers), quote(body)))
+	return call("httpPost", map[string]interface{}{"url": url, "headers": headers, "body": body})
 }
 
 func PlantTrigger(tag string, input string, storeID string, count int) string {
-	return call("plantTrigger", fmt.Sprintf(`{"tag":%s,"input":%s,"storeId":%s,"count":%d}`, quote(tag), quote(input), quote(storeID), count))
+	return call("plantTrigger", map[string]interface{}{"tag": tag, "input": input, "storeId": storeID, "count": count})
 }
 
 func SignalStore(typ string, storeID string, userID string, data string) string {
-	return call("signalStore", fmt.Sprintf(`{"type":%s,"storeId":%s,"userId":%s,"data":%s}`, quote(typ), quote(storeID), quote(userID), quote(data)))
+	return call("signal", map[string]interface{}{"type": typ, "storeId": storeID, "userId": userID, "data": data})
 }
 
 func RunDocker(machineID string, storeID string, containerMeta string) string {
-	return call("runVm", fmt.Sprintf(`{"machineId":%s,"storeId":%s,"containerMeta":%s,"runtime":"docker"}`, quote(machineID), quote(storeID), quote(containerMeta)))
+	return call("runVm", map[string]interface{}{"machineId": machineID, "storeId": storeID, "containerMeta": containerMeta, "runtime": "docker"})
 }
 
 func ExecDocker(machineID string, imageName string, containerName string, command string) string {
-	return call("execVm", fmt.Sprintf(`{"machineId":%s,"imageName":%s,"containerName":%s,"command":%s}`, quote(machineID), quote(imageName), quote(containerName), quote(command)))
+	return call("execVm", map[string]interface{}{"machineId": machineID, "imageName": imageName, "containerName": containerName, "command": command})
 }
 
 func CopyToDocker(machineID string, imageName string, containerName string, fileName string, content string) string {
-	return call("copyToVm", fmt.Sprintf(`{"machineId":%s,"imageName":%s,"containerName":%s,"fileName":%s,"content":%s}`, quote(machineID), quote(imageName), quote(containerName), quote(fileName), quote(content)))
+	return call("copyToVm", map[string]interface{}{"machineId": machineID, "imageName": imageName, "containerName": containerName, "fileName": fileName, "content": content})
 }
 
 func Put(key string, val string) string {
-	return call("dbOp", fmt.Sprintf(`{"op":"put","key":%s,"val":%s}`, quote(key), quote(val)))
+	return call("dbOp", map[string]interface{}{"op": "put", "key": key, "val": val})
 }
 
 func Del(key string) string {
-	return call("dbOp", fmt.Sprintf(`{"op":"del","key":%s}`, quote(key)))
+	return call("dbOp", map[string]interface{}{"op": "del", "key": key})
 }
 
 func Get(key string) string {
-	return call("dbOp", fmt.Sprintf(`{"op":"get","key":%s}`, quote(key)))
+	return call("dbOp", map[string]interface{}{"op": "get", "key": key})
 }
 
 func GetByPrefix(prefix string) string {
-	return call("dbOp", fmt.Sprintf(`{"op":"getByPrefix","prefix":%s}`, quote(prefix)))
+	return call("dbOp", map[string]interface{}{"op": "getByPrefix", "prefix": prefix})
 }
 
 func ConsoleLog(text string) string {
-	return call("consoleLog", fmt.Sprintf(`{"text":%s}`, quote(text)))
+	return call("consoleLog", map[string]interface{}{"text": text})
 }
 
 func SubmitOnchainTrx(targetMachineID string, key string, packet string, tag string, isFile bool, isBase bool) string {
@@ -92,76 +119,85 @@ func SubmitOnchainTrx(targetMachineID string, key string, packet string, tag str
 		meta += "0"
 	}
 	meta += tag
-	return call("submitOnchainTrx", fmt.Sprintf(`{"targetMachineId":%s,"key":%s,"packet":%s,"meta":%s}`,
-		quote(targetMachineID), quote(key), quote(packet), quote(meta)))
+	return call("submitOnchainTrx", map[string]interface{}{"targetMachineId": targetMachineID, "key": key, "packet": packet, "meta": meta})
 }
 
 func Output(text string) string {
-	return call("output", fmt.Sprintf(`{"text":%s}`, quote(text)))
+	return call("output", map[string]interface{}{"text": text})
 }
 
 func NewSyncTask(name string, deps []string) string {
-	quotedDeps := make([]string, 0, len(deps))
-	for _, dep := range deps {
-		quotedDeps = append(quotedDeps, quote(dep))
-	}
-	return call("newSyncTask", fmt.Sprintf(`{"name":%s,"deps":[%s]}`, quote(name), strings.Join(quotedDeps, ",")))
+	return call("newSyncTask", map[string]interface{}{"name": name, "deps": deps})
 }
 
 func CheckTokenValidity(token string) string {
-	return call("checkTokenValidity", fmt.Sprintf(`{"token":%s}`, quote(token)))
+	return call("checkTokenValidity", map[string]interface{}{"token": token})
 }
 
 func SendMessageOnChain(storeID string, payload string) string {
-	return call("sendMessageOnChain", fmt.Sprintf(`{"storeId":%s,"payload":%s}`, quote(storeID), quote(payload)))
+	return call("sendMessageOnChain", map[string]interface{}{"storeId": storeID, "payload": payload})
 }
 
 func RunVm(machineID string, input string, astPath string, runtime string) string {
-	return call("runVm", fmt.Sprintf(`{"machineId":%s,"input":%s,"astPath":%s,"runtime":%s}`, quote(machineID), quote(input), quote(astPath), quote(runtime)))
+	return call("runVm", map[string]interface{}{"machineId": machineID, "input": input, "astPath": astPath, "runtime": runtime})
 }
 
 func TerminateVm(machineID string) string {
-	return call("terminateVm", fmt.Sprintf(`{"machineId":%s}`, quote(machineID)))
+	return call("terminateVm", map[string]interface{}{"machineId": machineID})
 }
 
 func LockResource(resourceID string, ownerID string) string {
-	return call("lockResource", fmt.Sprintf(`{"runtime":"wasm","resourceId":%s,"ownerId":%s}`, quote(resourceID), quote(ownerID)))
+	return call("lockResource", map[string]interface{}{"runtime": "wasm", "resourceId": resourceID, "ownerId": ownerID})
 }
 
 func UnlockResource(resourceID string, ownerID string) string {
-	return call("unlockResource", fmt.Sprintf(`{"runtime":"wasm","resourceId":%s,"ownerId":%s}`, quote(resourceID), quote(ownerID)))
+	return call("unlockResource", map[string]interface{}{"runtime": "wasm", "resourceId": resourceID, "ownerId": ownerID})
 }
 
-func CreateCreature(input string) string { return call("createCreature", input) }
-func UpdateCreature(input string) string { return call("updateCreature", input) }
-func DeleteCreature(input string) string { return call("deleteCreature", input) }
-func GetCreature(input string) string    { return call("getCreature", input) }
-func ListCreatures(input string) string  { return call("listCreatures", input) }
+func Signal(input string) string        { return callRaw("signal", input) }
+func CreateStore(input string) string   { return callRaw("createStore", input) }
+func DeleteStore(input string) string   { return callRaw("deleteStore", input) }
+func CreateAccess(input string) string  { return callRaw("createAccess", input) }
+func DeleteAccess(input string) string  { return callRaw("deleteAccess", input) }
+func Transfer(input string) string      { return callRaw("transfer", input) }
+func ConsumeLock(input string) string   { return callRaw("consumeLock", input) }
+func LockToken(input string) string     { return callRaw("lockToken", input) }
+func CreateProgram(input string) string { return callRaw("createProgram", input) }
+func DeleteProgram(input string) string { return callRaw("deleteProgram", input) }
+func DeployEntity(input string) string  { return callRaw("deployEntity", input) }
 
-func CreateResourceStore(input string) string { return call("createResourceStore", input) }
-func UpdateResourceStore(input string) string { return call("updateResourceStore", input) }
-func DeleteResourceStore(input string) string { return call("deleteResourceStore", input) }
-func GetResourceStore(input string) string    { return call("getResourceStore", input) }
-func ListResourceStores(input string) string  { return call("listResourceStores", input) }
+func CreateCreature(input string) string { return callRaw("createCreature", input) }
+func UpdateCreature(input string) string { return callRaw("updateCreature", input) }
+func DeleteCreature(input string) string { return callRaw("deleteCreature", input) }
+func GetCreature(input string) string    { return callRaw("getCreature", input) }
+func ListCreatures(input string) string  { return callRaw("listCreatures", input) }
 
-func CreateResourceEntity(input string) string { return call("createResourceEntity", input) }
-func DeleteResourceEntity(input string) string { return call("deleteResourceEntity", input) }
+func CreateResourceStore(input string) string { return callRaw("createStore", input) }
+func UpdateResourceStore(input string) string { return callRaw("createStore", input) }
+func DeleteResourceStore(input string) string { return callRaw("deleteStore", input) }
+func GetResourceStore(input string) string    { return callRaw("getResourceStore", input) }
+func ListResourceStores(input string) string  { return callRaw("listResourceStores", input) }
 
-func CreateWorkchain(input string) string { return call("createWorkchain", input) }
-func DeleteWorkchain(input string) string { return call("deleteWorkchain", input) }
-func CreateSubchain(input string) string  { return call("createSubchain", input) }
-func DeleteSubchain(input string) string  { return call("deleteSubchain", input) }
+func CreateResourceEntity(input string) string { return callRaw("deployEntity", input) }
+func DeleteResourceEntity(input string) string { return callRaw("deleteStore", input) }
 
-func ExecShellAction(input string) string { return call("execShellAction", input) }
+func CreateWorkchain(input string) string { return callRaw("createWorkchain", input) }
+func DeleteWorkchain(input string) string { return callRaw("deleteWorkchain", input) }
+func CreateSubchain(input string) string  { return callRaw("createSubchain", input) }
+func DeleteSubchain(input string) string  { return callRaw("deleteSubchain", input) }
 
-func GenId(input string) string            { return call("genId", input) }
-func GetLink(input string) string          { return call("getLink", input) }
-func PutLink(input string) string          { return call("putLink", input) }
-func DelKey(input string) string           { return call("delKey", input) }
-func GetJson(input string) string          { return call("getJson", input) }
-func PutJson(input string) string          { return call("putJson", input) }
-func GetByPrefix(input string) string      { return call("getByPrefix", input) }
-func HasAccessToStore(input string) string { return call("hasAccessToStore", input) }
-func SignalUser(input string) string       { return call("signalUser", input) }
-func SignalGroup(input string) string      { return call("signalGroup", input) }
-func JoinGroup(input string) string        { return call("joinGroup", input) }
+func ExecShellAction(input string) string { return callRaw("execShellAction", input) }
+
+func GenId(input string) string            { return callRaw("genId", input) }
+func GetLink(input string) string          { return callRaw("getLink", input) }
+func PutLink(input string) string          { return callRaw("putLink", input) }
+func DelKey(input string) string           { return callRaw("delKey", input) }
+func GetJson(input string) string          { return callRaw("getJson", input) }
+func PutJson(input string) string          { return callRaw("putJson", input) }
+func GetByPrefixRaw(input string) string   { return callRaw("getByPrefix", input) }
+func HasAccessToStore(input string) string { return callRaw("hasAccessToStore", input) }
+func SignalUser(input string) string       { return callRaw("signalUser", input) }
+func SignalGroup(input string) string      { return callRaw("signalGroup", input) }
+func JoinGroup(input string) string        { return callRaw("joinGroup", input) }
+
+func Itoa(v int) string { return fmt.Sprintf("%d", v) }
