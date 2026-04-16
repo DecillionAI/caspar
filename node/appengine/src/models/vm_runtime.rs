@@ -6,6 +6,7 @@ pub struct WasmMac {
     pub trx: Box<Trx>,
     pub mod_path: String,
     pub cost: u64,
+    pub ram_limit_mb: u64,
 
     execution_result: String,
     has_output: bool,
@@ -16,6 +17,14 @@ pub struct WasmMac {
 pub struct ManagedVmHandle {
     stop: Arc<AtomicBool>,
     running: Arc<AtomicBool>,
+}
+
+#[derive(Clone, Debug)]
+struct VmResourceLimits {
+    max_exec_time_secs: u64,
+    ram_mb: u64,
+    disk_gb: u64,
+    cpu_cores: u64,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -30,6 +39,7 @@ struct ElpifyTask {
     masm_path: String,
     input_raw: String,
     vm_id: String,
+    limits: VmResourceLimits,
 }
 
 struct ElpifyManagedVm {
@@ -43,6 +53,29 @@ impl ManagedVmHandle {
         // WasmEdge sync executor in this integration does not expose a hard preemptive kill.
         // Cooperative stop is the available termination mechanism.
     }
+}
+
+impl VmResourceLimits {
+    fn with_defaults() -> Self {
+        VmResourceLimits {
+            max_exec_time_secs: 60,
+            ram_mb: 64,
+            disk_gb: 1,
+            cpu_cores: 1,
+        }
+    }
+}
+
+fn parse_vm_resource_limits(packet: &JsonValue) -> VmResourceLimits {
+    let mut limits = VmResourceLimits::with_defaults();
+    let resources = &packet["resources"];
+    if resources.is_object() {
+        limits.max_exec_time_secs = resources["maxExecTimeSeconds"].as_u64().unwrap_or(60).max(1);
+        limits.ram_mb = resources["ramMb"].as_u64().unwrap_or(64).max(1);
+        limits.disk_gb = resources["diskGb"].as_u64().unwrap_or(1).max(1);
+        limits.cpu_cores = resources["cpuCores"].as_u64().unwrap_or(1).max(1);
+    }
+    limits
 }
 
 impl ElpifyManagedVm {
@@ -66,6 +99,7 @@ impl ElpifyManagedVm {
                     task.masm_path,
                     task.input_raw,
                     task.vm_id,
+                    task.limits,
                 ) {
                     log(format!(
                         "elpify task failed for machine {}: {}",
@@ -100,6 +134,7 @@ impl WasmMac {
         vm_id: String,
         store_id: String,
         mod_path: String,
+        ram_limit_mb: u64,
         cb: Box<dyn (Fn(JsonValue) -> String) + Send + Sync>,
     ) -> Self {
         let stop_ = Arc::new(AtomicBool::new(false));
@@ -117,6 +152,7 @@ impl WasmMac {
             stop_: stop_,
             running_: running_,
             cost: 0,
+            ram_limit_mb: ram_limit_mb.max(1),
         }
     }
 
@@ -137,6 +173,9 @@ impl WasmMac {
 
         let mut config = Config::create().unwrap();
         config.measure_cost(true);
+        let bytes = self.ram_limit_mb.saturating_mul(1024).saturating_mul(1024);
+        let pages = ((bytes + 65535) / 65536).max(1);
+        config.set_max_memory_pages((pages.min(u32::MAX as u64)) as u32);
         let stats = Statistics::create().unwrap();
         let mut store = Store::create().unwrap();
 
@@ -213,13 +252,20 @@ impl WasmMac {
 }
 
 fn detect_vm_runtime(packet: &JsonValue, ast_path: &str) -> VmRuntime {
-    let vm_hint = packet["vmType"].as_str().unwrap_or("").to_lowercase();
+    let vm_hint = packet["vmType"]
+        .as_str()
+        .or_else(|| packet["runtime"].as_str())
+        .unwrap_or("")
+        .to_lowercase();
     if vm_hint == "elpify" || vm_hint == "masm" || ast_path.ends_with(".masm") {
         VmRuntime::Elpify
     } else if vm_hint == "elpian" || vm_hint == "elpian_vm" || ast_path.ends_with(".elpian.json") {
         VmRuntime::Elpian
     } else if vm_hint == "fire" || vm_hint == "firecracker" {
         VmRuntime::Fire
+    } else if vm_hint == "javascript" || vm_hint == "quickjs" {
+        // quickjs/javascript is currently executed in the managed wasm VM flow.
+        VmRuntime::Wasm
     } else {
         VmRuntime::Wasm
     }
@@ -362,10 +408,20 @@ fn execute_elpify_task(
     masm_path: String,
     input_raw: String,
     vm_id: String,
+    limits: VmResourceLimits,
 ) -> Result<(), String> {
     set_log_vm_context(&vm_id);
+    let started_at = Instant::now();
     let masm_source = std::fs::read_to_string(&masm_path)
         .map_err(|e| format!("failed to read MASM file {}: {}", masm_path, e))?;
+    let hard_limit_bytes = limits.ram_mb.saturating_mul(1024).saturating_mul(1024);
+    if (masm_source.len() as u64) > hard_limit_bytes {
+        return Err(format!(
+            "elpify vm exceeded memory limit before execution: source={} bytes limit={} bytes",
+            masm_source.len(),
+            hard_limit_bytes
+        ));
+    }
 
     let program_id = if let Some(program_id) = deployed_programs.get(&masm_path) {
         *program_id
@@ -378,6 +434,15 @@ fn execute_elpify_task(
     };
 
     let inputs = extract_elpify_inputs(&input_raw);
+    let estimated_runtime_bytes = (masm_source.len() as u64)
+        .saturating_add((inputs.len() as u64).saturating_mul(8).saturating_mul(16));
+    if estimated_runtime_bytes > hard_limit_bytes {
+        return Err(format!(
+            "elpify vm exceeded memory limit: estimated={} bytes limit={} bytes",
+            estimated_runtime_bytes,
+            hard_limit_bytes
+        ));
+    }
     let result = engine
         .submit_task(
             program_id,
@@ -386,6 +451,12 @@ fn execute_elpify_task(
             },
         )
         .map_err(|e| format!("elpify queue execution failed: {}", e))?;
+    if started_at.elapsed() > Duration::from_secs(limits.max_exec_time_secs) {
+        return Err(format!(
+            "elpify vm exceeded max execution time: {} seconds",
+            limits.max_exec_time_secs
+        ));
+    }
 
     let output = result
         .runs
@@ -405,6 +476,7 @@ fn execute_elpian_task(
     vm_id: String,
     ast_path: String,
     input_raw: String,
+    limits: VmResourceLimits,
 ) -> Result<(), String> {
     set_log_vm_context(&vm_id);
     let ast_source = std::fs::read_to_string(&ast_path)
@@ -421,18 +493,46 @@ fn execute_elpian_task(
         input_json
     };
 
+    let started_at = Instant::now();
     let mut result = elpian_api::execute_vm_func_with_input(
         machine_id.to_string(),
         "main".to_string(),
         payload.to_string(),
         0,
     );
+    if let Some(bytes) = elpian_api::vm_memory_usage_bytes(machine_id.to_string()) {
+        if bytes > (limits.ram_mb * 1024 * 1024) {
+            let _ = elpian_api::destroy_vm(machine_id.to_string());
+            return Err(format!(
+                "elpian vm exceeded memory limit: used={} bytes limit={} bytes",
+                bytes,
+                limits.ram_mb * 1024 * 1024
+            ));
+        }
+    }
 
     while result.has_host_call {
+        if started_at.elapsed() > Duration::from_secs(limits.max_exec_time_secs) {
+            let _ = elpian_api::destroy_vm(machine_id.to_string());
+            return Err(format!(
+                "elpian vm exceeded max execution time: {} seconds",
+                limits.max_exec_time_secs
+            ));
+        }
         let call_data: JsonValue = serde_json::from_str(&result.host_call_data)
             .map_err(|e| format!("invalid elpian host call payload: {}", e))?;
         let host_res = json!({"value": wasm_send(call_data)}).to_string();
         result = elpian_api::continue_execution(machine_id.to_string(), host_res);
+        if let Some(bytes) = elpian_api::vm_memory_usage_bytes(machine_id.to_string()) {
+            if bytes > (limits.ram_mb * 1024 * 1024) {
+                let _ = elpian_api::destroy_vm(machine_id.to_string());
+                return Err(format!(
+                    "elpian vm exceeded memory limit: used={} bytes limit={} bytes",
+                    bytes,
+                    limits.ram_mb * 1024 * 1024
+                ));
+            }
+        }
     }
 
     log(format!(

@@ -1,3 +1,4 @@
+use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -45,6 +46,7 @@ impl FireVmController {
         let stream_store_id = packet["storeId"].as_str().unwrap_or("").trim().to_string();
         let process_key = fire_process_key(machine_id, vm_id);
         let socket_path = fire_socket_path(machine_id, vm_id);
+        let limits = parse_vm_resource_limits(packet);
 
         self.terminate_by_key(&process_key);
         let _ = std::fs::remove_file(&socket_path);
@@ -57,6 +59,7 @@ impl FireVmController {
             .stderr(Stdio::piped())
             .spawn()
             .map_err(|e| format!("failed to start firecracker process: {}", e))?;
+        configure_firecracker_machine_limits(&socket_path, &limits)?;
 
         let mut child = child;
         let stdin = child
@@ -157,6 +160,34 @@ impl FireVmController {
             vm_cache_key.to_string(),
             (requester_user_id_for_cache, machine_id.to_string()),
         );
+        let timeout_key = process_key.clone();
+        let timeout_secs = limits.max_exec_time_secs;
+        thread::spawn(move || {
+            thread::sleep(Duration::from_secs(timeout_secs));
+            let mut fire_vms = GLOBAL_FIRE_VMS.lock().unwrap();
+            if let Some(mut proc) = fire_vms.remove(&timeout_key) {
+                proc.io_stop.store(true, Ordering::Relaxed);
+                let _ = proc.child.kill();
+                let _ = proc.child.wait();
+                if let Some(handle) = proc.stdout_thread.take() {
+                    let _ = handle.join();
+                }
+                if let Some(handle) = proc.stderr_thread.take() {
+                    let _ = handle.join();
+                }
+                let _ = std::fs::remove_file(proc.socket_path);
+                let mut vm_ctx = GLOBAL_VM_CONTEXT.lock().unwrap();
+                vm_ctx.remove(proc.vm_id.as_str());
+                let _ = wasm_send(json!({
+                    "key": "vmLog",
+                    "input": {
+                        "vmId": proc.vm_id,
+                        "logType": "runtime",
+                        "text": format!("fire vm terminated due to max execution time ({}s)", timeout_secs),
+                    }
+                }));
+            }
+        });
 
         Ok(json!({
             "ok": true,
@@ -164,6 +195,12 @@ impl FireVmController {
             "machineId": machine_id,
             "vmId": vm_id,
             "processKey": process_key,
+            "resources": {
+                "maxExecTimeSeconds": limits.max_exec_time_secs,
+                "ramMb": limits.ram_mb,
+                "diskGb": limits.disk_gb,
+                "cpuCores": limits.cpu_cores
+            }
         }))
     }
 
@@ -305,6 +342,55 @@ impl FireVmController {
             let mut vm_ctx = GLOBAL_VM_CONTEXT.lock().unwrap();
             vm_ctx.remove(vm_id.as_str());
         }
+    }
+}
+
+fn configure_firecracker_machine_limits(
+    socket_path: &PathBuf,
+    limits: &VmResourceLimits,
+) -> Result<(), String> {
+    for _ in 0..50 {
+        if socket_path.exists() {
+            break;
+        }
+        thread::sleep(Duration::from_millis(50));
+    }
+    if !socket_path.exists() {
+        return Err(format!(
+            "firecracker socket did not become available: {}",
+            socket_path.display()
+        ));
+    }
+
+    let mut stream = std::os::unix::net::UnixStream::connect(socket_path)
+        .map_err(|e| format!("failed to connect firecracker socket: {}", e))?;
+    let body = json!({
+        "vcpu_count": limits.cpu_cores,
+        "mem_size_mib": limits.ram_mb,
+        "track_dirty_pages": false
+    })
+    .to_string();
+    let req = format!(
+        "PUT /machine-config HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
+        body.len(),
+        body
+    );
+    stream
+        .write_all(req.as_bytes())
+        .map_err(|e| format!("failed to write firecracker machine-config: {}", e))?;
+    stream
+        .flush()
+        .map_err(|e| format!("failed to flush firecracker machine-config: {}", e))?;
+
+    let mut response = String::new();
+    let _ = stream.read_to_string(&mut response);
+    if response.starts_with("HTTP/1.1 204") || response.starts_with("HTTP/1.1 200") {
+        Ok(())
+    } else {
+        Err(format!(
+            "firecracker machine-config rejected response={}",
+            response.lines().next().unwrap_or("")
+        ))
     }
 }
 

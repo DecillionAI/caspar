@@ -127,6 +127,22 @@ impl Val {
     pub fn is_empty(&self) -> bool {
         self.typ == 0
     }
+
+    pub fn estimated_heap_bytes(&self) -> usize {
+        match self.typ {
+            1 => std::mem::size_of::<i16>(),
+            2 => std::mem::size_of::<i32>(),
+            3 => std::mem::size_of::<i64>(),
+            4 => std::mem::size_of::<f32>(),
+            5 => std::mem::size_of::<f64>(),
+            6 => std::mem::size_of::<bool>(),
+            7 => self.as_string().len(),
+            8 => self.as_object().borrow().estimated_heap_bytes(),
+            9 => self.as_array().borrow().estimated_heap_bytes(),
+            10 => self.as_func().borrow().estimated_heap_bytes(),
+            _ => 0,
+        }
+    }
 }
 
 pub struct ValGroup {
@@ -163,6 +179,15 @@ impl ValGroup {
         result = format!("{} }}", result);
         result
     }
+
+    pub fn estimated_heap_bytes(&self) -> usize {
+        let mut total = 0usize;
+        for (k, v) in self.data.iter() {
+            total += k.len();
+            total += v.estimated_heap_bytes();
+        }
+        total
+    }
 }
 
 pub struct Blueprint {
@@ -194,6 +219,10 @@ impl Object {
     pub fn stringify(&self) -> String {
         self.data.stringify()
     }
+
+    pub fn estimated_heap_bytes(&self) -> usize {
+        std::mem::size_of::<i64>() + self.data.estimated_heap_bytes()
+    }
 }
 
 pub struct Array {
@@ -224,6 +253,13 @@ impl Array {
         result = format!("{}]", result);
         result
     }
+
+    pub fn estimated_heap_bytes(&self) -> usize {
+        self.data
+            .iter()
+            .map(|item| item.estimated_heap_bytes())
+            .sum::<usize>()
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -245,5 +281,11 @@ impl Function {
     }
     pub fn clone_func(&self) -> Self {
         Function::new(self.name.clone(), self.start, self.end, self.params.clone())
+    }
+
+    pub fn estimated_heap_bytes(&self) -> usize {
+        self.name.len()
+            + (self.params.iter().map(|p| p.len()).sum::<usize>())
+            + std::mem::size_of::<usize>() * 2
     }
 }

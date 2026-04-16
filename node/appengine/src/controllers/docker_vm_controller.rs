@@ -42,6 +42,7 @@ impl DockerVmController {
             .as_str()
             .map(|s| s.to_string())
             .unwrap_or_else(|| docker_image_ref(machine_id, &entity_id));
+        let limits = parse_vm_resource_limits(packet);
 
         self.stop_and_remove_if_exists(&container_id)?;
 
@@ -66,6 +67,12 @@ impl DockerVmController {
                 host_config: Some(HostConfig {
                     runtime: Some("runsc".to_string()),
                     network_mode: Some(VmNetworkService::gateway_network_name().to_string()),
+                    memory: Some((limits.ram_mb * 1024 * 1024) as i64),
+                    cpu_count: Some(limits.cpu_cores as i64),
+                    storage_opt: Some(HashMap::from([(
+                        "size".to_string(),
+                        format!("{}G", limits.disk_gb),
+                    )])),
                     ..Default::default()
                 }),
                 ..Default::default()
@@ -81,6 +88,33 @@ impl DockerVmController {
             self.docker
                 .start_container::<String>(&container_id, None::<StartContainerOptions<String>>),
         )?;
+        let timeout_container = container_id.clone();
+        let timeout_vm = vm_cache_key.clone();
+        let timeout_secs = limits.max_exec_time_secs;
+        thread::spawn(move || {
+            thread::sleep(Duration::from_secs(timeout_secs));
+            if let Ok(docker) = Docker::connect_with_local_defaults() {
+                let rt = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build();
+                if let Ok(rt) = rt {
+                    let _ = rt.block_on(docker.stop_container(
+                        &timeout_container,
+                        Some(StopContainerOptions { t: 1 }),
+                    ));
+                    let _ = rt.block_on(docker.remove_container(
+                        &timeout_container,
+                        Some(RemoveContainerOptions {
+                            force: true,
+                            v: true,
+                            ..Default::default()
+                        }),
+                    ));
+                }
+            }
+            let mut vm_ctx = GLOBAL_VM_CONTEXT.lock().unwrap();
+            vm_ctx.remove(timeout_vm.as_str());
+        });
         let container_id_for_logs = container_id.clone();
         let vm_id_for_logs = vm_cache_key.clone();
         thread::spawn(move || {

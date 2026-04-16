@@ -55,6 +55,13 @@ impl VM {
         Self::compile_and_create_of_bytecode(machine_id, byte_code, func_group)
     }
     pub fn print_memory(&mut self) {}
+    pub fn estimated_memory_bytes(&self) -> usize {
+        let mut total = self.program.len();
+        if let Some(exec) = &self.single_thread_executor {
+            total += exec.borrow().estimated_memory_bytes();
+        }
+        total
+    }
     pub fn run(&mut self) -> Val {
         self.run_func_with_input("", None, 0)
     }

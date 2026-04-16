@@ -112,6 +112,9 @@ type Core struct {
 	privKey                *rsa.PrivateKey
 	messageCallbacks       map[string]*chain.MessageCallback
 	executionCostPerSecond int64
+	vmRamCostPerMbMinute   int64
+	vmCpuCoreCostPerMinute int64
+	vmDiskCostPerGbMinute  int64
 	globe                  abstract_globe.IGlobe
 }
 
@@ -143,6 +146,9 @@ func NewCore(origin string, ownerId string, ownerPrivateKey *rsa.PrivateKey) *Co
 		actionStore:            actor.NewActor(),
 		started:                false,
 		executionCostPerSecond: 0,
+		vmRamCostPerMbMinute:   0,
+		vmCpuCoreCostPerMinute: 0,
+		vmDiskCostPerGbMinute:  0,
 		globe:                  nil,
 	}
 }
@@ -292,6 +298,18 @@ func (c *Core) SignPacketAsOwner(data []byte) string {
 
 func (c *Core) ExecutionCostPerSecond() int64 {
 	return c.executionCostPerSecond
+}
+
+func (c *Core) VmRamCostPerMbPerMinute() int64 {
+	return c.vmRamCostPerMbMinute
+}
+
+func (c *Core) VmCpuCoreCostPerMinute() int64 {
+	return c.vmCpuCoreCostPerMinute
+}
+
+func (c *Core) VmDiskCostPerGbPerMinute() int64 {
+	return c.vmDiskCostPerGbMinute
 }
 
 func (c *Core) PlantChainTrigger(count int, userId string, tag string, machineId string, storeId string, attachment string) {
@@ -571,6 +589,21 @@ func (c *Core) Load(gods []string, args map[string]interface{}) {
 	if cpsRaw := os.Getenv("VM_EXEC_COST_PER_SECOND"); cpsRaw != "" {
 		if cps, err := strconv.ParseInt(cpsRaw, 10, 64); err == nil && cps >= 0 {
 			c.executionCostPerSecond = cps
+		}
+	}
+	if ramCostRaw := os.Getenv("VM_RAM_COST_PER_MB_PER_MINUTE"); ramCostRaw != "" {
+		if v, err := strconv.ParseInt(ramCostRaw, 10, 64); err == nil && v >= 0 {
+			c.vmRamCostPerMbMinute = v
+		}
+	}
+	if cpuCostRaw := os.Getenv("VM_CPU_CORE_COST_PER_MINUTE"); cpuCostRaw != "" {
+		if v, err := strconv.ParseInt(cpuCostRaw, 10, 64); err == nil && v >= 0 {
+			c.vmCpuCoreCostPerMinute = v
+		}
+	}
+	if diskCostRaw := os.Getenv("VM_DISK_COST_PER_GB_PER_MINUTE"); diskCostRaw != "" {
+		if v, err := strconv.ParseInt(diskCostRaw, 10, 64); err == nil && v >= 0 {
+			c.vmDiskCostPerGbMinute = v
 		}
 	}
 	c.chain = make(chan any, 1)

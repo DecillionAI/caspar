@@ -1191,6 +1191,10 @@ impl Executor {
             }
         }
     }
+
+    pub fn estimated_memory_bytes(&self) -> usize {
+        self.program.len() + self.ctx.estimated_heap_bytes()
+    }
     fn extract_i16(&mut self) -> i16 {
         let num_bytes: [u8; 2] = self.program[self.pointer..(self.pointer + 2)]
             .try_into()
