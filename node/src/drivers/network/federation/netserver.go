@@ -8,7 +8,6 @@ import (
 	"kasper/src/abstract/models/core"
 	"kasper/src/shell/utils/crypto"
 	"kasper/src/shell/utils/future"
-	"log"
 	"net"
 	"strings"
 	"sync"
@@ -44,10 +43,9 @@ func (t *Tcp) Listen(port int, tlsConfig *tls.Config) {
 	future.Async(func() {
 		ln, err := tls.Listen("tcp", fmt.Sprintf(":%d", port), tlsConfig)
 		if err != nil {
-			log.Fatalf("failed to listen: %v", err)
+			panic(fmt.Sprintf("failed to listen: %v", err))
 		}
 		defer ln.Close()
-		log.Println("Federation TLS server listening on port ", port)
 
 		for {
 			conn, err := ln.Accept()
@@ -55,7 +53,6 @@ func (t *Tcp) Listen(port int, tlsConfig *tls.Config) {
 				fmt.Println(err)
 				continue
 			}
-			log.Println("new client connected")
 			t.handleConnection(conn)
 		}
 	}, true)
@@ -83,24 +80,16 @@ func (t *Tcp) listenForPackets(socket *Socket) {
 			var err error
 			readLength, err = socket.Conn.Read(buf)
 			if err != nil {
-				log.Println(origin, err)
-				log.Println(origin, "socket had error and closed")
 				return
 			}
 			func() {
 				socket.Lock.Lock()
 				defer socket.Lock.Unlock()
-				log.Println(origin, "stat 0: reading data...")
-
-				log.Println(origin, buf[0:readLength])
 
 				readCount += readLength
 				copy(nextBuf[remainedReadLength:remainedReadLength+readLength], buf[0:readLength])
 				remainedReadLength += readLength
 
-				log.Println(origin, nextBuf[0:readLength])
-
-				log.Println(origin, "stat 1:", readLength, oldReadCount, readCount, remainedReadLength)
 			}()
 		}
 
@@ -109,10 +98,7 @@ func (t *Tcp) listenForPackets(socket *Socket) {
 				func() {
 					socket.Lock.Lock()
 					defer socket.Lock.Unlock()
-					log.Println(origin, "stating stat 2...")
 					copy(lenBuf, nextBuf[0:4])
-					log.Println(origin, "nextBuf", nextBuf[0:4])
-					log.Println(origin, "lenBuf", lenBuf[0:4])
 					remainedReadLength -= 4
 					copy(nextBuf[0:remainedReadLength], nextBuf[4:remainedReadLength+4])
 					length = int(binary.LittleEndian.Uint32(lenBuf))
@@ -121,7 +107,6 @@ func (t *Tcp) listenForPackets(socket *Socket) {
 					beginning = false
 					enough = true
 
-					log.Println(origin, "stat 2:", remainedReadLength, length, readCount)
 				}()
 
 			} else {
@@ -134,29 +119,19 @@ func (t *Tcp) listenForPackets(socket *Socket) {
 				func() {
 					socket.Lock.Lock()
 					defer socket.Lock.Unlock()
-					log.Println(origin, "stating stat 3...")
-					log.Println(origin, "stat 3 step 1", oldReadCount, length)
 					copy(readData[oldReadCount:length], nextBuf[0:length-oldReadCount])
-					log.Println(origin, "stat 3 step 2", readLength, readCount, length)
 					readCount -= length
 					copy(nextBuf[0:readCount], nextBuf[length-oldReadCount:(length-oldReadCount)+readCount])
-					log.Println(origin, "nextBuf", nextBuf[0:readCount])
-					log.Println(origin, "stat 3 step 3", readCount, length)
 					remainedReadLength = readCount
-					log.Println(origin, "packet received")
 					packet := make([]byte, length)
 					copy(packet, readData)
-					log.Println(origin, "stat 3 step 4")
 					oldReadCount = 0
 					enough = true
 					beginning = true
 
-					log.Println(origin, "stat 3:", remainedReadLength, oldReadCount, readCount)
-
 					future.Async(func() {
 						defer func() {
 							if err := recover(); err != nil {
-								log.Println(err)
 							}
 						}()
 						socket.processPacket(packet)
@@ -166,14 +141,12 @@ func (t *Tcp) listenForPackets(socket *Socket) {
 				func() {
 					socket.Lock.Lock()
 					defer socket.Lock.Unlock()
-					log.Println(origin, "stating stat 4...")
 
 					copy(readData[oldReadCount:oldReadCount+(readCount-oldReadCount)], nextBuf[0:readCount-oldReadCount])
 					remainedReadLength = 0
 					oldReadCount = readCount
 					enough = true
 
-					log.Println(origin, "stat 4:", remainedReadLength)
 				}()
 			}
 		}
@@ -196,7 +169,6 @@ func (t *Tcp) NewSocket(destAddress string) *Socket {
 	}
 	conn, err := tls.Dial("tcp", destAddress, tlsConfig)
 	if err != nil {
-		log.Println("failed to connect:", err.Error())
 	}
 	return t.handleConnection(conn)
 }
@@ -270,7 +242,6 @@ func (t *Socket) writeUpdate(key string, updatePack any, targetType string, targ
 		var err error
 		b3, err = json.Marshal(updatePack)
 		if err != nil {
-			log.Println(err)
 			return
 		}
 		signBytes = []byte(t.app.SignPacket(b3))
@@ -285,7 +256,6 @@ func (t *Socket) writeUpdate(key string, updatePack any, targetType string, targ
 
 	excepBytes, err := json.Marshal(exceptions)
 	if err != nil {
-		log.Println(err)
 		return
 	}
 	excepLenBytes := make([]byte, 4)
@@ -328,8 +298,6 @@ func (t *Socket) writeUpdate(key string, updatePack any, targetType string, targ
 
 func (t *Socket) writeResponse(requestId string, resCode int, response any, writeRaw bool) {
 
-	log.Println("preparing response...")
-
 	b1 := []byte(requestId)
 	b1Len := make([]byte, 4)
 	binary.BigEndian.PutUint32(b1Len, uint32(len(b1)))
@@ -345,7 +313,6 @@ func (t *Socket) writeResponse(requestId string, resCode int, response any, writ
 		var err error
 		b3, err = json.Marshal(response)
 		if err != nil {
-			log.Println(err)
 			return
 		}
 		b4 = []byte(t.app.SignPacket(b3))
@@ -374,8 +341,6 @@ func (t *Socket) writeResponse(requestId string, resCode int, response any, writ
 	copy(packet[pointer:pointer+len(b3)], b3[:])
 	pointer += len(b3)
 
-	log.Println("appending to buffer...")
-
 	t.Lock.Lock()
 	defer t.Lock.Unlock()
 
@@ -384,7 +349,6 @@ func (t *Socket) writeResponse(requestId string, resCode int, response any, writ
 }
 
 func (t *Socket) pushBuffer() {
-	log.Println("pushing buffer to client...", t.Ack, len(t.Buffer))
 	if t.Ack {
 		if len(t.Buffer) > 0 {
 			t.Ack = false
@@ -393,12 +357,10 @@ func (t *Socket) pushBuffer() {
 			_, err := t.Conn.Write(packetLen)
 			if err != nil {
 				t.Ack = true
-				log.Println(err)
 			}
 			_, err = t.Conn.Write(t.Buffer[0])
 			if err != nil {
 				t.Ack = true
-				log.Println(err)
 			}
 		}
 	}
@@ -417,7 +379,6 @@ func (t *Socket) processPacket(packet []byte) {
 					_, err := t.Conn.Write(t.Buffer[0])
 					if err != nil {
 						t.Ack = true
-						log.Println(err)
 					}
 				}
 			}
@@ -447,83 +408,58 @@ func (t *Socket) processPacket(packet []byte) {
 	pointer := 1
 	if typ == "request" {
 		signatureLength := int(binary.BigEndian.Uint32(packet[pointer : pointer+4]))
-		log.Println("signature length:", signatureLength)
 		pointer += 4
 		signature := string(packet[pointer : pointer+signatureLength])
 		pointer += signatureLength
-		log.Println("signature:", signature)
 		userIdLength := int(binary.BigEndian.Uint32(packet[pointer : pointer+4]))
 		pointer += 4
-		log.Println("userId length:", userIdLength)
 		userId := string(packet[pointer : pointer+userIdLength])
 		pointer += userIdLength
-		log.Println("userId:", userId)
 		pathLength := int(binary.BigEndian.Uint32(packet[pointer : pointer+4]))
 		pointer += 4
-		log.Println("path length:", pathLength)
 		path := string(packet[pointer : pointer+pathLength])
 		pointer += pathLength
-		log.Println("path:", path)
 		packetIdLength := int(binary.BigEndian.Uint32(packet[pointer : pointer+4]))
 		pointer += 4
-		log.Println("packetId length:", packetIdLength)
 		packetId := string(packet[pointer : pointer+packetIdLength])
 		pointer += packetIdLength
-		log.Println("packetId:", packetId)
 		payload := packet[pointer:]
-		log.Println(string(payload))
 		pack = packetmodel.OriginPacket{Type: typ, Key: path, UserId: userId, StoreId: "", ResCode: 0, Binary: payload, Signature: signature, RequestId: packetId, Exceptions: []string{}}
 	} else if typ == "response" {
 		packetIdLength := int(binary.BigEndian.Uint32(packet[pointer : pointer+4]))
 		pointer += 4
-		log.Println("packetId length:", packetIdLength)
 		packetId := string(packet[pointer : pointer+packetIdLength])
 		pointer += packetIdLength
-		log.Println("packetId:", packetId)
 		resCode := int(binary.BigEndian.Uint32(packet[pointer : pointer+4]))
 		pointer += 4
-		log.Println("resCode:", resCode)
 		signatureLength := int(binary.BigEndian.Uint32(packet[pointer : pointer+4]))
-		log.Println("signature length:", signatureLength)
 		pointer += 4
 		signature := string(packet[pointer : pointer+signatureLength])
 		pointer += signatureLength
-		log.Println("signature:", signature)
 		payload := packet[pointer:]
-		log.Println(string(payload))
 		pack = packetmodel.OriginPacket{Type: typ, Key: "", UserId: "", StoreId: "", ResCode: resCode, Binary: payload, Signature: signature, RequestId: packetId, Exceptions: []string{}}
 	} else if typ == "update" {
 		signatureLength := int(binary.BigEndian.Uint32(packet[pointer : pointer+4]))
-		log.Println("signature length:", signatureLength)
 		pointer += 4
 		signature := string(packet[pointer : pointer+signatureLength])
 		pointer += signatureLength
-		log.Println("signature:", signature)
 		targetIdLength := int(binary.BigEndian.Uint32(packet[pointer : pointer+4]))
-		log.Println("targetId length:", targetIdLength)
 		pointer += 4
 		targetId := string(packet[pointer : pointer+targetIdLength])
 		pointer += targetIdLength
-		log.Println("targetId:", targetId)
 		exceptionsLength := int(binary.BigEndian.Uint32(packet[pointer : pointer+4]))
-		log.Println("execptions length:", exceptionsLength)
 		pointer += 4
 		exceptions := []string{}
 		err := json.Unmarshal(packet[pointer:pointer+exceptionsLength], &exceptions)
 		pointer += exceptionsLength
 		if err != nil {
-			log.Println(err)
 			return
 		}
-		log.Println("exceptions:", exceptions)
 		keyLength := int(binary.BigEndian.Uint32(packet[pointer : pointer+4]))
-		log.Println("key length:", keyLength)
 		pointer += 4
 		key := string(packet[pointer : pointer+keyLength])
 		pointer += keyLength
-		log.Println("key:", key)
 		payload := packet[pointer:]
-		log.Println(string(payload))
 		idParts := strings.Split(targetId, "::")
 		userId := ""
 		storeId := ""

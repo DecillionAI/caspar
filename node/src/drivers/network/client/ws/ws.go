@@ -10,7 +10,6 @@ import (
 	"kasper/src/abstract/models/trx"
 	"kasper/src/shell/utils/crypto"
 	"kasper/src/shell/utils/future"
-	"log"
 	"net/http"
 	"strings"
 	"sync"
@@ -58,7 +57,6 @@ type Handler struct {
 }
 
 func (c *Handler) OnOpen(conn *gws.Conn) {
-	println("new ws client connect")
 	socket := WsSocketPool.Get().(*Socket)
 	socket.server = c.wsServer
 	socket.Id = crypto.SecureUniqueString()
@@ -131,16 +129,13 @@ func (t *Ws) Listen(port int, tlsConfig *tls.Config) {
 		future.Async(func() {
 			err := server.ListenAndServeTLS("", "")
 			if err != nil {
-				log.Fatalf("failed to listen: %v", err)
+				panic(fmt.Sprintf("failed to listen: %v", err))
 			}
 		}, false)
-		println("Clients' Ws TLS server listening on port ", port)
 	}, false)
 }
 
 func (t *Socket) writeUpdate(key string, updatePack any, writeRaw bool) {
-
-	println("preparing update...")
 
 	keyBytes := []byte(key)
 	keyBytesLen := make([]byte, 4)
@@ -153,7 +148,6 @@ func (t *Socket) writeUpdate(key string, updatePack any, writeRaw bool) {
 		var err error
 		b3, err = json.Marshal(updatePack)
 		if err != nil {
-			println(err)
 			return
 		}
 	}
@@ -171,8 +165,6 @@ func (t *Socket) writeUpdate(key string, updatePack any, writeRaw bool) {
 	copy(packet[pointer:pointer+len(b3)], b3[:])
 	pointer += len(b3)
 
-	println("appending to buffer...")
-
 	t.Lock.Lock()
 	defer t.Lock.Unlock()
 
@@ -181,8 +173,6 @@ func (t *Socket) writeUpdate(key string, updatePack any, writeRaw bool) {
 }
 
 func (t *Socket) writeResponse(requestId string, resCode int, response any, writeRaw bool) {
-
-	println("preparing response...")
 
 	b1 := []byte(requestId)
 	b1Len := make([]byte, 4)
@@ -198,7 +188,6 @@ func (t *Socket) writeResponse(requestId string, resCode int, response any, writ
 		var err error
 		b3, err = json.Marshal(response)
 		if err != nil {
-			println(err)
 			return
 		}
 	}
@@ -219,8 +208,6 @@ func (t *Socket) writeResponse(requestId string, resCode int, response any, writ
 	copy(packet[pointer:pointer+len(b3)], b3[:])
 	pointer += len(b3)
 
-	println("appending to buffer...")
-
 	t.Lock.Lock()
 	defer t.Lock.Unlock()
 
@@ -229,7 +216,6 @@ func (t *Socket) writeResponse(requestId string, resCode int, response any, writ
 }
 
 func (t *Socket) pushBuffer() {
-	println("pushing buffer to client...", t.Ack, len(t.Buffer))
 	if t.Ack {
 		if len(t.Buffer) > 0 {
 			t.Ack = false
@@ -238,13 +224,11 @@ func (t *Socket) pushBuffer() {
 			err := t.Conn.WriteMessage(gws.OpcodeBinary, packetLen)
 			if err != nil {
 				t.Ack = true
-				println(err)
 				return
 			}
 			err = t.Conn.WriteMessage(gws.OpcodeBinary, t.Buffer[0])
 			if err != nil {
 				t.Ack = true
-				println(err)
 				return
 			}
 		}
@@ -267,43 +251,34 @@ func (t *Socket) processPacket(packet []byte) {
 	}
 	pointer := 0
 	signatureLength := int(binary.BigEndian.Uint32(packet[pointer : pointer+4]))
-	println("signature length:", signatureLength)
 	if signatureLength > 20000000 {
 		return
 	}
 	pointer += 4
 	signature := string(packet[pointer : pointer+signatureLength])
 	pointer += signatureLength
-	println("signature:", signature)
 	userIdLength := int(binary.BigEndian.Uint32(packet[pointer : pointer+4]))
 	pointer += 4
-	println("userId length:", userIdLength)
 	if userIdLength > 20000000 {
 		return
 	}
 	userId := string(packet[pointer : pointer+userIdLength])
 	pointer += userIdLength
-	println("userId:", userId)
 	pathLength := int(binary.BigEndian.Uint32(packet[pointer : pointer+4]))
 	pointer += 4
-	println("path length:", pathLength)
 	if pathLength > 20000000 {
 		return
 	}
 	path := string(packet[pointer : pointer+pathLength])
 	pointer += pathLength
-	println("path:", path)
 	packetIdLength := int(binary.BigEndian.Uint32(packet[pointer : pointer+4]))
 	pointer += 4
-	println("packetId length:", packetIdLength)
 	if packetIdLength > 20000000 {
 		return
 	}
 	packetId := string(packet[pointer : pointer+packetIdLength])
 	pointer += packetIdLength
-	println("packetId:", packetId)
 	payload := packet[pointer:]
-	println(string(payload))
 
 	if path == "logout" {
 		success, _, _ := t.app.Tools().Security().AuthWithSignature(userId, payload, signature)
@@ -355,7 +330,6 @@ func (t *Socket) processPacket(packet []byte) {
 			t.app.ModifyState(true, func(trx trx.ITrx) error {
 				pIds, err := trx.GetLinksList(prefix, -1, -1)
 				if err != nil {
-					println(err)
 					storeIds = []string{}
 				} else {
 					storeIds = pIds
@@ -382,12 +356,10 @@ func (t *Socket) processPacket(packet []byte) {
 	var err error
 	input, err := action.(iaction.ISecureAction).ParseInput("tcp", payload)
 	if err != nil {
-		println(err)
 		t.writeResponse(packetId, 2, packetmodel.BuildErrorJson(err.Error()), false)
 		return
 	}
 	statusCode, result, err := action.(iaction.ISecureAction).SecurelyAct(userId, packetId, payload, signature, input, strings.Split(t.Conn.RemoteAddr().String(), ":")[0])
-	println(result)
 	if err != nil {
 		httpStatusCode := 3
 		if statusCode == -1 {
