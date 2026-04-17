@@ -19,7 +19,6 @@ import (
 	updates_stores "kasper/src/shell/api/updates/stores"
 	"kasper/src/shell/utils/crypto"
 	"kasper/src/shell/utils/future"
-	"log"
 	"net"
 	"strconv"
 	"time"
@@ -78,11 +77,9 @@ func (fed *FedNet) SecondStageForFill(storage storage.IStorage, file file.IFile,
 				break
 			}
 		}
-		log.Println("packet from ip: [", ip, "] and hostname: [", hostName, "]")
 		if hostName != "" {
 			fed.HandlePacket(socket, hostName, pack)
 		} else {
-			log.Println("hostname not known")
 		}
 	})
 	return fed
@@ -109,7 +106,6 @@ func (fed *FedNet) HandlePacket(socket *Socket, channelId string, payload packet
 						var memberRes inputs_invites.AcceptInput
 						err2 := json.Unmarshal(cb.Request, &memberRes)
 						if err2 != nil {
-							log.Println(err2)
 							return
 						}
 						userId = cb.UserId
@@ -118,7 +114,6 @@ func (fed *FedNet) HandlePacket(socket *Socket, channelId string, payload packet
 						var memberRes inputs_stores.JoinInput
 						err2 := json.Unmarshal(cb.Request, &memberRes)
 						if err2 != nil {
-							log.Println(err2)
 							return
 						}
 						userId = cb.UserId
@@ -136,7 +131,6 @@ func (fed *FedNet) HandlePacket(socket *Socket, channelId string, payload packet
 					var spaceOut outputs_stores.CreateOutput
 					err3 := json.Unmarshal(payload.Binary, &spaceOut)
 					if err3 != nil {
-						log.Println(err3)
 						return
 					}
 					fed.app.ModifyState(false, func(trx trx.ITrx) error {
@@ -160,13 +154,11 @@ func (fed *FedNet) HandlePacket(socket *Socket, channelId string, payload packet
 			}
 		}
 	} else if payload.Type == "update" {
-		log.Println("received update")
 		reactToUpdate := func(key string, data string) {
 			if key == "stores/update" {
 				tc := updates_stores.Update{}
 				err := json.Unmarshal([]byte(data), &tc)
 				if err != nil {
-					log.Println(err)
 					return
 				}
 				fed.app.ModifyState(false, func(trx trx.ITrx) error {
@@ -177,7 +169,6 @@ func (fed *FedNet) HandlePacket(socket *Socket, channelId string, payload packet
 				tc := updates_stores.Delete{}
 				err := json.Unmarshal([]byte(data), &tc)
 				if err != nil {
-					log.Println(err)
 					return
 				}
 				fed.app.ModifyState(false, func(trx trx.ITrx) error {
@@ -188,7 +179,6 @@ func (fed *FedNet) HandlePacket(socket *Socket, channelId string, payload packet
 				tc := updates_stores.AddMember{}
 				err := json.Unmarshal([]byte(data), &tc)
 				if err != nil {
-					log.Println(err)
 					return
 				}
 				fed.app.ModifyState(false, func(trx trx.ITrx) error {
@@ -200,7 +190,6 @@ func (fed *FedNet) HandlePacket(socket *Socket, channelId string, payload packet
 				tc := updates_stores.AddMember{}
 				err := json.Unmarshal([]byte(data), &tc)
 				if err != nil {
-					log.Println(err)
 					return
 				}
 				fed.app.ModifyState(false, func(trx trx.ITrx) error {
@@ -212,7 +201,6 @@ func (fed *FedNet) HandlePacket(socket *Socket, channelId string, payload packet
 				tc := updates_stores.UpdateMember{}
 				err := json.Unmarshal([]byte(data), &tc)
 				if err != nil {
-					log.Println(err)
 					return
 				}
 				fed.app.ModifyState(false, func(trx trx.ITrx) error {
@@ -223,7 +211,6 @@ func (fed *FedNet) HandlePacket(socket *Socket, channelId string, payload packet
 				tc := updates_stores.Join{}
 				err := json.Unmarshal([]byte(data), &tc)
 				if err != nil {
-					log.Println(err)
 					return
 				}
 				fed.app.ModifyState(false, func(trx trx.ITrx) error {
@@ -233,7 +220,6 @@ func (fed *FedNet) HandlePacket(socket *Socket, channelId string, payload packet
 				})
 			}
 		}
-		log.Println(payload)
 		if payload.StoreId == "" {
 			reactToUpdate(payload.Key, string(payload.Binary))
 			fed.signaler.SignalUser(payload.Key, payload.UserId, payload.Binary, false)
@@ -252,7 +238,6 @@ func (fed *FedNet) HandlePacket(socket *Socket, channelId string, payload packet
 		}
 		_, res, err := action.(iaction.ISecureAction).SecurelyActFed(payload.UserId, payload.Binary, payload.Signature, input)
 		if err != nil {
-			log.Println(err)
 			fed.SendFedResponse(channelId, payload.RequestId, 1, packet.BuildErrorJson(err.Error()))
 			return
 		}
@@ -284,9 +269,6 @@ func (fed *FedNet) SendFedRequest(destOrg string, requestId string, userId strin
 		}
 		defer s.Conn.Close()
 		s.writeRequest(requestId, userId, path, payload, signature)
-		log.Println("packet sent successfully")
-	} else {
-		log.Println("state org not found")
 	}
 }
 
@@ -314,9 +296,6 @@ func (fed *FedNet) SendFedResponse(destOrg string, requestId string, resCode int
 		}
 		defer s.Conn.Close()
 		s.writeResponse(requestId, resCode, res, false)
-		log.Println("packet sent successfully")
-	} else {
-		log.Println("state org not found")
 	}
 }
 
@@ -344,9 +323,6 @@ func (fed *FedNet) SendFedUpdate(destOrg string, key string, updatePack any, tar
 		}
 		defer s.Conn.Close()
 		s.writeUpdate(key, updatePack, targetType, targetIdVal, exceptions, false)
-		log.Println("packet sent successfully")
-	} else {
-		log.Println("state org not found")
 	}
 }
 
@@ -385,8 +361,5 @@ func (fed *FedNet) SendFedRequestByCallback(destOrg string, requestId string, us
 		}
 		defer s.Conn.Close()
 		s.writeRequest(callbackId, userId, path, payload, signature)
-		log.Println("packet sent successfully")
-	} else {
-		log.Println("state org not found")
 	}
 }
