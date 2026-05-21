@@ -4,6 +4,7 @@ import "crypto/tls"
 
 type IChain interface {
 	Listen(port int, tlsConfig *tls.Config)
+	RestoreFromStorage()
 	SubmitTrx(chainId string, machineId string, typ string, payload []byte)
 	RegisterPipeline(pipeline func([][]byte, func([]byte)) []string)
 	NotifyNewMachineCreated(chainId string, machineId string)

@@ -90,6 +90,8 @@ func (t *Tools) Vmm() vmm.IVmm {
 type Core struct {
 	lock                   sync.Mutex
 	triggerLock            sync.Mutex
+	callbacksLock          sync.Mutex
+	messageCallbacksLock   sync.Mutex
 	ownerId                string
 	ownerPrivKey           *rsa.PrivateKey
 	id                     string
@@ -437,7 +439,9 @@ func (c *Core) handleChainPacket(typ string, trxPayload []byte) string {
 				packet.MessageType = "vm.execute"
 			}
 			if packet.ReplyTo != "" {
+				c.messageCallbacksLock.Lock()
 				cb, ok := c.messageCallbacks[packet.ReplyTo]
+				c.messageCallbacksLock.Unlock()
 				if !ok {
 					return ""
 				}
@@ -485,11 +489,17 @@ func (c *Core) handleChainPacket(typ string, trxPayload []byte) string {
 				return ""
 			}
 			execs := map[string]bool{}
+			c.callbacksLock.Lock()
 			if packet.Submitter == c.id {
-				c.chainCallbacks[packet.RequestId].Executors = execs
+				if existing, ok := c.chainCallbacks[packet.RequestId]; ok {
+					existing.Executors = execs
+				} else {
+					c.chainCallbacks[packet.RequestId] = &chain.ChainCallback{Fn: nil, Executors: execs, Responses: map[string]string{}}
+				}
 			} else {
 				c.chainCallbacks[packet.RequestId] = &chain.ChainCallback{Fn: nil, Executors: execs, Responses: map[string]string{}}
 			}
+			c.callbacksLock.Unlock()
 			userId := ""
 			if strings.HasPrefix(packet.Author, "user::") {
 				userId = packet.Author[len("user::"):]
@@ -511,10 +521,15 @@ func (c *Core) handleChainPacket(typ string, trxPayload []byte) string {
 			}
 			input = i
 			resCode, res, err := action.(iaction.ISecureAction).SecurlyActChain(userId, packet.RequestId, packet.Payload, packet.Signatures[1], input, packet.Submitter, packet.Tag)
-			if packet.Author == c.id {
+			if packet.Submitter == c.id {
+				// We were the submitter (user request came in via our WS/TCP
+				// transport). Fire the stored callback so the waiting goroutine
+				// in SecurelyAct can return a response to the client.
+				c.callbacksLock.Lock()
 				callback := c.chainCallbacks[packet.RequestId]
 				delete(c.chainCallbacks, packet.RequestId)
-				if callback.Fn != nil {
+				c.callbacksLock.Unlock()
+				if callback != nil && callback.Fn != nil {
 					if err == nil {
 						resData, err := json.Marshal(res)
 						if err != nil {
@@ -582,6 +597,9 @@ func (c *Core) Load(gods []string, args map[string]interface{}) {
 		file:     dFile,
 		vmm:      dVmm,
 	}
+	// Chain driver was constructed before c.tools was wired up, so its
+	// storage-backed restore was deferred. Run it now that ModifyState is safe.
+	dNetwork.Chain().RestoreFromStorage()
 
 	if cpsRaw := os.Getenv("VM_EXEC_COST_PER_SECOND"); cpsRaw != "" {
 		if cps, err := strconv.ParseInt(cpsRaw, 10, 64); err == nil && cps >= 0 {
@@ -617,10 +635,14 @@ func (c *Core) Load(gods []string, args map[string]interface{}) {
 			}, false)
 		},
 		func(callbackId string, callback *chain.ChainCallback) {
+			c.callbacksLock.Lock()
 			c.chainCallbacks[callbackId] = callback
+			c.callbacksLock.Unlock()
 		},
 		func(callbackId string, callback *chain.MessageCallback) {
+			c.messageCallbacksLock.Lock()
 			c.messageCallbacks[callbackId] = callback
+			c.messageCallbacksLock.Unlock()
 		},
 		MAX_VALIDATOR_COUNT,
 		ELECTION_COMMIT_SECONDS,

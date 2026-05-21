@@ -503,3 +503,133 @@ func (wm *Vmm) handleMicroHostAction(op string, input map[string]any, reqId int6
 		return `{"ok":false,"error":"unsupported micro op"}`, reqId
 	}
 }
+
+// handleStoreCrud implements the collaboration-Store CRUD ops exposed to VMs
+// via host calls (op keys: createStore, updateStore, deleteStore, getStore,
+// listStores). These manage rows in the Store model (collaboration surfaces
+// users can join, send signals to, etc.) — distinct from the VM-resource
+// stores handled by handleResourceStoreCrud.
+func (wm *Vmm) handleStoreCrud(op string, input map[string]any, reqId int64) (string, int64) {
+	switch op {
+	case "create":
+		storeId, _ := checkField(input, "storeId", "")
+		creatorId, _ := checkField(input, "creatorId", "")
+		if creatorId == "" {
+			creatorId, _ = checkField(input, "userId", "")
+		}
+		tag, _ := checkField(input, "tag", "")
+		parentId, _ := checkField(input, "parentId", "")
+		isPublic := boolFromInput(input, "isPublic", false)
+		persHist := boolFromInput(input, "persHist", false)
+		metadata := map[string]any{}
+		if raw, ok := input["metadata"].(map[string]any); ok {
+			metadata = raw
+		}
+		wm.app.ModifyState(false, func(t trx.ITrx) error {
+			if storeId == "" {
+				storeId = wm.app.Tools().Storage().GenId(t, "store")
+			}
+			store := model.Store{
+				Id:          storeId,
+				Tag:         tag,
+				ParentId:    parentId,
+				IsPublic:    isPublic,
+				PersHist:    persHist,
+				MemberCount: 1,
+			}
+			store.Push(t)
+			_ = t.PutJson("StoreMeta::"+storeId, "metadata", metadata, true)
+			if creatorId != "" {
+				t.PutLink("hasaccess::"+creatorId+"::"+storeId, "true")
+				t.PutLink("creatorof::"+creatorId+"::"+storeId, "true")
+				t.PutLink("onaccess::"+storeId+"::"+creatorId, "true")
+			}
+			return nil
+		})
+		out, _ := json.Marshal(map[string]any{"ok": true, "storeId": storeId})
+		return string(out), reqId
+	case "update":
+		storeId, err := checkField(input, "storeId", "")
+		if err != nil || storeId == "" {
+			return `{"ok":false,"error":"storeId is required"}`, reqId
+		}
+		wm.app.ModifyState(false, func(t trx.ITrx) error {
+			store := model.Store{Id: storeId}.Pull(t)
+			if store.Id == "" {
+				return nil
+			}
+			if v, ok := input["isPublic"].(bool); ok {
+				store.IsPublic = v
+			}
+			if v, ok := input["persHist"].(bool); ok {
+				store.PersHist = v
+			}
+			if v, ok := input["tag"].(string); ok {
+				store.Tag = v
+			}
+			store.Push(t)
+			if md, ok := input["metadata"].(map[string]any); ok {
+				_ = t.PutJson("StoreMeta::"+storeId, "metadata", md, true)
+			}
+			return nil
+		})
+		return fmt.Sprintf(`{"ok":true,"storeId":"%s"}`, storeId), reqId
+	case "delete":
+		storeId, err := checkField(input, "storeId", "")
+		if err != nil || storeId == "" {
+			return `{"ok":false,"error":"storeId is required"}`, reqId
+		}
+		wm.app.ModifyState(false, func(t trx.ITrx) error {
+			store := model.Store{Id: storeId}.Pull(t)
+			if store.Id != "" {
+				store.Delete(t)
+			}
+			t.DelKey("Json::StoreMeta::" + storeId + "::metadata")
+			return nil
+		})
+		return fmt.Sprintf(`{"ok":true,"storeId":"%s"}`, storeId), reqId
+	case "get":
+		storeId, err := checkField(input, "storeId", "")
+		if err != nil || storeId == "" {
+			return `{"ok":false,"error":"storeId is required"}`, reqId
+		}
+		var store model.Store
+		var meta map[string]any
+		wm.app.ModifyState(true, func(t trx.ITrx) error {
+			store = model.Store{Id: storeId}.Pull(t)
+			meta, _ = t.GetJson("StoreMeta::"+storeId, "metadata")
+			return nil
+		})
+		out, _ := json.Marshal(map[string]any{"ok": true, "store": store, "metadata": meta})
+		return string(out), reqId
+	case "list":
+		userId, _ := checkField(input, "userId", "")
+		offset := int(numberFromInput(input, "offset", 0))
+		count := int(numberFromInput(input, "count", 50))
+		_ = offset
+		_ = count
+		out := map[string]any{"ok": true, "stores": []any{}}
+		wm.app.ModifyState(true, func(t trx.ITrx) error {
+			prefix := "hasaccess::" + userId + "::"
+			if userId == "" {
+				prefix = "obj::Store::"
+			}
+			stores, _ := model.Store{}.List(t, prefix, false, map[string]string{}, map[string][]string{})
+			out["stores"] = stores
+			return nil
+		})
+		b, _ := json.Marshal(out)
+		return string(b), reqId
+	}
+	return `{"ok":false,"error":"unsupported store op"}`, reqId
+}
+
+func boolFromInput(input map[string]any, key string, def bool) bool {
+	if v, ok := input[key].(bool); ok {
+		return v
+	}
+	if v, ok := input[key].(string); ok {
+		return v == "true" || v == "1"
+	}
+	return def
+}

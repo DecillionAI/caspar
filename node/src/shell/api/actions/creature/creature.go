@@ -3,7 +3,6 @@ package actions_creature
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"kasper/src/abstract/models/action"
@@ -20,6 +19,7 @@ import (
 	"kasper/src/shell/utils/crypto"
 	"kasper/src/shell/utils/future"
 	"log"
+	"os"
 	"strings"
 	"time"
 
@@ -55,10 +55,21 @@ func asInt64(raw any) (int64, bool) {
 }
 
 func (a *Actions) initFirebase() {
-	opt := option.WithCredentialsFile("/app/serviceAccounts.json")
+	credPath := os.Getenv("FIREBASE_SERVICE_ACCOUNT")
+	if credPath == "" {
+		credPath = "/app/serviceAccounts.json"
+	}
+	if _, err := os.Stat(credPath); err != nil {
+		log.Printf("Firebase credentials not found at %s; running in DEV mode without Firebase auth (login will use emailToken as raw email).\n", credPath)
+		a.firebaseApp = nil
+		return
+	}
+	opt := option.WithCredentialsFile(credPath)
 	app, err := firebase.NewApp(context.Background(), nil, opt)
 	if err != nil {
-		log.Fatalf("Error initializing Firebase app: %v\n", err)
+		log.Printf("Error initializing Firebase app: %v -- continuing in DEV mode\n", err)
+		a.firebaseApp = nil
+		return
 	}
 	a.firebaseApp = app
 }
@@ -119,9 +130,30 @@ func (a *Actions) Create(state state.IState, input inputs_creatures.CreateInput)
 		Balance:    balance,
 	}
 	creature.Push(trx)
+	// Mirror to the User table so older code paths (security, signaler, guards)
+	// that read obj::User::{id}::{col} continue to work.
+	model.User{
+		Id:        creature.Id,
+		Typ:       creature.TypeName,
+		Username:  creature.Username,
+		PublicKey: creature.PublicKey,
+		Balance:   creature.Balance,
+	}.Push(trx)
+	// Machine-type creatures double as "machines" in the program/Deploy API,
+	// which keys off the Machine table. Mirror the row so /programs/create and
+	// /programs/deploy can find this creature by AppId.
+	if creatureType == "machine" {
+		model.Machine{
+			Id:       creature.Id,
+			ChainId:  creature.ChainId,
+			OwnerId:  creature.OwnerId,
+			Username: creature.Username,
+		}.Push(trx)
+	}
 	session := model.Session{Id: a.App.Tools().Storage().GenId(trx, input.Origin()), UserId: creature.Id}
 	session.Push(trx)
 	trx.PutJson("CreatMeta::"+creature.Id, "metadata", input.Metadata, false)
+	trx.PutJson("UserMeta::"+creature.Id, "metadata", input.Metadata, false)
 	if creatureType != "human" {
 		trx.PutLink("ownerof::"+ownerId+"::"+creature.Id, "true")
 	}
@@ -212,7 +244,18 @@ func (a *Actions) Signal(state state.IState, input inputs_creatures.SignalInput)
 // Authenticate /creatures/authenticate check [ true false false ] access [ true false false false POST ]
 func (a *Actions) Authenticate(state state.IState, _ inputsusers.AuthenticateInput) (any, error) {
 	_, res, _ := a.App.Actor().FetchAction("/creatures/get").Act(mainstate.NewState(base.NewInfo("", ""), state.Trx()), inputsusers.GetInput{UserId: state.Info().UserId()})
-	return outputsusers.AuthenticateOutput{Authenticated: true, User: res.(outputsusers.GetOutput).User}, nil
+	// /creatures/get returns map[string]any{"creature": Creature}. Project it
+	// onto the User-shaped Authenticate response that older clients expect.
+	resMap, _ := res.(map[string]any)
+	creature, _ := resMap["creature"].(model.Creature)
+	userMap := map[string]any{
+		"id":        creature.Id,
+		"type":      creature.TypeName,
+		"username":  creature.Username,
+		"publicKey": creature.PublicKey,
+		"balance":   creature.Balance,
+	}
+	return outputsusers.AuthenticateOutput{Authenticated: true, User: userMap}, nil
 }
 
 // Mint /creatures/mint check [ true false false ] access [ true false false false POST ]
@@ -403,25 +446,38 @@ func (a *Actions) ConsumeLock(state state.IState, input inputsusers.ConsumeLockI
 // Login /creatures/login check [ false false false ] access [ true false false false POST ]
 func (a *Actions) Login(state state.IState, input inputsusers.LoginInput) (any, error) {
 	ctx := a.OauthCtx
-	client, err := a.firebaseApp.Auth(ctx)
-	if err != nil {
-		log.Println(err)
-		e := errors.New("error getting Auth client")
-		log.Println(e)
-		return nil, e
-	}
-	token, err := client.VerifyIDToken(ctx, input.EmailToken)
-	if err != nil {
-		log.Println(err)
-		e := errors.New("invalid ID token")
-		log.Println(e)
-		return nil, e
-	}
-	email, ok := token.Claims["email"].(string)
-	if !ok {
-		e := errors.New("email claim not found or invalid")
-		log.Println(e)
-		return nil, e
+	var email string
+	if a.firebaseApp == nil {
+		// DEV mode: no Firebase configured. Treat emailToken as raw email
+		// (or fall back to username@dev.local if blank). This makes the node
+		// usable for local development without provisioning Firebase Auth.
+		email = strings.TrimSpace(input.EmailToken)
+		if email == "" || !strings.Contains(email, "@") {
+			email = input.Username + "@dev.local"
+		}
+		log.Println("[DEV] firebase disabled; accepting login for email:", email)
+	} else {
+		client, err := a.firebaseApp.Auth(ctx)
+		if err != nil {
+			log.Println(err)
+			e := errors.New("error getting Auth client")
+			log.Println(e)
+			return nil, e
+		}
+		token, err := client.VerifyIDToken(ctx, input.EmailToken)
+		if err != nil {
+			log.Println(err)
+			e := errors.New("invalid ID token")
+			log.Println(e)
+			return nil, e
+		}
+		var ok bool
+		email, ok = token.Claims["email"].(string)
+		if !ok {
+			e := errors.New("email claim not found or invalid")
+			log.Println(e)
+			return nil, e
+		}
 	}
 
 	trx := state.Trx()
@@ -437,33 +493,32 @@ func (a *Actions) Login(state state.IState, input inputsusers.LoginInput) (any, 
 		priKeyRaw, pubKeyRaw := crypto.SecureKeyPairs("")
 		priKey := string(priKeyRaw)
 		pubKey := string(pubKeyRaw)
-		req := inputsusers.CreateInput{
+		req := inputs_creatures.CreateInput{
+			Type:      "human",
 			Username:  input.Username,
 			PublicKey: pubKey,
 			Metadata:  input.Metadata,
 		}
-		bin, _ := json.Marshal(req)
-		sign := a.App.SignPacket(bin)
-		_, res, err2 := a.App.Actor().FetchAction("/creatures/create").(action.ISecureAction).SecurelyAct("", "", bin, sign, req, a.App.Id())
+		// Call /creatures/create's action directly on the current state.
+		// Going through SecurelyAct would re-submit to the chain (origin =
+		// "global") and deadlock: we're already inside the chain pipeline
+		// processing /creatures/login, and chain processing is single-threaded.
+		_, res, err2 := a.App.Actor().FetchAction("/creatures/create").Act(state, req)
 		if err2 != nil {
 			return nil, err2
 		}
-		var response outputsusers.CreateOutput
-		b, e := json.Marshal(res)
-		if e != nil {
-			log.Println(e)
-			return nil, e
+		resMap, ok := res.(map[string]any)
+		if !ok {
+			return nil, errors.New("unexpected /creatures/create response shape")
 		}
-		e = json.Unmarshal(b, &response)
-		if e != nil {
-			log.Println(e)
-			return nil, e
-		}
-		trx.PutLink("UserPrivateKey::"+response.User.Id, priKey)
-		trx.PutLink("UserEmailToId::"+email, response.User.Id)
-		trx.PutLink("UserIdToEmail::"+response.User.Id, email)
-		log.Println("saving email:", "["+email+"]", "["+response.User.Id+"]")
-		return outputsusers.LoginOutput{User: response.User, Session: response.Session, PrivateKey: priKey}, nil
+		creature, _ := resMap["creature"].(model.Creature)
+		session, _ := resMap["session"].(model.Session)
+		userVal := model.User{Id: creature.Id, Typ: creature.TypeName, Username: creature.Username, PublicKey: creature.PublicKey, Balance: creature.Balance}
+		trx.PutLink("UserPrivateKey::"+userVal.Id, priKey)
+		trx.PutLink("UserEmailToId::"+email, userVal.Id)
+		trx.PutLink("UserIdToEmail::"+userVal.Id, email)
+		log.Println("saving email:", "["+email+"]", "["+userVal.Id+"]")
+		return outputsusers.LoginOutput{User: userVal, Session: session, PrivateKey: priKey}, nil
 	}
 	return nil, errors.New("username already exist")
 }

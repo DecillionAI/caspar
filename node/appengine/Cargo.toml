@@ -25,7 +25,8 @@ wasmedge-types.workspace = true
 zmq = "0.10.0"
 blockingqueue = "0.1.1"
 timedmap = "1.0.2"
-bollard = "0.19.3"
+bollard = "=0.18.1"
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "io-util", "time"] }
 futures-util = "0.3"
 tar = "0.4"
 base64 = "0.22"

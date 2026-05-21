@@ -207,6 +207,8 @@ func (w *WorkChain) createNewShardChain(chainId string, created bool, peersArr [
 	return shardChain
 }
 
+func (b *Blockchain) RestoreFromStorage() { b.restoreChainsFromStorage() }
+
 func (b *Blockchain) restoreChainsFromStorage() {
 	restored := 0
 	b.app.ModifyState(true, func(trx trx.ITrx) error {
@@ -256,7 +258,10 @@ func NewChain(core core.ICore, storageRoot string) *Blockchain {
 	blockchain.trans = trans
 	service := initChainService(config)
 	blockchain.service = service
-	blockchain.restoreChainsFromStorage()
+	// Storage-backed chain restore is deferred to RestoreFromStorage(),
+	// which the caller invokes after Core.tools has been wired up.
+	// Calling ModifyState here would dereference c.tools (nil during driver
+	// construction) and panic.
 	return blockchain
 }
 

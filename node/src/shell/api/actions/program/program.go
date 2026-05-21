@@ -402,7 +402,7 @@ func (a *Actions) DeleteProgram(state state.IState, input inputs_machiner.Delete
 	return map[string]any{}, nil
 }
 
-// UpdateProgram /machines/update check [ true false false ] access [ true false false false POST ]
+// UpdateProgram /programs/update check [ true false false ] access [ true false false false POST ]
 func (a *Actions) UpdateProgram(state state.IState, input inputs_machiner.UpdateProgramInput) (any, error) {
 	trx := state.Trx()
 	if !trx.HasObj("Program", input.ProgramId) {
@@ -417,7 +417,7 @@ func (a *Actions) UpdateProgram(state state.IState, input inputs_machiner.Update
 	return map[string]any{}, nil
 }
 
-// RunProgramEntity /machines/runProgramEntity check [ true false false ] access [ true false false false POST ]
+// RunProgramEntity /programs/runEntity check [ true false false ] access [ true false false false POST ]
 func (a *Actions) RunProgramEntity(state state.IState, input inputs_machiner.RunProgramEntityInput) (any, error) {
 	trx := state.Trx()
 	programId := input.ProgramId
@@ -499,7 +499,7 @@ func (a *Actions) RunProgramEntity(state state.IState, input inputs_machiner.Run
 	return map[string]any{"vmId": vmId}, nil
 }
 
-// StopProgramEntity /machines/stopProgramEntity check [ true false false ] access [ true false false false POST ]
+// StopProgramEntity /programs/stopEntity check [ true false false ] access [ true false false false POST ]
 func (a *Actions) StopProgramEntity(state state.IState, input inputs_machiner.RunProgramEntityInput) (any, error) {
 	trx := state.Trx()
 	programId := input.ProgramId
@@ -632,7 +632,7 @@ func (a *Actions) ReadMachineBuilds(state state.IState, input inputs_machiner.Ma
 	return map[string]any{"buildsList": builds}, nil
 }
 
-// Deploy /machines/deploy check [ true false false ] access [ true false false false POST ]
+// Deploy /programs/deploy check [ true false false ] access [ true false false false POST ]
 func (a *Actions) Deploy(state state.IState, input inputs_machiner.DeployInput) (any, error) {
 	trx := state.Trx()
 	programId := input.MachineId
@@ -675,11 +675,18 @@ func (a *Actions) Deploy(state state.IState, input inputs_machiner.DeployInput) 
 			}
 		}
 		buildFolderPath := fmt.Sprintf("%s%s%s/entities/%s", a.App.Tools().Storage().StorageRoot(), pluginsTemplateName, program.MachineId, input.EntityId)
-		buildFileName := "Dockerfile"
+		// For wasm runtimes the payload IS the compiled artifact (no server-side
+		// build step). Save it as module.wasm and point the per-entity ast path
+		// link at it so resolveVmExecutionTarget can load the right binary.
+		// For docker the payload is a Dockerfile that the server-side
+		// BuildVmImage step compiles into an image, alongside any source files.
+		var primaryFileName string
 		if entityType == "wasm" {
-			buildFileName = "build.sh"
+			primaryFileName = entityRuntimeFileName(entityType) // module.wasm
+		} else {
+			primaryFileName = "Dockerfile"
 		}
-		err2 := a.App.Tools().File().SaveDataToGlobalStorage(buildFolderPath, data, buildFileName, true)
+		err2 := a.App.Tools().File().SaveDataToGlobalStorage(buildFolderPath, data, primaryFileName, true)
 		if err2 != nil {
 			return nil, err2
 		}
@@ -699,11 +706,20 @@ func (a *Actions) Deploy(state state.IState, input inputs_machiner.DeployInput) 
 				return nil, err2
 			}
 		}
-		buildId := uuid.NewString()
-		trx.PutLink("VmBuilds::"+vmId+"::"+buildId, "true")
-		future.Async(func() {
-			a.App.Tools().Vmm().BuildVmImage(program.MachineId, input.EntityId, buildFolderPath, entityType)
-		}, false)
+		if entityType == "wasm" {
+			// Persist where the wasm lives, so the VMM resolves to this artifact
+			// when signals arrive (resolveVmExecutionTarget reads this link).
+			trx.PutLink("vmEntityPath::"+program.MachineId+"::"+input.EntityId, buildFolderPath+"/"+primaryFileName)
+			trx.PutLink("vmEntityType::"+program.MachineId+"::"+input.EntityId, "wasm")
+			program.Push(trx)
+			a.App.Tools().Vmm().Assign(program.MachineId)
+		} else {
+			buildId := uuid.NewString()
+			trx.PutLink("VmBuilds::"+vmId+"::"+buildId, "true")
+			future.Async(func() {
+				a.App.Tools().Vmm().BuildVmImage(program.MachineId, input.EntityId, buildFolderPath, entityType)
+			}, false)
+		}
 	} else {
 		fileName := entityRuntimeFileName(entityType)
 		entityFolderPath := fmt.Sprintf("%s%s%s/entities/%s", a.App.Tools().Storage().StorageRoot(), pluginsTemplateName, program.MachineId, input.EntityId)
@@ -726,7 +742,7 @@ func (a *Actions) Deploy(state state.IState, input inputs_machiner.DeployInput) 
 	return outputs_machiner.PlugInput{}, nil
 }
 
-// ListPrograms /machines/list check [ true false false ] access [ true false false false GET ]
+// ListMachines /machines/list check [ true false false ] access [ true false false false GET ]
 func (a *Actions) ListMachines(state state.IState, input inputs_machiner.ListInput) (any, error) {
 	trx := state.Trx()
 	machines, err := model.Machine{}.All(trx, input.Offset, input.Count)
@@ -765,7 +781,7 @@ func (a *Actions) ListMachines(state state.IState, input inputs_machiner.ListInp
 	return map[string]any{"machines": result}, nil
 }
 
-// ListMachines /programs/list check [ true false false ] access [ true false false false GET ]
+// ListPrograms /programs/list check [ true false false ] access [ true false false false GET ]
 func (a *Actions) ListPrograms(state state.IState, input inputs_machiner.ListInput) (any, error) {
 	trx := state.Trx()
 	machines, err := model.Program{}.All(trx, input.Offset, input.Count)

@@ -66,6 +66,16 @@ func (wm *Vmm) VmCallback(dataRaw string) (string, int64) {
 		return wm.handleResourceStoreCrud("get", input, reqId)
 	case "listResourceStores", "listVmOwnedStores":
 		return wm.handleResourceStoreCrud("list", input, reqId)
+	case "createStore":
+		return wm.handleStoreCrud("create", input, reqId)
+	case "updateStore":
+		return wm.handleStoreCrud("update", input, reqId)
+	case "deleteStore":
+		return wm.handleStoreCrud("delete", input, reqId)
+	case "getStore":
+		return wm.handleStoreCrud("get", input, reqId)
+	case "listStores":
+		return wm.handleStoreCrud("list", input, reqId)
 	case "createResourceEntity":
 		return wm.handleResourceEntityCreate(input, reqId)
 	case "deleteResourceEntity":
@@ -107,6 +117,14 @@ func (wm *Vmm) VmCallback(dataRaw string) (string, int64) {
 	case "log":
 		return wm.handleVmLogEvent(input, reqId)
 	case "vmLog", "buildLog":
+		return wm.handleVmLogEvent(input, reqId)
+	case "output", "vmOutput":
+		// Creatures emit their final JSON response via the `output` host op.
+		// appengine captures it locally as `execution_result` and re-emits it
+		// after wasm finalize as `vmOutput` so we have a single place to
+		// route the data back to whoever triggered the run. For now, persist
+		// it as a runtime log keyed by machine/vm so downstream tooling and
+		// audit pipelines can read it.
 		return wm.handleVmLogEvent(input, reqId)
 	}
 
