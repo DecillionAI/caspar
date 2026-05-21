@@ -1,4 +1,8 @@
-struct ElpifyVmController;
+use crate::prelude::*;
+use crate::controllers::vm_controller::VmController;
+use crate::models::vm_runtime::{ElpifyManagedVm, ElpifyTask, GLOBAL_ELPIFY_VMS, terminate_managed_vm, parse_vm_resource_limits};
+
+pub(crate) struct ElpifyVmController;
 
 impl VmController for ElpifyVmController {
     fn build_image(_packet: &JsonValue) -> Result<JsonValue, String> {

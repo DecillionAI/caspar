@@ -33,4 +33,5 @@ type ExtendedField struct {
 	Required    bool
 	Searchable  bool
 	PrimaryProp bool
+	GetValue    func(state.IState, map[string]any) (any, error)
 }

@@ -1,36 +1,37 @@
-use std::io::{Read, Write};
-use std::path::PathBuf;
-use std::process::{Child, ChildStdin, Command, Stdio};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
-use std::thread;
-use std::thread::JoinHandle;
-use std::time::Duration;
+use crate::prelude::*;
+use crate::controllers::vm_controller::VmController;
+use crate::bridge::messaging::{wasm_send, log};
+use crate::models::vm_runtime::{parse_vm_resource_limits, VmResourceLimits};
+use crate::network::vm_network::VmNetworkService;
+use crate::globals::GLOBAL_VM_CONTEXT;
 
-struct FireVmProcess {
-    machine_id: String,
-    vm_id: String,
-    requester_user_id: String,
-    stream_store_id: String,
-    socket_path: PathBuf,
-    child: Child,
-    stdin: Arc<Mutex<ChildStdin>>,
-    output: Arc<Mutex<String>>,
-    io_stop: Arc<AtomicBool>,
-    stdout_thread: Option<JoinHandle<()>>,
-    stderr_thread: Option<JoinHandle<()>>,
+pub(crate) static GLOBAL_FIRE_VMS: Lazy<Arc<Mutex<HashMap<String, FireVmProcess>>>> =
+    Lazy::new(|| Arc::new(Mutex::new(HashMap::new())));
+
+pub(crate) struct FireVmProcess {
+    pub(crate) machine_id: String,
+    pub(crate) vm_id: String,
+    pub(crate) requester_user_id: String,
+    pub(crate) stream_store_id: String,
+    pub(crate) socket_path: PathBuf,
+    pub(crate) child: Child,
+    pub(crate) stdin: Arc<Mutex<ChildStdin>>,
+    pub(crate) output: Arc<Mutex<String>>,
+    pub(crate) io_stop: Arc<AtomicBool>,
+    pub(crate) stdout_thread: Option<JoinHandle<()>>,
+    pub(crate) stderr_thread: Option<JoinHandle<()>>,
 }
 
-struct FireVmController;
+pub(crate) struct FireVmController;
 
 impl FireVmController {
-    fn new() -> Result<Self, String> {
+    pub(crate) fn new() -> Result<Self, String> {
         std::fs::create_dir_all("/opt/firecracker/vms")
             .map_err(|e| format!("failed to prepare firecracker vm dir: {}", e))?;
         Ok(Self)
     }
 
-    fn run_vm(&self, packet: &JsonValue) -> Result<JsonValue, String> {
+    pub(crate) fn run_vm(&self, packet: &JsonValue) -> Result<JsonValue, String> {
         let machine_id = packet["machineId"].as_str().unwrap_or("").trim();
         if machine_id.is_empty() {
             return Err("machineId is required".to_string());
@@ -204,7 +205,7 @@ impl FireVmController {
         }))
     }
 
-    fn terminate_vm(&self, packet: &JsonValue) -> Result<JsonValue, String> {
+    pub(crate) fn terminate_vm(&self, packet: &JsonValue) -> Result<JsonValue, String> {
         let machine_id = packet["machineId"].as_str().unwrap_or("").trim();
         if machine_id.is_empty() {
             return Err("machineId is required".to_string());
@@ -225,7 +226,7 @@ impl FireVmController {
         }))
     }
 
-    fn exec_vm(&self, packet: &JsonValue) -> Result<JsonValue, String> {
+    pub(crate) fn exec_vm(&self, packet: &JsonValue) -> Result<JsonValue, String> {
         let machine_id = packet["machineId"].as_str().unwrap_or("").trim();
         if machine_id.is_empty() {
             return Err("machineId is required".to_string());
@@ -272,7 +273,7 @@ impl FireVmController {
         }))
     }
 
-    fn copy_to_vm(&self, packet: &JsonValue) -> Result<JsonValue, String> {
+    pub(crate) fn copy_to_vm(&self, packet: &JsonValue) -> Result<JsonValue, String> {
         let machine_id = packet["machineId"].as_str().unwrap_or("").trim();
         if machine_id.is_empty() {
             return Err("machineId is required".to_string());
@@ -301,7 +302,7 @@ impl FireVmController {
         }))
     }
 
-    fn build_image(&self, packet: &JsonValue) -> Result<JsonValue, String> {
+    pub(crate) fn build_image(&self, packet: &JsonValue) -> Result<JsonValue, String> {
         let machine_id = packet["machineId"].as_str().unwrap_or("").trim();
         if machine_id.is_empty() {
             return Err("machineId is required".to_string());

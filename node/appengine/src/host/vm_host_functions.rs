@@ -1,14 +1,22 @@
-struct HostHierarchy {
-    creature_id: String,
-    program_id: String,
-    entity_name: String,
-    entity_path: String,
+use crate::prelude::*;
+use crate::globals::{GLOBAL_VM_CONTEXT, GLOBAL_DB};
+use crate::controllers::docker_vm_controller::DockerVmController;
+use crate::controllers::fire_vm_controller::FireVmController;
+use crate::models::vm_runtime::{verify_program_execution_from_packet, parse_u64_array_field, parse_u8_array_field};
+use crate::bridge::messaging::wasm_send;
+use crate::host::functions::*;
+
+pub(crate) struct HostHierarchy {
+    pub(crate) creature_id: String,
+    pub(crate) program_id: String,
+    pub(crate) entity_name: String,
+    pub(crate) entity_path: String,
 }
 
 #[derive(Default)]
-struct CachedVmHierarchy {
-    creature_id: String,
-    program_id: String,
+pub(crate) struct CachedVmHierarchy {
+    pub(crate) creature_id: String,
+    pub(crate) program_id: String,
 }
 
 fn resolve_cached_vm_hierarchy(input: &JsonValue) -> CachedVmHierarchy {
@@ -39,7 +47,7 @@ fn value_from_packet_or_input<'a>(
         .unwrap_or("")
 }
 
-fn resolve_host_hierarchy(packet: &JsonValue, input: &JsonValue) -> HostHierarchy {
+pub(crate) fn resolve_host_hierarchy(packet: &JsonValue, input: &JsonValue) -> HostHierarchy {
     let cached = resolve_cached_vm_hierarchy(input);
 
     let creature_from_req = value_from_packet_or_input(packet, input, "creatureId");
@@ -74,7 +82,7 @@ fn resolve_host_hierarchy(packet: &JsonValue, input: &JsonValue) -> HostHierarch
     }
 }
 
-fn run_db_op(ctx: &HostHierarchy, input: &JsonValue) -> Result<String, String> {
+pub(crate) fn run_db_op(ctx: &HostHierarchy, input: &JsonValue) -> Result<String, String> {
     let op = input["op"].as_str().unwrap_or("");
     let key = input["key"].as_str().unwrap_or("");
     let db_prefix = if !ctx.creature_id.is_empty() && !ctx.program_id.is_empty() {
@@ -135,7 +143,7 @@ fn run_db_op(ctx: &HostHierarchy, input: &JsonValue) -> Result<String, String> {
     }
 }
 
-fn perform_http_request(input: &JsonValue) -> Result<String, String> {
+pub(crate) fn perform_http_request(input: &JsonValue) -> Result<String, String> {
     let mut url = input["url"].as_str().unwrap_or("").to_string();
     if url.is_empty() {
         return Err("url is required".to_string());
@@ -202,28 +210,7 @@ fn perform_http_request(input: &JsonValue) -> Result<String, String> {
     Ok(BASE64_STANDARD.encode(bytes))
 }
 
-include!("functions/db_op.rs");
-include!("functions/run_vm.rs");
-include!("functions/terminate_vm.rs");
-include!("functions/exec_vm.rs");
-include!("functions/copy_to_vm.rs");
-include!("functions/build_vm_image.rs");
-include!("functions/http_request.rs");
-include!("functions/verify_program.rs");
-include!("functions/protocol_api.rs");
-include!("functions/signal.rs");
-include!("functions/access.rs");
-include!("functions/store.rs");
-include!("functions/creature.rs");
-include!("functions/validate_sign.rs");
-include!("functions/transfer.rs");
-include!("functions/consume_lock.rs");
-include!("functions/lock_token.rs");
-include!("functions/create_program.rs");
-include!("functions/delete_program.rs");
-include!("functions/deploy_entity.rs");
-
-fn handle_unified_host_call(packet: &JsonValue) -> String {
+pub(crate) fn handle_unified_host_call(packet: &JsonValue) -> String {
     let op = packet["op"]
         .as_str()
         .or_else(|| packet["key"].as_str())
@@ -301,7 +288,7 @@ fn handle_unified_host_call(packet: &JsonValue) -> String {
     }
 }
 
-fn with_docker_controller<T, F>(f: F) -> Result<T, String>
+pub(crate) fn with_docker_controller<T, F>(f: F) -> Result<T, String>
 where
     F: FnOnce(&DockerVmController) -> Result<T, String>,
 {
@@ -309,7 +296,7 @@ where
     f(&controller)
 }
 
-fn with_fire_controller<T, F>(f: F) -> Result<T, String>
+pub(crate) fn with_fire_controller<T, F>(f: F) -> Result<T, String>
 where
     F: FnOnce(&FireVmController) -> Result<T, String>,
 {

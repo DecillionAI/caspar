@@ -302,11 +302,11 @@ func (c *Blockchain) SubmitTrx(chainId string, machineId string, typ string, pay
 	targetShardId := "shard-main"
 	if machineId != "" {
 		c.app.ModifyState(true, func(trx trx.ITrx) error {
-			vm := model.Vm{MachineId: machineId}.Pull(trx)
+			vm := model.Program{MachineId: machineId}.Pull(trx)
 			if vm.AppId == "" {
 				return nil
 			}
-			app := model.App{Id: vm.AppId}.Pull(trx)
+			app := model.Machine{Id: vm.AppId}.Pull(trx)
 			if app.ChainId == chainId && app.ShardChainId != "" {
 				targetShardId = app.ShardChainId
 			}

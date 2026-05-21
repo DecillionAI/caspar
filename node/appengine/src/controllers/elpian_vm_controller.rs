@@ -1,4 +1,8 @@
-struct ElpianVmController;
+use crate::prelude::*;
+use crate::controllers::vm_controller::VmController;
+use crate::models::vm_runtime::{execute_elpian_task, terminate_managed_vm, parse_vm_resource_limits};
+
+pub(crate) struct ElpianVmController;
 
 impl VmController for ElpianVmController {
     fn build_image(_packet: &JsonValue) -> Result<JsonValue, String> {

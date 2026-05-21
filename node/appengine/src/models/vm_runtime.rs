@@ -1,3 +1,14 @@
+use crate::prelude::*;
+use crate::globals::{GLOBAL_DB, GLOBAL_RESOURCE_LOCKS, ResourceLockState, ResourceLockEntry};
+use crate::models::runtime_models::{Trx, WasmDbOp};
+use crate::bridge::messaging::{wasm_send, log, set_log_vm_context};
+use crate::host::task_graph::host_call;
+
+pub(crate) static GLOBAL_MANAGED_VMS: Lazy<Arc<Mutex<HashMap<String, ManagedVmHandle>>>> =
+    Lazy::new(|| Arc::new(Mutex::new(HashMap::new())));
+pub(crate) static GLOBAL_ELPIFY_VMS: Lazy<Arc<Mutex<HashMap<String, Arc<ElpifyManagedVm>>>>> =
+    Lazy::new(|| Arc::new(Mutex::new(HashMap::new())));
+
 pub struct WasmMac {
     pub callback: Box<dyn (Fn(JsonValue) -> String) + Send + Sync>,
     pub machine_id: String,
@@ -8,43 +19,43 @@ pub struct WasmMac {
     pub cost: u64,
     pub ram_limit_mb: u64,
 
-    execution_result: String,
-    has_output: bool,
-    stop_: Arc<AtomicBool>,
-    running_: Arc<AtomicBool>,
+    pub(crate) execution_result: String,
+    pub(crate) has_output: bool,
+    pub(crate) stop_: Arc<AtomicBool>,
+    pub(crate) running_: Arc<AtomicBool>,
 }
 
 pub struct ManagedVmHandle {
-    stop: Arc<AtomicBool>,
-    running: Arc<AtomicBool>,
+    pub(crate) stop: Arc<AtomicBool>,
+    pub(crate) running: Arc<AtomicBool>,
 }
 
 #[derive(Clone, Debug)]
-struct VmResourceLimits {
-    max_exec_time_secs: u64,
-    ram_mb: u64,
-    disk_gb: u64,
-    cpu_cores: u64,
+pub(crate) struct VmResourceLimits {
+    pub(crate) max_exec_time_secs: u64,
+    pub(crate) ram_mb: u64,
+    pub(crate) disk_gb: u64,
+    pub(crate) cpu_cores: u64,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum VmRuntime {
+pub(crate) enum VmRuntime {
     Wasm,
     Elpify,
     Elpian,
     Fire,
 }
 
-struct ElpifyTask {
-    masm_path: String,
-    input_raw: String,
-    vm_id: String,
-    limits: VmResourceLimits,
+pub(crate) struct ElpifyTask {
+    pub(crate) masm_path: String,
+    pub(crate) input_raw: String,
+    pub(crate) vm_id: String,
+    pub(crate) limits: VmResourceLimits,
 }
 
-struct ElpifyManagedVm {
-    stop: Arc<AtomicBool>,
-    sender: Sender<ElpifyTask>,
+pub(crate) struct ElpifyManagedVm {
+    pub(crate) stop: Arc<AtomicBool>,
+    pub(crate) sender: Sender<ElpifyTask>,
 }
 
 impl ManagedVmHandle {
@@ -56,7 +67,7 @@ impl ManagedVmHandle {
 }
 
 impl VmResourceLimits {
-    fn with_defaults() -> Self {
+    pub(crate) fn with_defaults() -> Self {
         VmResourceLimits {
             max_exec_time_secs: 60,
             ram_mb: 64,
@@ -66,7 +77,7 @@ impl VmResourceLimits {
     }
 }
 
-fn parse_vm_resource_limits(packet: &JsonValue) -> VmResourceLimits {
+pub(crate) fn parse_vm_resource_limits(packet: &JsonValue) -> VmResourceLimits {
     let mut limits = VmResourceLimits::with_defaults();
     let resources = &packet["resources"];
     if resources.is_object() {
@@ -79,7 +90,7 @@ fn parse_vm_resource_limits(packet: &JsonValue) -> VmResourceLimits {
 }
 
 impl ElpifyManagedVm {
-    fn new(machine_id: String) -> Self {
+    pub(crate) fn new(machine_id: String) -> Self {
         let (tx, rx): (Sender<ElpifyTask>, Receiver<ElpifyTask>) = mpsc::channel();
         let stop = Arc::new(AtomicBool::new(false));
         let stop_clone = Arc::clone(&stop);
@@ -112,20 +123,20 @@ impl ElpifyManagedVm {
         ElpifyManagedVm { stop, sender: tx }
     }
 
-    fn enqueue(&self, task: ElpifyTask) -> Result<(), String> {
+    pub(crate) fn enqueue(&self, task: ElpifyTask) -> Result<(), String> {
         self.sender
             .send(task)
             .map_err(|e| format!("failed to enqueue elpify task: {}", e))
     }
 
-    fn terminate(&self) {
+    pub(crate) fn terminate(&self) {
         self.stop.store(true, Ordering::Relaxed);
     }
 }
 
 pub struct HostData {
-    exec: *mut Executor,
-    runtime: *mut WasmMac,
+    pub(crate) exec: *mut Executor,
+    pub(crate) runtime: *mut WasmMac,
 }
 
 impl WasmMac {
@@ -251,7 +262,7 @@ impl WasmMac {
     }
 }
 
-fn detect_vm_runtime(packet: &JsonValue, ast_path: &str) -> VmRuntime {
+pub(crate) fn detect_vm_runtime(packet: &JsonValue, ast_path: &str) -> VmRuntime {
     let vm_hint = packet["vmType"]
         .as_str()
         .or_else(|| packet["runtime"].as_str())
@@ -294,14 +305,14 @@ fn extract_elpify_inputs(input_raw: &str) -> Vec<u64> {
     vec![]
 }
 
-fn parse_u64_array_field(packet: &JsonValue, field_name: &str) -> Vec<u64> {
+pub(crate) fn parse_u64_array_field(packet: &JsonValue, field_name: &str) -> Vec<u64> {
     packet[field_name]
         .as_array()
         .map(|arr| arr.iter().filter_map(|v| v.as_u64()).collect())
         .unwrap_or_default()
 }
 
-fn parse_u8_array_field(packet: &JsonValue, field_name: &str) -> Vec<u8> {
+pub(crate) fn parse_u8_array_field(packet: &JsonValue, field_name: &str) -> Vec<u8> {
     packet[field_name]
         .as_array()
         .map(|arr| {
@@ -326,7 +337,7 @@ fn get_or_create_resource_lock(resource_id: &str) -> Arc<ResourceLockEntry> {
     }))
 }
 
-fn acquire_resource_lock(resource_id: &str, owner_id: &str) -> Result<(), String> {
+pub(crate) fn acquire_resource_lock(resource_id: &str, owner_id: &str) -> Result<(), String> {
     if resource_id.is_empty() {
         return Err("resourceId is required".to_string());
     }
@@ -354,7 +365,7 @@ fn acquire_resource_lock(resource_id: &str, owner_id: &str) -> Result<(), String
     Ok(())
 }
 
-fn release_resource_lock(resource_id: &str, owner_id: &str) -> Result<(), String> {
+pub(crate) fn release_resource_lock(resource_id: &str, owner_id: &str) -> Result<(), String> {
     if resource_id.is_empty() {
         return Err("resourceId is required".to_string());
     }
@@ -374,7 +385,7 @@ fn release_resource_lock(resource_id: &str, owner_id: &str) -> Result<(), String
     Ok(())
 }
 
-fn verify_program_execution_from_packet(
+pub(crate) fn verify_program_execution_from_packet(
     masm_path: &str,
     inputs: &[u64],
     outputs: &[u64],
@@ -471,7 +482,7 @@ fn execute_elpify_task(
     Ok(())
 }
 
-fn execute_elpian_task(
+pub(crate) fn execute_elpian_task(
     machine_id: &str,
     vm_id: String,
     ast_path: String,
@@ -543,7 +554,7 @@ fn execute_elpian_task(
     Ok(())
 }
 
-fn terminate_managed_vm(machine_id: &str) {
+pub(crate) fn terminate_managed_vm(machine_id: &str) {
     let mut map = GLOBAL_MANAGED_VMS.lock().unwrap();
     if let Some(handle) = map.remove(machine_id) {
         handle.terminate_vm_instance();
@@ -565,6 +576,3 @@ fn terminate_managed_vm(machine_id: &str) {
         ));
     }
 }
-
-// Sync task structure
-#[derive(Clone)]

@@ -134,12 +134,12 @@ func (fed *FedNet) HandlePacket(socket *Socket, channelId string, payload packet
 						return
 					}
 					fed.app.ModifyState(false, func(trx trx.ITrx) error {
-						spaceOut.Store.Pull(trx)
-						trx.PutLink("onaccess::"+spaceOut.Store.Id+"::"+cb.UserId, "true")
-						trx.PutLink("hasaccess::"+cb.UserId+"::"+spaceOut.Store.Id, "true")
+						spaceOut.Store.Store.Pull(trx)
+						trx.PutLink("onaccess::"+spaceOut.Store.Store.Id+"::"+cb.UserId, "true")
+						trx.PutLink("hasaccess::"+cb.UserId+"::"+spaceOut.Store.Store.Id, "true")
 						return nil
 					})
-					fed.signaler.JoinGroup(spaceOut.Store.Id, cb.UserId)
+					fed.signaler.JoinGroup(spaceOut.Store.Store.Id, cb.UserId)
 				}
 			}
 			fed.packetCallbacks.Remove(payload.RequestId)

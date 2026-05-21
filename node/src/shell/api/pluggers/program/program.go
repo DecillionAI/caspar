@@ -25,14 +25,6 @@ func (c *Plugger) UpdateProgram() iaction.IAction {
 	return utils.ExtractSecureAction(c.Core, c.Actions.UpdateProgram)
 }
 
-func (c *Plugger) MyCreatedPrograms() iaction.IAction {
-	return utils.ExtractSecureAction(c.Core, c.Actions.MyCreatedPrograms)
-}
-
-func (c *Plugger) Signal() iaction.IAction {
-	return utils.ExtractSecureAction(c.Core, c.Actions.Signal)
-}
-
 func (c *Plugger) RunProgramEntity() iaction.IAction {
 	return utils.ExtractSecureAction(c.Core, c.Actions.RunProgramEntity)
 }

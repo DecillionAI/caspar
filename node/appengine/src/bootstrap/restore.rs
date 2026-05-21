@@ -1,4 +1,7 @@
-fn restore_previously_running_vms(snapshot: &JsonValue) -> Result<JsonValue, String> {
+use crate::prelude::*;
+use crate::host::vm_host_functions::{with_docker_controller, with_fire_controller};
+
+pub(crate) fn restore_previously_running_vms(snapshot: &JsonValue) -> Result<JsonValue, String> {
     let runtimes = snapshot["vms"].as_array().cloned().unwrap_or_default();
     let mut restored = 0;
     for vm in runtimes {

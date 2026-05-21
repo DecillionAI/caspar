@@ -1,4 +1,8 @@
-struct WasmVmController;
+use crate::prelude::*;
+use crate::controllers::vm_controller::VmController;
+use crate::models::vm_runtime::terminate_managed_vm;
+
+pub(crate) struct WasmVmController;
 
 impl VmController for WasmVmController {
     fn build_image(_packet: &JsonValue) -> Result<JsonValue, String> {

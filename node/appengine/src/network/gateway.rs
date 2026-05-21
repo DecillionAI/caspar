@@ -1,7 +1,13 @@
-struct VmGatewayService;
+use crate::prelude::*;
+use crate::network::gateway_types::{VmGatewayEndpoint, VmRuntimeType, GatewayProtocol, GatewayForwardRequest};
+use crate::network::gateway_registry::VmGatewayRegistry;
+use crate::network::gateway_http::forward_http_to_vm;
+use crate::network::gateway_socket::{forward_websocket_to_vm, forward_raw_socket_to_vm};
+
+pub(crate) struct VmGatewayService;
 
 impl VmGatewayService {
-    fn register_endpoint(packet: &JsonValue) -> Result<JsonValue, String> {
+    pub(crate) fn register_endpoint(packet: &JsonValue) -> Result<JsonValue, String> {
         let runtime = VmRuntimeType::from_str(packet["runtime"].as_str().unwrap_or(""))
             .ok_or_else(|| {
                 "runtime is required and must be one of docker/fire/elpian/elpify/javascript/wasm"
@@ -39,7 +45,7 @@ impl VmGatewayService {
         Ok(json!({"ok": true, "machineId": machine_id, "vmId": vm_id}))
     }
 
-    fn unregister_endpoint(packet: &JsonValue) -> Result<JsonValue, String> {
+    pub(crate) fn unregister_endpoint(packet: &JsonValue) -> Result<JsonValue, String> {
         let machine_id = packet["machineId"].as_str().unwrap_or("").trim();
         let vm_id = packet["vmId"].as_str().unwrap_or("main").trim();
         if machine_id.is_empty() {
@@ -49,7 +55,7 @@ impl VmGatewayService {
         Ok(json!({"ok": true, "machineId": machine_id, "vmId": vm_id}))
     }
 
-    fn list_endpoints() -> JsonValue {
+    pub(crate) fn list_endpoints() -> JsonValue {
         let endpoints = VmGatewayRegistry::list();
         json!({"ok": true, "endpoints": endpoints.iter().map(|e| json!({
             "machineId": e.machine_id,
@@ -62,7 +68,7 @@ impl VmGatewayService {
         })).collect::<Vec<JsonValue>>()})
     }
 
-    fn forward(packet: &JsonValue) -> Result<JsonValue, String> {
+    pub(crate) fn forward(packet: &JsonValue) -> Result<JsonValue, String> {
         let protocol = GatewayProtocol::from_str(packet["protocol"].as_str().unwrap_or(""))
             .ok_or_else(|| {
                 "protocol is required and must be http/websocket/raw_socket".to_string()

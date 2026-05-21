@@ -1,5 +1,8 @@
+use crate::prelude::*;
+use crate::models::base_vm::BaseVm;
+
 #[derive(Clone, Debug)]
-struct ElpifyVm {
-    base: BaseVm,
-    masm_path: String,
+pub(crate) struct ElpifyVm {
+    pub(crate) base: BaseVm,
+    pub(crate) masm_path: String,
 }

@@ -804,3 +804,4 @@ func (a *Actions) ListProgramMachines(state state.IState, input inputs_machiner.
 	}
 	return map[string]any{"machines": result}, nil
 }
+

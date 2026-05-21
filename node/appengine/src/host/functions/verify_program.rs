@@ -1,4 +1,7 @@
-fn host_fn_verify_program(input: &JsonValue) -> String {
+use crate::prelude::*;
+use crate::models::vm_runtime::{verify_program_execution_from_packet, parse_u64_array_field, parse_u8_array_field};
+
+pub(crate) fn host_fn_verify_program(input: &JsonValue) -> String {
     let masm_path = input["masmPath"].as_str().unwrap_or("").to_string();
     let inputs = parse_u64_array_field(input, "inputs");
     let outputs = parse_u64_array_field(input, "outputs");

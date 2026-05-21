@@ -1,4 +1,7 @@
-fn handle_bridge_api(packet: &JsonValue) -> Result<JsonValue, String> {
+use crate::prelude::*;
+use crate::network::gateway::VmGatewayService;
+
+pub(crate) fn handle_bridge_api(packet: &JsonValue) -> Result<JsonValue, String> {
     let api = packet["api"].as_str().unwrap_or("");
     match api {
         "ping" => Ok(json!({"ok": true, "pong": true})),

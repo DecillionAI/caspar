@@ -3,11 +3,12 @@ package updates_stores
 import model "kasper/src/shell/api/model"
 
 type Send struct {
-	User   model.User  `json:"user"`
-	Store  model.Store `json:"store,omitempty"`
-	Action string      `json:"action"`
-	Data   string      `json:"data"`
-	IsTemp bool        `json:"isTemp,omitempty"`
+	User     model.User  `json:"user"`
+	Store    model.Store `json:"store,omitempty"`
+	Action   string      `json:"action"`
+	Data     string      `json:"data"`
+	IsTemp   bool        `json:"isTemp,omitempty"`
+	EntityId string      `json:"entityId,omitempty"`
 }
 
 type Update struct {

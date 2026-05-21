@@ -196,9 +196,15 @@ func (a *Actions) Signal(state state.IState, input inputs_creatures.SignalInput)
 	if input.CreatureId == "" {
 		return nil, errors.New("creatureId is required for pvp")
 	}
-	packet := updates_stores.Send{Action: "single", User: sender, Data: input.Data, IsTemp: input.Temp}
+	// ProgramId targets a specific program within a machine creature;
+	// falls back to CreatureId for direct user/program targets.
+	targetId := input.CreatureId
+	if input.ProgramId != "" {
+		targetId = input.ProgramId
+	}
+	packet := updates_stores.Send{Action: "single", User: sender, Data: input.Data, IsTemp: input.Temp, EntityId: input.EntityId}
 	future.Async(func() {
-		a.App.Tools().Signaler().SignalUser("creatures/signal", input.CreatureId, packet, true)
+		a.App.Tools().Signaler().SignalUser("creatures/signal", targetId, packet, true)
 	}, false)
 	return map[string]any{"passed": true}, nil
 }
@@ -473,11 +479,11 @@ func (a *Actions) Delete(state state.IState, input inputsusers.DeleteInput) (any
 	}
 	user.Delete(state.Trx())
 	state.Trx().DelJson("UserMeta::"+input.UserId, "metadata")
-	storeList, _ := model.Store{}.List(state.Trx(), "onaccess::", map[string]string{})
+	storeList, _ := model.Store{}.List(state.Trx(), "hasaccess::"+input.UserId+"::", false, map[string]string{}, map[string][]string{})
 	for _, store := range storeList {
 		state.Trx().DelKey("link::onaccess::" + store.Id + "::" + input.UserId)
 	}
-	createdStoreList, _ := model.Store{}.List(state.Trx(), "creatorof::"+input.UserId+"::", map[string]string{})
+	createdStoreList, _ := model.Store{}.List(state.Trx(), "creatorof::"+input.UserId+"::", false, map[string]string{}, map[string][]string{})
 	for _, store := range createdStoreList {
 		store.Delete(state.Trx())
 	}
@@ -534,29 +540,31 @@ func (a *Actions) GetByUsername(state state.IState, input inputsusers.GetByUsern
 		return nil, errors.New("user not found")
 	}
 	result := model.User{Id: userId}.Pull(state.Trx())
+	m, _ := trx.ObjectToMap(result)
 	if ex, ok := a.modelExtender["user"]; ok {
 		for name, field := range ex {
-			m, _ := trx.ObjectToMap(result)
-			m[name], _ = field.GetValue(state, m)
-			trx.MapToObject(m, &result)
+			if field.GetValue != nil {
+				m[name], _ = field.GetValue(state, m)
+			}
 		}
 	}
-	return outputsusers.GetOutput{User: result}, nil
+	return outputsusers.GetOutput{User: m}, nil
 }
 
 // Find /creatures/find check [ true false false ] access [ true false false false GET ]
 func (a *Actions) Find(state state.IState, input inputsusers.FindInput) (any, error) {
-	users, _ := model.User{}.Search(state.Trx(), 0, 1, "username", input.Query, map[string]string{})
+	users, _ := model.User{}.Search(state.Trx(), 0, 1, "username", input.Username, map[string]string{})
 	if len(users) == 0 {
 		return nil, errors.New("user not found")
 	}
 	result := users[0]
+	m, _ := trx.ObjectToMap(result)
 	if ex, ok := a.modelExtender["user"]; ok {
 		for name, field := range ex {
-			m, _ := trx.ObjectToMap(result)
-			m[name], _ = field.GetValue(state, m)
-			trx.MapToObject(m, &result)
+			if field.GetValue != nil {
+				m[name], _ = field.GetValue(state, m)
+			}
 		}
 	}
-	return outputsusers.GetOutput{User: result}, nil
+	return outputsusers.GetOutput{User: m}, nil
 }

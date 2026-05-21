@@ -61,8 +61,36 @@ func (p *Signaler) ListenToJoin(listener *signaler.JoinListener) {
 	p.JListener = listener
 }
 
+func (p *Signaler) signalListener(key string, listenerId string, data any, pack bool) {
+	listener, found := p.listeners.Get(listenerId)
+	if !found || listener == nil {
+		return
+	}
+	if pack {
+		var message string
+		switch d := data.(type) {
+		case string:
+			message = d
+		default:
+			msg, err := json.Marshal(d)
+			if err != nil {
+				log.Println(err)
+				return
+			}
+			message = string(msg)
+		}
+		listener.Signal(key, []byte(message))
+	} else {
+		listener.Signal(key, data)
+	}
+}
+
 func (p *Signaler) SignalUser(key string, listenerId string, data any, pack bool) {
+	// Non-user IDs (e.g. machine IDs without @) route directly to their registered listener.
+	// The VMM registers machine listeners via Assign(); this lets pvp signals reach machines
+	// transparently without the action layer needing to distinguish user vs machine targets.
 	if !strings.Contains(listenerId, "@") {
+		p.signalListener(key, listenerId, data, pack)
 		return
 	}
 	username := ""
@@ -79,26 +107,7 @@ func (p *Signaler) SignalUser(key string, listenerId string, data any, pack bool
 	}
 	origin := uParts[1]
 	if origin == p.app.Id() {
-		listener, found := p.listeners.Get(listenerId)
-		if found && (listener != nil) {
-			if pack {
-				var message string
-				switch d := data.(type) {
-				case string:
-					message = d
-				default:
-					msg, err := json.Marshal(d)
-					if err != nil {
-						log.Println(err)
-						return
-					}
-					message = string(msg)
-				}
-				listener.Signal(key, []byte(message))
-			} else {
-				listener.Signal(key, data)
-			}
-		}
+		p.signalListener(key, listenerId, data, pack)
 	} else {
 		p.Federation.SendFedUpdate(origin, key, data, "user", listenerId, []string{})
 	}

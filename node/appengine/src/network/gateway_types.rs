@@ -1,5 +1,7 @@
+use crate::prelude::*;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-enum VmRuntimeType {
+pub(crate) enum VmRuntimeType {
     Docker,
     Fire,
     Elpian,
@@ -9,7 +11,7 @@ enum VmRuntimeType {
 }
 
 impl VmRuntimeType {
-    fn from_str(v: &str) -> Option<Self> {
+    pub(crate) fn from_str(v: &str) -> Option<Self> {
         match v.trim().to_lowercase().as_str() {
             "docker" => Some(Self::Docker),
             "fire" => Some(Self::Fire),
@@ -23,14 +25,14 @@ impl VmRuntimeType {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum GatewayProtocol {
+pub(crate) enum GatewayProtocol {
     Http,
     WebSocket,
     RawSocket,
 }
 
 impl GatewayProtocol {
-    fn from_str(v: &str) -> Option<Self> {
+    pub(crate) fn from_str(v: &str) -> Option<Self> {
         match v.trim().to_lowercase().as_str() {
             "http" | "https" => Some(Self::Http),
             "websocket" | "ws" | "wss" => Some(Self::WebSocket),
@@ -41,22 +43,22 @@ impl GatewayProtocol {
 }
 
 #[derive(Clone, Debug)]
-struct VmGatewayEndpoint {
-    machine_id: String,
-    vm_id: String,
-    runtime: VmRuntimeType,
-    host: String,
-    http_port: Option<u16>,
-    websocket_port: Option<u16>,
-    raw_socket_port: Option<u16>,
+pub(crate) struct VmGatewayEndpoint {
+    pub(crate) machine_id: String,
+    pub(crate) vm_id: String,
+    pub(crate) runtime: VmRuntimeType,
+    pub(crate) host: String,
+    pub(crate) http_port: Option<u16>,
+    pub(crate) websocket_port: Option<u16>,
+    pub(crate) raw_socket_port: Option<u16>,
 }
 
 impl VmGatewayEndpoint {
-    fn key(&self) -> String {
+    pub(crate) fn key(&self) -> String {
         format!("{}::{}", self.machine_id, self.vm_id)
     }
 
-    fn protocol_port(&self, protocol: GatewayProtocol) -> Option<u16> {
+    pub(crate) fn protocol_port(&self, protocol: GatewayProtocol) -> Option<u16> {
         match protocol {
             GatewayProtocol::Http => self.http_port,
             GatewayProtocol::WebSocket => self.websocket_port,
@@ -66,12 +68,12 @@ impl VmGatewayEndpoint {
 }
 
 #[derive(Clone, Debug)]
-struct GatewayForwardRequest {
-    machine_id: String,
-    vm_id: String,
-    protocol: GatewayProtocol,
-    path: String,
-    method: String,
-    body: Vec<u8>,
-    headers: HashMap<String, String>,
+pub(crate) struct GatewayForwardRequest {
+    pub(crate) machine_id: String,
+    pub(crate) vm_id: String,
+    pub(crate) protocol: GatewayProtocol,
+    pub(crate) path: String,
+    pub(crate) method: String,
+    pub(crate) body: Vec<u8>,
+    pub(crate) headers: HashMap<String, String>,
 }

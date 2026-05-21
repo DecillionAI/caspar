@@ -8,6 +8,9 @@ type SignalInput struct {
 	Temp    bool   `json:"temp,omitempty"`
 }
 
+func (d SignalInput) GetStoreId() string { return d.StoreId }
+func (d SignalInput) Origin() string     { return "" }
+
 type JoinInput struct {
 	StoreId string `json:"storeId"`
 }

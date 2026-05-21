@@ -1,4 +1,7 @@
-fn forward_http_to_vm(
+use crate::prelude::*;
+use crate::network::gateway_types::{VmGatewayEndpoint, GatewayProtocol, GatewayForwardRequest};
+
+pub(crate) fn forward_http_to_vm(
     endpoint: &VmGatewayEndpoint,
     req: &GatewayForwardRequest,
 ) -> Result<JsonValue, String> {
@@ -39,7 +42,7 @@ fn forward_http_to_vm(
     }))
 }
 
-fn normalize_gateway_path(path: &str) -> String {
+pub(crate) fn normalize_gateway_path(path: &str) -> String {
     if path.trim().is_empty() {
         return "/".to_string();
     }

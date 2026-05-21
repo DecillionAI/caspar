@@ -1,6 +1,8 @@
 package inputs_users
 
-type DeleteInput struct{}
+type DeleteInput struct {
+	UserId string `json:"userId"`
+}
 
 func (d DeleteInput) GetData() any {
 	return "dummy"

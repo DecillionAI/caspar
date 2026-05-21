@@ -1,8 +1,11 @@
+use crate::prelude::*;
+use crate::globals::{RESP_MAP, TRIGGER_MAP, REQ_ID_COUNTER, GLOBAL_REQ_CHAN};
+
 thread_local! {
     static LOG_VM_CONTEXT: std::cell::RefCell<String> = std::cell::RefCell::new("main".to_string());
 }
 
-fn set_log_vm_context(vm_id: &str) {
+pub(crate) fn set_log_vm_context(vm_id: &str) {
     let next = if vm_id.trim().is_empty() {
         "main".to_string()
     } else {
@@ -17,7 +20,7 @@ fn current_log_vm_context() -> String {
     LOG_VM_CONTEXT.with(|ctx| ctx.borrow().clone())
 }
 
-fn log_vm(text: String, vm_id: String, log_type: &str) {
+pub(crate) fn log_vm(text: String, vm_id: String, log_type: &str) {
     let j = json!({
         "key": "vmLog",
         "input": {
@@ -30,7 +33,7 @@ fn log_vm(text: String, vm_id: String, log_type: &str) {
     wasm_send(j);
 }
 
-fn wasm_send(mut data: JsonValue) -> std::string::String {
+pub(crate) fn wasm_send(mut data: JsonValue) -> std::string::String {
     let req_id = REQ_ID_COUNTER.fetch_add(1, Ordering::Relaxed);
     data["requestId"] = JsonValue::from(req_id);
     let cv_ = Arc::new(Condvar::new());
@@ -65,7 +68,7 @@ fn wasm_send(mut data: JsonValue) -> std::string::String {
     res.to_string()
 }
 
-fn log(text: String) {
+pub(crate) fn log(text: String) {
     let vm_id = current_log_vm_context();
     log_vm(text, vm_id, "runtime");
 }

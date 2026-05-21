@@ -1,4 +1,8 @@
-fn main() {
+use crate::prelude::*;
+use crate::globals::GLOBAL_REQ_CHAN;
+use crate::bridge::zmq_packet_dispatcher::dispatch_zmq_packet;
+
+pub fn run() {
     let receiver_handler = thread::spawn(|| {
         let context = zmq::Context::new();
         let responder = Arc::new(Mutex::new(context.socket(zmq::REP).unwrap()));

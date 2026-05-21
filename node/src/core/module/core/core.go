@@ -7,10 +7,8 @@ import (
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/binary"
-	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
-	"fmt"
 	"kasper/src/abstract/adapters/file"
 	"kasper/src/abstract/adapters/network"
 	"kasper/src/abstract/adapters/security"
@@ -48,7 +46,6 @@ import (
 	"log"
 	"os"
 	"slices"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -373,7 +370,7 @@ func (c *Core) runChainMessage(packet chain.ChainMessage) {
 	for machineId := range c.chainMessageMachineIds(packet) {
 		var runtimeType string
 		c.ModifyState(true, func(trx trx.ITrx) error {
-			vm := mach_model.Vm{MachineId: machineId}.Pull(trx)
+			vm := mach_model.Program{MachineId: machineId}.Pull(trx)
 			runtimeType = vm.Runtime
 			return nil
 		})

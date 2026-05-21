@@ -1,6 +1,7 @@
-use std::io::{Read, Write};
+use crate::prelude::*;
+use crate::network::gateway_types::{VmGatewayEndpoint, GatewayProtocol, GatewayForwardRequest};
 
-fn forward_raw_socket_to_vm(
+pub(crate) fn forward_raw_socket_to_vm(
     endpoint: &VmGatewayEndpoint,
     req: &GatewayForwardRequest,
 ) -> Result<JsonValue, String> {
@@ -34,7 +35,7 @@ fn forward_raw_socket_to_vm(
     }))
 }
 
-fn forward_websocket_to_vm(
+pub(crate) fn forward_websocket_to_vm(
     endpoint: &VmGatewayEndpoint,
     req: &GatewayForwardRequest,
 ) -> Result<JsonValue, String> {

@@ -63,7 +63,6 @@ func (t *Tcp) listenForPackets(socket *Socket) {
 		t.sockets.Remove(socket.Id)
 		socket.Conn.Close()
 	}()
-	origin := strings.Split(socket.Conn.RemoteAddr().String(), ":")[0]
 	lenBuf := make([]byte, 4)
 	buf := make([]byte, 1024)
 	nextBuf := make([]byte, 2048)

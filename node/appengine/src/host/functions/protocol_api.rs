@@ -1,4 +1,7 @@
-fn forward_host_api_packet(key: &str, input: &JsonValue) -> String {
+use crate::prelude::*;
+use crate::bridge::messaging::wasm_send;
+
+pub(crate) fn forward_host_api_packet(key: &str, input: &JsonValue) -> String {
     let packet = json!({
         "key": key,
         "input": input
@@ -6,7 +9,7 @@ fn forward_host_api_packet(key: &str, input: &JsonValue) -> String {
     wasm_send(packet)
 }
 
-fn host_fn_protocol_api(input: &JsonValue) -> String {
+pub(crate) fn host_fn_protocol_api(input: &JsonValue) -> String {
     let key = input["apiKey"]
         .as_str()
         .or_else(|| input["endpoint"].as_str())

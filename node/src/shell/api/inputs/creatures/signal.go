@@ -5,6 +5,8 @@ type SignalInput struct {
 	Data       string `json:"data" validate:"required"`
 	StoreId    string `json:"storeId"`
 	CreatureId string `json:"creatureId"`
+	ProgramId  string `json:"programId,omitempty"`
+	EntityId   string `json:"entityId,omitempty"`
 	Temp       bool   `json:"temp"`
 }
 

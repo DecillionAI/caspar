@@ -1,6 +1,9 @@
+use crate::prelude::*;
+use crate::models::base_vm::BaseVm;
+
 #[derive(Clone, Debug)]
-struct WasmVm {
-    base: BaseVm,
-    module_path: String,
-    entry_point: String,
+pub(crate) struct WasmVm {
+    pub(crate) base: BaseVm,
+    pub(crate) module_path: String,
+    pub(crate) entry_point: String,
 }

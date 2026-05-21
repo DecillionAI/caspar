@@ -1,3 +1,8 @@
+use crate::prelude::*;
+use crate::models::vm_runtime::{WasmMac, HostData, verify_program_execution_from_packet, parse_u64_array_field, parse_u8_array_field, acquire_resource_lock, release_resource_lock};
+use crate::bridge::messaging::{log_vm, wasm_send};
+use crate::host::vm_host_functions::{with_docker_controller, with_fire_controller, perform_http_request};
+
 pub fn host_call(
     host_data: &mut HostData,
     _inst: &mut Instance,

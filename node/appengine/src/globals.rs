@@ -1,21 +1,19 @@
-static RESP_MAP: Lazy<Arc<Mutex<TimedMap<i64, String>>>> =
+use crate::prelude::*;
+
+pub(crate) static RESP_MAP: Lazy<Arc<Mutex<TimedMap<i64, String>>>> =
     Lazy::new(|| Arc::new(Mutex::new(TimedMap::new())));
-static TRIGGER_MAP: Lazy<Arc<Mutex<TimedMap<i64, Arc<Condvar>>>>> =
+pub(crate) static TRIGGER_MAP: Lazy<Arc<Mutex<TimedMap<i64, Arc<Condvar>>>>> =
     Lazy::new(|| Arc::new(Mutex::new(TimedMap::new())));
-static REQ_ID_COUNTER: Lazy<AtomicI64> = Lazy::new(|| AtomicI64::new(0));
-static GLOBAL_REQ_CHAN: Lazy<BlockingQueue<String>> = Lazy::new(|| BlockingQueue::new());
-static GLOBAL_HEART_BEAT: Lazy<Arc<Condvar>> = Lazy::new(|| Arc::new(Condvar::new()));
-static GLOBAL_MANAGED_VMS: Lazy<Arc<Mutex<HashMap<String, ManagedVmHandle>>>> =
+pub(crate) static REQ_ID_COUNTER: Lazy<AtomicI64> = Lazy::new(|| AtomicI64::new(0));
+pub(crate) static GLOBAL_REQ_CHAN: Lazy<BlockingQueue<String>> =
+    Lazy::new(|| BlockingQueue::new());
+pub(crate) static GLOBAL_HEART_BEAT: Lazy<Arc<Condvar>> =
+    Lazy::new(|| Arc::new(Condvar::new()));
+pub(crate) static GLOBAL_VM_CONTEXT: Lazy<Arc<Mutex<HashMap<String, (String, String)>>>> =
     Lazy::new(|| Arc::new(Mutex::new(HashMap::new())));
-static GLOBAL_ELPIFY_VMS: Lazy<Arc<Mutex<HashMap<String, Arc<ElpifyManagedVm>>>>> =
+pub(crate) static GLOBAL_RESOURCE_LOCKS: Lazy<Arc<Mutex<HashMap<String, Arc<ResourceLockEntry>>>>> =
     Lazy::new(|| Arc::new(Mutex::new(HashMap::new())));
-static GLOBAL_FIRE_VMS: Lazy<Arc<Mutex<HashMap<String, FireVmProcess>>>> =
-    Lazy::new(|| Arc::new(Mutex::new(HashMap::new())));
-static GLOBAL_VM_CONTEXT: Lazy<Arc<Mutex<HashMap<String, (String, String)>>>> =
-    Lazy::new(|| Arc::new(Mutex::new(HashMap::new())));
-static GLOBAL_RESOURCE_LOCKS: Lazy<Arc<Mutex<HashMap<String, Arc<ResourceLockEntry>>>>> =
-    Lazy::new(|| Arc::new(Mutex::new(HashMap::new())));
-static GLOBAL_DB: Lazy<Arc<Mutex<TransactionDB>>> = Lazy::new(|| {
+pub(crate) static GLOBAL_DB: Lazy<Arc<Mutex<TransactionDB>>> = Lazy::new(|| {
     let path = "appletdb";
     let mut db_options = Options::default();
     db_options.create_if_missing(true);
@@ -24,15 +22,13 @@ static GLOBAL_DB: Lazy<Arc<Mutex<TransactionDB>>> = Lazy::new(|| {
     Arc::new(Mutex::new(db))
 });
 
-struct ResourceLockState {
-    locked: bool,
-    owner: Option<String>,
-    queue: VecDeque<String>,
+pub(crate) struct ResourceLockState {
+    pub(crate) locked: bool,
+    pub(crate) owner: Option<String>,
+    pub(crate) queue: VecDeque<String>,
 }
 
-struct ResourceLockEntry {
-    state: Mutex<ResourceLockState>,
-    cv: Condvar,
+pub(crate) struct ResourceLockEntry {
+    pub(crate) state: Mutex<ResourceLockState>,
+    pub(crate) cv: Condvar,
 }
-
-#[derive(Clone)]

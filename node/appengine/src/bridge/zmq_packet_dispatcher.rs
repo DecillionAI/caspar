@@ -1,4 +1,18 @@
-fn dispatch_zmq_packet(packet: &JsonValue) -> String {
+use crate::prelude::*;
+use crate::bridge::zmq_packet_types::{ZmqPacketType, ZmqPacketEnvelope};
+use crate::bridge::zmq_bridge_api::handle_bridge_api;
+use crate::bridge::messaging::{wasm_send, set_log_vm_context, log};
+use crate::globals::{RESP_MAP, TRIGGER_MAP};
+use crate::models::vm_runtime::{
+    VmRuntime, ElpifyTask, ElpifyManagedVm, WasmMac, ManagedVmHandle,
+    GLOBAL_MANAGED_VMS, GLOBAL_ELPIFY_VMS,
+    detect_vm_runtime, parse_vm_resource_limits, terminate_managed_vm,
+    execute_elpian_task, verify_program_execution_from_packet,
+    parse_u64_array_field, parse_u8_array_field,
+};
+use crate::host::vm_host_functions::{handle_unified_host_call, with_docker_controller, with_fire_controller};
+
+pub(crate) fn dispatch_zmq_packet(packet: &JsonValue) -> String {
     let env = ZmqPacketEnvelope::from_packet(packet);
     match env.packet_type {
         ZmqPacketType::RunVm => dispatch_run_vm_packet(packet, &env),

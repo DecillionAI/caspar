@@ -14,8 +14,6 @@ import (
 	"kasper/src/abstract/state"
 	"kasper/src/core/module/actor/model/base"
 	inputs_stores "kasper/src/shell/api/inputs/stores"
-	inputs_users "kasper/src/shell/api/inputs/users"
-	"kasper/src/shell/api/model"
 	model "kasper/src/shell/api/model"
 	updates_stores "kasper/src/shell/api/updates/stores"
 	"kasper/src/shell/utils/future"
@@ -39,18 +37,25 @@ func (wm *Vmm) Assign(machineId string) {
 	wm.app.Tools().Signaler().ListenToSingle(&signaler.Listener{
 		Id: machineId,
 		Signal: func(key string, a any) {
-			astPath, vmType := wm.resolveVmExecutionTarget(machineId, "")
-			data := string(a.([]byte))
-			if key == "creatures/signal" {
-				str, _ := json.Marshal(map[string]any{
-					"type":      "runVm",
-					"machineId": machineId,
-					"input":     data,
-					"astPath":   astPath,
-					"vmType":    vmType,
-				})
-				wm.aeSocket <- string(str)
+			if key != "creatures/signal" {
+				return
 			}
+			raw, _ := a.([]byte)
+			data := string(raw)
+			var pkt updates_stores.Send
+			entityId := ""
+			if json.Unmarshal(raw, &pkt) == nil {
+				entityId = pkt.EntityId
+			}
+			astPath, vmType := wm.resolveVmExecutionTarget(machineId, entityId)
+			str, _ := json.Marshal(map[string]any{
+				"type":      "runVm",
+				"machineId": machineId,
+				"input":     data,
+				"astPath":   astPath,
+				"vmType":    vmType,
+			})
+			wm.aeSocket <- string(str)
 		},
 	})
 }
@@ -82,7 +87,7 @@ func (wm *Vmm) resolveVmExecutionTarget(machineId string, entityId string) (stri
 	astPath := wm.app.Tools().Storage().StorageRoot() + "/machines/" + machineId + "/module"
 	vmType := "wasm"
 	wm.app.ModifyState(true, func(trx trx.ITrx) error {
-		vm := model.Vm{MachineId: machineId}.Pull(trx)
+		vm := model.Program{MachineId: machineId}.Pull(trx)
 		if vm.Path != "" {
 			astPath = vm.Path
 		}

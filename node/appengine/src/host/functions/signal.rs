@@ -1,4 +1,7 @@
-fn host_fn_signal(input: &JsonValue) -> String {
+use crate::prelude::*;
+use crate::host::functions::protocol_api::forward_host_api_packet;
+
+pub(crate) fn host_fn_signal(input: &JsonValue) -> String {
     let signal_type = input["type"].as_str().unwrap_or("").trim();
     let machine_id = input["machineId"].as_str().unwrap_or("").trim();
     if signal_type.is_empty() || machine_id.is_empty() {

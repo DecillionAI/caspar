@@ -1,4 +1,6 @@
-trait VmController {
+use crate::prelude::*;
+
+pub(crate) trait VmController {
     fn build_image(packet: &JsonValue) -> Result<JsonValue, String>;
     fn create(packet: &JsonValue) -> Result<JsonValue, String>;
     fn starts(packet: &JsonValue) -> Result<JsonValue, String>;

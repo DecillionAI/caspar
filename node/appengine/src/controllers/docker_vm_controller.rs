@@ -1,9 +1,16 @@
-struct DockerVmController {
+use crate::prelude::*;
+use crate::controllers::vm_controller::VmController;
+use crate::network::vm_network::VmNetworkService;
+use crate::models::vm_runtime::parse_vm_resource_limits;
+use crate::bridge::messaging::{wasm_send, log};
+use crate::globals::GLOBAL_VM_CONTEXT;
+
+pub(crate) struct DockerVmController {
     docker: Docker,
 }
 
 impl DockerVmController {
-    fn new() -> Result<Self, String> {
+    pub(crate) fn new() -> Result<Self, String> {
         Docker::connect_with_local_defaults()
             .map(|docker| Self { docker })
             .map_err(|e| format!("docker client init failed: {}", e))
@@ -21,7 +28,7 @@ impl DockerVmController {
             .map_err(|e| format!("docker api error: {}", e))
     }
 
-    fn run_vm(&self, packet: &JsonValue) -> Result<JsonValue, String> {
+    pub(crate) fn run_vm(&self, packet: &JsonValue) -> Result<JsonValue, String> {
         let machine_id = packet["machineId"].as_str().unwrap_or("");
         if machine_id.is_empty() {
             return Err("machineId is required".to_string());
@@ -164,7 +171,7 @@ impl DockerVmController {
         }))
     }
 
-    fn terminate_vm(&self, packet: &JsonValue) -> Result<JsonValue, String> {
+    pub(crate) fn terminate_vm(&self, packet: &JsonValue) -> Result<JsonValue, String> {
         let machine_id = packet["machineId"].as_str().unwrap_or("");
         if machine_id.is_empty() {
             return Err("machineId is required".to_string());
@@ -196,7 +203,7 @@ impl DockerVmController {
         }))
     }
 
-    fn exec_vm(&self, packet: &JsonValue) -> Result<JsonValue, String> {
+    pub(crate) fn exec_vm(&self, packet: &JsonValue) -> Result<JsonValue, String> {
         let machine_id = packet["machineId"].as_str().unwrap_or("");
         let (entity_id, container_name, _standalone, vm_id) = extract_docker_identity(packet);
         let command = packet["command"].as_str().unwrap_or("");
@@ -253,7 +260,7 @@ impl DockerVmController {
         }))
     }
 
-    fn copy_to_vm(&self, packet: &JsonValue) -> Result<JsonValue, String> {
+    pub(crate) fn copy_to_vm(&self, packet: &JsonValue) -> Result<JsonValue, String> {
         let machine_id = packet["machineId"].as_str().unwrap_or("");
         let (entity_id, container_name, _standalone, vm_id) = extract_docker_identity(packet);
         let file_name = packet["fileName"].as_str().unwrap_or("");
@@ -316,7 +323,7 @@ impl DockerVmController {
         ))
     }
 
-    fn build_image(&self, packet: &JsonValue) -> Result<JsonValue, String> {
+    pub(crate) fn build_image(&self, packet: &JsonValue) -> Result<JsonValue, String> {
         let machine_id = packet["machineId"].as_str().unwrap_or("");
         if machine_id.is_empty() {
             return Err("machineId is required".to_string());

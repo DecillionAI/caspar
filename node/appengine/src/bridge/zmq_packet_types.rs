@@ -1,5 +1,7 @@
+use crate::prelude::*;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum ZmqPacketType {
+pub(crate) enum ZmqPacketType {
     RunVm,
     TerminateVm,
     ExecVm,
@@ -13,7 +15,7 @@ enum ZmqPacketType {
 }
 
 impl ZmqPacketType {
-    fn from_packet(packet: &JsonValue) -> Self {
+    pub(crate) fn from_packet(packet: &JsonValue) -> Self {
         match packet["type"].as_str().unwrap_or("") {
             "runVm" => Self::RunVm,
             "terminateVm" => Self::TerminateVm,
@@ -30,15 +32,15 @@ impl ZmqPacketType {
 }
 
 #[derive(Clone, Debug)]
-struct ZmqPacketEnvelope {
-    packet_type: ZmqPacketType,
-    runtime: String,
-    machine_id: String,
-    vm_id: String,
+pub(crate) struct ZmqPacketEnvelope {
+    pub(crate) packet_type: ZmqPacketType,
+    pub(crate) runtime: String,
+    pub(crate) machine_id: String,
+    pub(crate) vm_id: String,
 }
 
 impl ZmqPacketEnvelope {
-    fn from_packet(packet: &JsonValue) -> Self {
+    pub(crate) fn from_packet(packet: &JsonValue) -> Self {
         ZmqPacketEnvelope {
             packet_type: ZmqPacketType::from_packet(packet),
             runtime: packet["runtime"].as_str().unwrap_or("").to_lowercase(),

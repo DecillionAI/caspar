@@ -1,4 +1,8 @@
-struct JavascriptVmController;
+use crate::prelude::*;
+use crate::controllers::vm_controller::VmController;
+use crate::controllers::wasm_vm_controller::WasmVmController;
+
+pub(crate) struct JavascriptVmController;
 
 impl VmController for JavascriptVmController {
     fn build_image(_packet: &JsonValue) -> Result<JsonValue, String> {
