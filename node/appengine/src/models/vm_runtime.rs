@@ -169,6 +169,22 @@ impl WasmMac {
 
     pub fn finalize(&mut self) -> Vec<WasmDbOp> {
         self.trx.commit_as_offchain();
+        // Surface the creature's final output (set by the `output` host op) as
+        // a runtime vmLog so the host platform can observe the JSON response
+        // a wasm program produced for a given signal.
+        if self.has_output {
+            let payload = serde_json::json!({
+                "key": "vmOutput",
+                "input": {
+                    "text": self.execution_result.clone(),
+                    "data": self.execution_result.clone(),
+                    "vmId": self.vm_id.clone(),
+                    "machineId": self.machine_id.clone(),
+                    "logType": "output",
+                }
+            });
+            crate::bridge::messaging::wasm_send(payload);
+        }
         self.trx.ops.clone()
     }
 

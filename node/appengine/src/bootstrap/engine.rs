@@ -24,7 +24,7 @@ pub fn run() {
 
             {
                 let res_lock = responder.lock().unwrap();
-                res_lock.send(response_payload, 0).unwrap();
+                res_lock.send(response_payload.as_bytes(), 0).unwrap();
             }
         }
     });

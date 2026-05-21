@@ -93,6 +93,13 @@ func (p *Signaler) SignalUser(key string, listenerId string, data any, pack bool
 		p.signalListener(key, listenerId, data, pack)
 		return
 	}
+	// Program IDs are <num>@<origin> and have a registered VM listener but no
+	// User row. If we have an in-process listener for this ID, deliver locally
+	// before falling back to the user/origin-resolution path.
+	if listener, ok := p.listeners.Get(listenerId); ok && listener != nil {
+		p.signalListener(key, listenerId, data, pack)
+		return
+	}
 	username := ""
 	p.app.ModifyState(true, func(trx trx.ITrx) error {
 		username = string(trx.GetColumn("User", listenerId, "username"))
