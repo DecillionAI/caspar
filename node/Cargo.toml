@@ -17,6 +17,7 @@ exclude = ["crates/appengine"]
 anyhow = "1.0.102"
 base64 = "0.22.1"
 chrono = { version = "0.4.44", default-features = false, features = ["clock", "std"] }
+crossbeam-channel = "0.5.15"
 dashmap = "6.2.1"
 getrandom = "0.2"
 hex = "0.4.3"

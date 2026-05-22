@@ -146,6 +146,18 @@ impl Clone for Block {
     }
 }
 
+impl Default for Block {
+    fn default() -> Self {
+        Block {
+            body: BlockBody::default(),
+            signatures: BTreeMap::new(),
+            hash: OnceLock::new(),
+            hex: OnceLock::new(),
+            peer_set: None,
+        }
+    }
+}
+
 impl Block {
     /// Assembles a block from a [`Frame`].
     pub fn new_from_frame(block_index: i64, frame: &Frame) -> Result<Block> {

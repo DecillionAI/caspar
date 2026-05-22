@@ -8,4 +8,5 @@
 pub mod common;
 pub mod crypto;
 pub mod hashgraph;
+pub mod net;
 pub mod peers;
