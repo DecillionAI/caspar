@@ -14,6 +14,7 @@ use crate::drivers::network::chain::crypto;
 /// Go stored peers as `*Peer` shared between the slice and the two maps; since
 /// `Peer` is an immutable value type here, the maps hold clones. The lazily
 /// computed caches use `OnceLock` instead of mutable cache fields.
+#[derive(Debug)]
 pub struct PeerSet {
     pub peers: Vec<Peer>,
     pub by_pub_key: HashMap<String, Peer>,

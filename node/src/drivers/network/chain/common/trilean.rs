@@ -1,7 +1,16 @@
 //! Translation of `chain/common/trilean.go`.
 
 /// A boolean that can also be undefined.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Hash,
+    serde_repr::Serialize_repr,
+    serde_repr::Deserialize_repr,
+)]
 #[repr(i32)]
 pub enum Trilean {
     /// The value has not been defined yet.

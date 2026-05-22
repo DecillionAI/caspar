@@ -20,6 +20,44 @@ pub mod bytes_base64 {
     }
 }
 
+/// Serde helpers that (de)serialize `Vec<Vec<u8>>` as a JSON array of base64
+/// strings, matching Go's `encoding/json` behaviour for `[][]byte` fields.
+pub mod bytes_base64_vec {
+    use base64::engine::general_purpose::STANDARD;
+    use base64::Engine;
+    use serde::ser::SerializeSeq;
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<S: Serializer>(v: &[Vec<u8>], s: S) -> Result<S::Ok, S::Error> {
+        let mut seq = s.serialize_seq(Some(v.len()))?;
+        for item in v {
+            seq.serialize_element(&STANDARD.encode(item))?;
+        }
+        seq.end()
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<Vec<u8>>, D::Error> {
+        let opt = Option::<Vec<String>>::deserialize(d)?;
+        match opt {
+            None => Ok(Vec::new()),
+            Some(strs) => strs
+                .iter()
+                .map(|s| STANDARD.decode(s).map_err(serde::de::Error::custom))
+                .collect(),
+        }
+    }
+}
+
+/// Clones a `OnceLock`, preserving an already-initialised value. Used to make
+/// translated structs that carry lazy caches cloneable.
+pub fn clone_once_lock<T: Clone>(o: &std::sync::OnceLock<T>) -> std::sync::OnceLock<T> {
+    let new = std::sync::OnceLock::new();
+    if let Some(v) = o.get() {
+        let _ = new.set(v.clone());
+    }
+    new
+}
+
 /// Convenience alias mirroring Go's `error` value type.
 pub type GoError = anyhow::Error;
 
