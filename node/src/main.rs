@@ -18,6 +18,7 @@
 mod golog;
 
 mod abstractions;
+mod bots;
 mod core;
 mod drivers;
 mod logrus;

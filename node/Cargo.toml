@@ -8,6 +8,10 @@ description = "Caspar node — Rust translation of the Caspar (kasper) Go node"
 name = "caspar-node"
 path = "src/main.rs"
 
+[[bin]]
+name = "caspar-keygen"
+path = "src/bin/keygen.rs"
+
 [workspace]
 resolver = "2"
 members = ["."]
