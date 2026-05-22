@@ -1,1 +1,5 @@
 machines/docker/appbox/src/credentials.json
+# Rust build artifacts
+target/
+**/target/
+Cargo.lock.bak
