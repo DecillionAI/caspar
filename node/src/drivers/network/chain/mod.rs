@@ -6,6 +6,7 @@
 //! `node`, proxy, service and the `babble`/`chain` assembly.
 
 pub mod common;
+pub mod config;
 pub mod crypto;
 pub mod hashgraph;
 pub mod net;
