@@ -5,6 +5,7 @@
 //! dependency base), then the hashgraph, transport (`net`), the consensus
 //! `node`, proxy, service and the `babble`/`chain` assembly.
 
+pub mod babble;
 pub mod common;
 pub mod config;
 pub mod crypto;
