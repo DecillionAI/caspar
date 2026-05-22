@@ -24,3 +24,7 @@ go.sum
 
 .env
 serviceAccounts.json
+
+# Rust build output
+/target
+**/target
