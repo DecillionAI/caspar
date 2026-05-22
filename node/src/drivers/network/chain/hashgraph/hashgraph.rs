@@ -2155,8 +2155,8 @@ mod tests {
         }
     }
 
-    fn init_consensus_hashgraph(db: bool) -> (Hashgraph, HashMap<String, String>) {
-        let plays = vec![
+    fn consensus_plays() -> Vec<Play> {
+        vec![
             p(0, 0, "", "", "e0"),
             p(1, 0, "", "", "e1"),
             p(2, 0, "", "", "e2"),
@@ -2188,8 +2188,11 @@ mod tests {
             p(1, 9, "h10", "h02", "i1"),
             p(0, 10, "h02", "i1", "i0"),
             p(2, 9, "h21", "i1", "i2"),
-        ];
-        let (h, index, _) = init_hashgraph_full(plays, db, N);
+        ]
+    }
+
+    fn init_consensus_hashgraph(db: bool) -> (Hashgraph, HashMap<String, String>) {
+        let (h, index, _) = init_hashgraph_full(consensus_plays(), db, N);
         (h, index)
     }
 
@@ -2391,5 +2394,270 @@ mod tests {
         for id in &ids {
             assert_eq!(known[id], expected_known[id], "Known[{}] mismatch", id);
         }
+    }
+
+    // Translation of hashgraph_test.go::TestGetFrame.
+    #[test]
+    fn test_get_frame() {
+        let (mut h, index) = init_consensus_hashgraph(false);
+        let peer_set = h.store.get_peer_set(0).unwrap();
+        h.divide_rounds().unwrap();
+        h.decide_fame().unwrap();
+        h.decide_round_received().unwrap();
+        h.process_decided_rounds().unwrap();
+
+        // Round 1
+        {
+            let frame = h.get_frame(1).unwrap();
+            for (_p, r) in &frame.roots {
+                assert_eq!(*r, Root::new(), "Round 1 root should be empty");
+            }
+
+            let expected_hashes = ["e0", "e1", "e2", "e10", "e21", "e21b", "e02"];
+            let mut expected_events: Vec<FrameEvent> = expected_hashes
+                .iter()
+                .map(|eh| h.create_frame_event(&idx(&index, eh)).unwrap())
+                .collect();
+            super::super::event::sort_frame_events(&mut expected_events);
+            assert_eq!(expected_events, frame.events, "Round 1 Frame.Events");
+
+            let timestamps: Vec<i64> = ["f0", "f1", "f2"]
+                .iter()
+                .map(|fw| h.store.get_event(&idx(&index, fw)).unwrap().timestamp())
+                .collect();
+            assert_eq!(common::median(&timestamps), frame.timestamp, "Round 1 Timestamp");
+
+            let block0 = h.store.get_block(0).unwrap();
+            assert_eq!(
+                block0.frame_hash(),
+                frame.hash().unwrap().as_slice(),
+                "Block0.FrameHash vs Frame1.Hash"
+            );
+        }
+
+        // Round 2
+        {
+            let pasts: Vec<Vec<&str>> = vec![
+                vec!["e0", "e02"],
+                vec!["e1", "e10"],
+                vec!["e2", "e21", "e21b"],
+            ];
+            let mut expected_roots: HashMap<String, Root> = HashMap::new();
+            for (i, evs) in pasts.iter().enumerate() {
+                let mut root = Root::new();
+                for ev in evs {
+                    root.insert(h.create_frame_event(&idx(&index, ev)).unwrap());
+                }
+                expected_roots.insert(peer_set.peers[i].pub_key_string(), root);
+            }
+
+            let frame = h.get_frame(2).unwrap();
+            for (p, r) in &frame.roots {
+                assert_eq!(*r, expected_roots[p], "Round 2 Roots[{}]", p);
+            }
+
+            let expected_hashes = [
+                "f1", "f1b", "f0", "f2", "f10", "f0x", "f21", "f02", "f02b",
+            ];
+            let mut expected_events: Vec<FrameEvent> = expected_hashes
+                .iter()
+                .map(|eh| h.create_frame_event(&idx(&index, eh)).unwrap())
+                .collect();
+            super::super::event::sort_frame_events(&mut expected_events);
+            assert_eq!(expected_events, frame.events, "Round 2 Frame.Events");
+
+            let timestamps: Vec<i64> = ["g0", "g1", "g2"]
+                .iter()
+                .map(|fw| h.store.get_event(&idx(&index, fw)).unwrap().timestamp())
+                .collect();
+            assert_eq!(common::median(&timestamps), frame.timestamp, "Round 2 Timestamp");
+        }
+    }
+
+    // Translation of hashgraph_test.go::TestResetFromFrame.
+    #[test]
+    fn test_reset_from_frame() {
+        let (mut h, index) = init_consensus_hashgraph(false);
+        let peer_set = h.store.get_peer_set(0).unwrap();
+        h.divide_rounds().unwrap();
+        h.decide_fame().unwrap();
+        h.decide_round_received().unwrap();
+        h.process_decided_rounds().unwrap();
+
+        let block = h.store.get_block(1).unwrap();
+        let frame = h.get_frame(block.round_received()).unwrap();
+
+        // Clears the events' private fields, which must be recomputed.
+        let marshalled = frame.marshal().unwrap();
+        let mut unmarshalled = Frame::default();
+        unmarshalled.unmarshal(&marshalled).unwrap();
+
+        let store: Box<dyn Store> = Box::new(InmemStore::new(CACHE_SIZE));
+        let mut h2 = Hashgraph::new(
+            store,
+            Box::new(dummy_internal_commit_callback),
+            Some(test_logger()),
+        );
+        h2.reset(&block, &unmarshalled).expect("reset");
+
+        // Test Known.
+        let expected_known: HashMap<u32, i64> = [
+            (peer_set.ids()[0], 5),
+            (peer_set.ids()[1], 4),
+            (peer_set.ids()[2], 4),
+        ]
+        .into_iter()
+        .collect();
+        let known = h2.store.known_events();
+        for id in peer_set.by_id.keys() {
+            assert_eq!(known[id], expected_known[id], "Known[{}]", id);
+        }
+
+        // Test StronglySee.
+        let expected: Vec<AncestryItem> = vec![
+            ("e02", "e0", true, false),
+            ("e02", "e1", true, false),
+            ("e21", "e0", true, false),
+            ("f1", "e0", true, false),
+            ("f1", "e1", true, false),
+            ("f1", "e2", true, false),
+        ];
+        for (descendant, ancestor, val, _) in expected {
+            let a = h2
+                .strongly_see(&idx(&index, descendant), &idx(&index, ancestor), &peer_set)
+                .unwrap_or(false);
+            assert_eq!(a, val, "strongly_see({}, {})", descendant, ancestor);
+        }
+
+        // Test DivideRounds: rounds/timestamps must match the original.
+        let frame_hashes: Vec<String> =
+            frame.events.iter().map(|ev| ev.core.hex()).collect();
+        for ev_hex in &frame_hashes {
+            let h2r = h2.round(ev_hex).expect("h2 round");
+            let hr = h.round(ev_hex).unwrap();
+            assert_eq!(h2r, hr, "round mismatch after reset");
+
+            let h2s = h2.lamport_timestamp(ev_hex).expect("h2 lamport");
+            let hs = h.lamport_timestamp(ev_hex).unwrap();
+            assert_eq!(h2s, hs, "lamport_timestamp mismatch after reset");
+        }
+
+        let h_round1 = h.store.get_round(1).unwrap();
+        let h2_round1 = h2.store.get_round(1).unwrap();
+        let mut hw = h_round1.witnesses();
+        let mut h2w = h2_round1.witnesses();
+        hw.sort();
+        h2w.sort();
+        assert_eq!(hw, h2w, "Reset Round 1 witnesses");
+
+        // Test Consensus.
+        assert_eq!(
+            h2.store.last_block_index(),
+            block.index(),
+            "LastBlockIndex"
+        );
+        assert_eq!(
+            h2.last_consensus_round,
+            Some(block.round_received()),
+            "LastConsensusRound"
+        );
+        assert_eq!(h2.anchor_block, None, "AnchorBlock should be None");
+
+        // Test continue after Reset.
+        for r in 2..=4 {
+            let round = h.store.get_round(r).unwrap();
+            let mut events: Vec<Event> = round
+                .created_events
+                .keys()
+                .map(|e| h.store.get_event(e).unwrap())
+                .collect();
+            super::super::event::sort_by_topological_order(&mut events);
+            for ev in &events {
+                let marshalled_ev = ev.marshal_db().unwrap();
+                let mut unmarshalled_ev = Event::default();
+                unmarshalled_ev.unmarshal_db(&marshalled_ev).unwrap();
+                h2.insert_event_and_run_consensus(&mut unmarshalled_ev, true)
+                    .expect("inserting event after reset");
+            }
+        }
+
+        for r in 1..=4 {
+            let h_round = h.store.get_round(r).unwrap();
+            let h2_round = h2.store.get_round(r).unwrap();
+            let mut hw = h_round.witnesses();
+            let mut h2w = h2_round.witnesses();
+            hw.sort();
+            h2w.sort();
+            assert_eq!(hw, h2w, "Reset Round {} witnesses", r);
+        }
+    }
+
+    // Translation of hashgraph_test.go::TestBootstrap.
+    #[test]
+    fn test_bootstrap() {
+        let dir = temp_badger_dir();
+
+        // Build a first Hashgraph with a RocksDB backend; run consensus.
+        let (mut nodes, mut index, mut ordered_events, peer_set) = init_hashgraph_nodes(N);
+        play_events(&consensus_plays(), &mut nodes, &mut index, &mut ordered_events);
+        let store: Box<dyn Store> =
+            Box::new(RocksDbStore::new(CACHE_SIZE, &dir, false).unwrap());
+        let mut h = Hashgraph::new(
+            store,
+            Box::new(dummy_internal_commit_callback),
+            Some(test_logger()),
+        );
+        h.init(Arc::new(peer_set)).unwrap();
+        for ev in ordered_events.iter_mut() {
+            h.insert_event(ev, true).unwrap();
+        }
+        h.divide_rounds().unwrap();
+        h.decide_fame().unwrap();
+        h.decide_round_received().unwrap();
+        h.process_decided_rounds().unwrap();
+
+        // Capture h's state, then close + drop it to release the RocksDB lock.
+        let h_consensus_events = h.store.consensus_events();
+        let h_known = h.store.known_events();
+        let h_last_consensus_round = h.last_consensus_round;
+        let h_last_commited = h.last_commited_round_events;
+        let h_consensus_txs = h.consensus_transactions;
+        let h_pending_loaded = h.pending_loaded_events;
+        h.store.close().unwrap();
+        drop(h);
+
+        // Reopen the database and bootstrap a fresh Hashgraph from it.
+        let recycled: Box<dyn Store> =
+            Box::new(RocksDbStore::new(CACHE_SIZE, &dir, false).unwrap());
+        let mut nh =
+            Hashgraph::new(recycled, Box::new(dummy_internal_commit_callback), None);
+        nh.bootstrap().expect("bootstrap");
+
+        assert_eq!(
+            nh.store.consensus_events().len(),
+            h_consensus_events.len(),
+            "bootstrapped consensus event count"
+        );
+        assert_eq!(nh.store.known_events(), h_known, "bootstrapped Known");
+        assert_eq!(
+            nh.last_consensus_round, h_last_consensus_round,
+            "bootstrapped LastConsensusRound"
+        );
+        assert_eq!(
+            nh.last_commited_round_events, h_last_commited,
+            "bootstrapped LastCommitedRoundEvents"
+        );
+        assert_eq!(
+            nh.consensus_transactions, h_consensus_txs,
+            "bootstrapped ConsensusTransactions"
+        );
+        assert_eq!(
+            nh.pending_loaded_events, h_pending_loaded,
+            "bootstrapped PendingLoadedEvents"
+        );
+
+        nh.store.close().unwrap();
+        drop(nh);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
