@@ -16,6 +16,7 @@ pub mod caches;
 pub mod errors;
 pub mod event;
 pub mod frame;
+pub mod hashgraph;
 pub mod inmem_store;
 pub mod internal_transaction;
 pub mod rocks_store;
@@ -33,6 +34,9 @@ pub use event::{
     WireBody, WireEvent,
 };
 pub use frame::Frame;
+pub use hashgraph::{
+    dummy_internal_commit_callback, Hashgraph, InternalCommitCallback, COIN_ROUND_FREQ, ROOT_DEPTH,
+};
 pub use inmem_store::InmemStore;
 pub use internal_transaction::{
     InternalTransaction, InternalTransactionBody, InternalTransactionReceipt, TransactionType,

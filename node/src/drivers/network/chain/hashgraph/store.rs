@@ -85,4 +85,7 @@ pub trait Store: Send {
     fn close(&self) -> Result<()>;
     /// Returns the filepath of the underlying database.
     fn store_path(&self) -> String;
+    /// Enables downcasting to a concrete store type (used by `Bootstrap`,
+    /// which is RocksDB-store specific).
+    fn as_any(&self) -> &dyn std::any::Any;
 }

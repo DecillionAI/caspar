@@ -141,7 +141,7 @@ impl RocksDbStore {
         Ok(())
     }
 
-    fn db_get_peer_set(&self, round: i64) -> Result<PeerSet> {
+    pub(crate) fn db_get_peer_set(&self, round: i64) -> Result<PeerSet> {
         let key = peer_set_key(round);
         match self.db.get(key.as_bytes())? {
             Some(bytes) => PeerSet::unmarshal(&bytes),
@@ -212,7 +212,7 @@ impl RocksDbStore {
         }
     }
 
-    fn db_topological_events(&self, start: i64, count: i64) -> Result<Vec<Event>> {
+    pub(crate) fn db_topological_events(&self, start: i64, count: i64) -> Result<Vec<Event>> {
         let mut res = Vec::new();
         let mut t = start;
         while t < start + count {
@@ -503,6 +503,10 @@ impl Store for RocksDbStore {
 
     fn store_path(&self) -> String {
         self.path.clone()
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
     }
 }
 

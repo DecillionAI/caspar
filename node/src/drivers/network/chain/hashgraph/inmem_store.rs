@@ -379,6 +379,10 @@ impl Store for InmemStore {
     fn store_path(&self) -> String {
         String::new()
     }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
 }
 
 #[cfg(test)]
