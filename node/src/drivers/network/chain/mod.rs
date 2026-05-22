@@ -9,4 +9,6 @@ pub mod common;
 pub mod crypto;
 pub mod hashgraph;
 pub mod net;
+pub mod node;
 pub mod peers;
+pub mod proxy;
