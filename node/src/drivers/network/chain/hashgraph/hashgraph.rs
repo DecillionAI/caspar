@@ -2059,4 +2059,337 @@ mod tests {
             Err(e) => panic!("RoundDiff(e02, e21) returned an error: {}", e),
         }
     }
+
+    fn re(witness: bool, famous: Trilean) -> RoundEvent {
+        RoundEvent { witness, famous }
+    }
+
+    fn created(pairs: &[(String, RoundEvent)]) -> std::collections::BTreeMap<String, RoundEvent> {
+        pairs.iter().cloned().collect()
+    }
+
+    // Translation of hashgraph_test.go::TestDivideRounds.
+    #[test]
+    fn test_divide_rounds() {
+        let (mut h, index) = init_round_hashgraph();
+        h.divide_rounds().expect("divide_rounds");
+
+        assert_eq!(h.store.last_round(), 1, "last round should be 1");
+
+        let u = Trilean::Undefined;
+        let round0 = h.store.get_round(0).unwrap();
+        let expected0 = created(&[
+            (idx(&index, "e0"), re(true, u)),
+            (idx(&index, "e1"), re(true, u)),
+            (idx(&index, "e2"), re(true, u)),
+            (idx(&index, "e10"), re(false, u)),
+            (idx(&index, "s20"), re(false, u)),
+            (idx(&index, "e21"), re(false, u)),
+            (idx(&index, "s00"), re(false, u)),
+            (idx(&index, "e02"), re(false, u)),
+            (idx(&index, "s10"), re(false, u)),
+        ]);
+        assert_eq!(round0.created_events, expected0, "Round[0].CreatedEvents");
+
+        let round1 = h.store.get_round(1).unwrap();
+        let expected1 = created(&[
+            (idx(&index, "f1"), re(true, u)),
+            (idx(&index, "s11"), re(false, u)),
+        ]);
+        assert_eq!(round1.created_events, expected1, "Round[1].CreatedEvents");
+
+        let pending = h.pending_rounds.get_ordered_pending_rounds();
+        assert_eq!(
+            pending,
+            vec![
+                PendingRound { index: 0, decided: false },
+                PendingRound { index: 1, decided: false },
+            ]
+        );
+
+        // [event] => (lamportTimestamp, round)
+        let expected_ts: Vec<(&str, i64, i64)> = vec![
+            ("e0", 0, 0),
+            ("e1", 0, 0),
+            ("e2", 0, 0),
+            ("s00", 1, 0),
+            ("e10", 1, 0),
+            ("s20", 1, 0),
+            ("e21", 2, 0),
+            ("e02", 3, 0),
+            ("s10", 2, 0),
+            ("f1", 4, 1),
+            ("s11", 5, 1),
+        ];
+        for (e, t, r) in expected_ts {
+            let ev = h.store.get_event(&idx(&index, e)).unwrap();
+            assert_eq!(ev.round, Some(r), "{} round", e);
+            assert_eq!(ev.lamport_timestamp, Some(t), "{} lamportTimestamp", e);
+        }
+    }
+
+    // Translation of hashgraph_test.go::TestCreateRoot.
+    #[test]
+    fn test_create_root() {
+        let (mut h, index) = init_round_hashgraph();
+        h.divide_rounds().unwrap();
+
+        let root_events_map: Vec<(&str, Vec<&str>)> = vec![
+            ("e0", vec!["e0"]),
+            ("e02", vec!["e0", "s00", "e02"]),
+            ("s10", vec!["e1", "e10", "s10"]),
+            ("f1", vec!["e1", "e10", "s10", "f1"]),
+        ];
+
+        for (evh, hd) in root_events_map {
+            let mut expected_root = Root::new();
+            for s in &hd {
+                let re_ = h.create_frame_event(&idx(&index, s)).unwrap();
+                expected_root.insert(re_);
+            }
+            let ev = h.store.get_event(&idx(&index, evh)).unwrap();
+            let root = h
+                .create_root(&ev.creator(), &idx(&index, evh))
+                .unwrap_or_else(|e| panic!("Error creating {} Root: {}", evh, e));
+            assert_eq!(root, expected_root, "{} Root mismatch", evh);
+        }
+    }
+
+    fn init_consensus_hashgraph(db: bool) -> (Hashgraph, HashMap<String, String>) {
+        let plays = vec![
+            p(0, 0, "", "", "e0"),
+            p(1, 0, "", "", "e1"),
+            p(2, 0, "", "", "e2"),
+            p(1, 1, "e1", "e0", "e10"),
+            p_tx(2, 1, "e2", "e10", "e21", vec![b"e21".to_vec()]),
+            p(2, 2, "e21", "", "e21b"),
+            p(0, 1, "e0", "e21b", "e02"),
+            p(1, 2, "e10", "e02", "f1"),
+            p_tx(1, 3, "f1", "", "f1b", vec![b"f1b".to_vec()]),
+            p(0, 2, "e02", "f1b", "f0"),
+            p(2, 3, "e21b", "f1b", "f2"),
+            p(1, 4, "f1b", "f0", "f10"),
+            p(0, 3, "f0", "e21", "f0x"),
+            p(2, 4, "f2", "f10", "f21"),
+            p(0, 4, "f0x", "f21", "f02"),
+            p_tx(0, 5, "f02", "", "f02b", vec![b"f02b".to_vec()]),
+            p(1, 5, "f10", "f02b", "g1"),
+            p(0, 6, "f02b", "g1", "g0"),
+            p(2, 5, "f21", "g1", "g2"),
+            p_tx(1, 6, "g1", "g0", "g10", vec![b"g10".to_vec()]),
+            p(2, 6, "g2", "g10", "g21"),
+            p_tx(0, 7, "g0", "g21", "g02", vec![b"g02".to_vec()]),
+            p(1, 7, "g10", "g02", "h1"),
+            p(0, 8, "g02", "h1", "h0"),
+            p(2, 7, "g21", "h1", "h2"),
+            p(1, 8, "h1", "h0", "h10"),
+            p(2, 8, "h2", "h10", "h21"),
+            p(0, 9, "h0", "h21", "h02"),
+            p(1, 9, "h10", "h02", "i1"),
+            p(0, 10, "h02", "i1", "i0"),
+            p(2, 9, "h21", "i1", "i2"),
+        ];
+        let (h, index, _) = init_hashgraph_full(plays, db, N);
+        (h, index)
+    }
+
+    // Translation of hashgraph_test.go::TestDivideRoundsBis.
+    #[test]
+    fn test_divide_rounds_bis() {
+        let (mut h, index) = init_consensus_hashgraph(false);
+        h.divide_rounds().expect("divide_rounds");
+
+        let u = Trilean::Undefined;
+        let expected: Vec<Vec<(&str, bool)>> = vec![
+            vec![
+                ("e0", true), ("e1", true), ("e2", true), ("e10", false),
+                ("e21", false), ("e21b", false), ("e02", false),
+            ],
+            vec![
+                ("f1", true), ("f1b", false), ("f0", true), ("f2", true),
+                ("f10", false), ("f21", false), ("f0x", false), ("f02", false),
+                ("f02b", false),
+            ],
+            vec![
+                ("g1", true), ("g0", true), ("g2", true), ("g10", false),
+                ("g21", false), ("g02", false),
+            ],
+            vec![
+                ("h1", true), ("h0", true), ("h2", true), ("h10", false),
+                ("h21", false), ("h02", false),
+            ],
+            vec![("i1", true), ("i0", true), ("i2", true)],
+        ];
+        for (i, names) in expected.iter().enumerate() {
+            let round = h.store.get_round(i as i64).unwrap();
+            let exp: std::collections::BTreeMap<String, RoundEvent> = names
+                .iter()
+                .map(|(name, w)| (idx(&index, name), re(*w, u)))
+                .collect();
+            assert_eq!(round.created_events, exp, "Round[{}].CreatedEvents", i);
+        }
+    }
+
+    // Translation of hashgraph_test.go::TestDecideFame.
+    #[test]
+    fn test_decide_fame() {
+        let (mut h, index) = init_consensus_hashgraph(false);
+        h.divide_rounds().unwrap();
+        h.decide_fame().expect("decide_fame");
+
+        let u = Trilean::Undefined;
+        let tt = Trilean::True;
+        let expected: Vec<Vec<(&str, bool, Trilean)>> = vec![
+            vec![
+                ("e0", true, tt), ("e1", true, tt), ("e2", true, tt),
+                ("e10", false, u), ("e21", false, u), ("e21b", false, u),
+                ("e02", false, u),
+            ],
+            vec![
+                ("f1", true, tt), ("f1b", false, u), ("f0", true, tt),
+                ("f2", true, tt), ("f10", false, u), ("f21", false, u),
+                ("f0x", false, u), ("f02", false, u), ("f02b", false, u),
+            ],
+            vec![
+                ("g1", true, tt), ("g0", true, tt), ("g2", true, tt),
+                ("g10", false, u), ("g21", false, u), ("g02", false, u),
+            ],
+            vec![
+                ("h1", true, u), ("h0", true, u), ("h2", true, u),
+                ("h10", false, u), ("h21", false, u), ("h02", false, u),
+            ],
+            vec![("i1", true, u), ("i0", true, u), ("i2", true, u)],
+        ];
+        for (i, names) in expected.iter().enumerate() {
+            let round = h.store.get_round(i as i64).unwrap();
+            let exp: std::collections::BTreeMap<String, RoundEvent> = names
+                .iter()
+                .map(|(name, w, f)| (idx(&index, name), re(*w, *f)))
+                .collect();
+            assert_eq!(round.created_events, exp, "Round[{}].CreatedEvents", i);
+        }
+
+        let expected_pending = vec![
+            PendingRound { index: 0, decided: true },
+            PendingRound { index: 1, decided: true },
+            PendingRound { index: 2, decided: true },
+            PendingRound { index: 3, decided: false },
+            PendingRound { index: 4, decided: false },
+        ];
+        assert_eq!(
+            h.pending_rounds.get_ordered_pending_rounds(),
+            expected_pending,
+            "PendingRounds mismatch"
+        );
+    }
+
+    // Translation of hashgraph_test.go::TestDecideRoundReceived.
+    #[test]
+    fn test_decide_round_received() {
+        let (mut h, index) = init_consensus_hashgraph(false);
+        h.divide_rounds().unwrap();
+        h.decide_fame().unwrap();
+        h.decide_round_received().expect("decide_round_received");
+
+        let expected_received: Vec<Vec<&str>> = vec![
+            vec![],
+            vec!["e0", "e1", "e2", "e10", "e21", "e21b", "e02"],
+            vec!["f1", "f1b", "f0", "f2", "f10", "f0x", "f21", "f02", "f02b"],
+            vec![],
+            vec![],
+        ];
+        for (i, names) in expected_received.iter().enumerate() {
+            let round = h.store.get_round(i as i64).unwrap();
+            let exp: Vec<String> = names.iter().map(|n| idx(&index, n)).collect();
+            assert_eq!(round.received_events, exp, "Round[{}].ReceivedEvents", i);
+        }
+
+        for (name, hash) in &index {
+            let e = h.store.get_event(hash).unwrap();
+            if name.starts_with('e') {
+                assert_eq!(e.round_received, Some(1), "{} round received", name);
+            } else if name.starts_with('f') {
+                assert_eq!(e.round_received, Some(2), "{} round received", name);
+            } else {
+                assert_eq!(e.round_received, None, "{} round received should be None", name);
+            }
+        }
+
+        let expected_undetermined = [
+            "g1", "g0", "g2", "g10", "g21", "g02", "h1", "h0", "h2", "h10", "h21",
+            "h02", "i1", "i0", "i2",
+        ];
+        for (i, name) in expected_undetermined.iter().enumerate() {
+            assert_eq!(
+                h.undetermined_events[i],
+                idx(&index, name),
+                "UndeterminedEvents[{}]",
+                i
+            );
+        }
+    }
+
+    // Translation of hashgraph_test.go::TestProcessDecidedRounds.
+    #[test]
+    fn test_process_decided_rounds() {
+        let (mut h, _index) = init_consensus_hashgraph(false);
+        h.divide_rounds().unwrap();
+        h.decide_fame().unwrap();
+        h.decide_round_received().unwrap();
+        h.process_decided_rounds().expect("process_decided_rounds");
+
+        let consensus_events = h.store.consensus_events();
+        assert_eq!(consensus_events.len(), 16, "consensus length should be 16");
+        assert_eq!(h.pending_loaded_events, 2, "PendingLoadedEvents should be 2");
+
+        // Block 0
+        let block0 = h.store.get_block(0).expect("Store should contain Block 0");
+        assert_eq!(block0.index(), 0, "Block0 Index");
+        assert_eq!(block0.round_received(), 1, "Block0 RoundReceived");
+        assert_eq!(block0.transactions().len(), 1, "Block0 transaction count");
+        assert_eq!(block0.transactions()[0], b"e21", "Block0.Transactions[0]");
+        let frame1 = h.get_frame(block0.round_received()).unwrap();
+        assert_eq!(block0.frame_hash(), frame1.hash().unwrap().as_slice(), "Block0 FrameHash");
+
+        // Block 1
+        let block1 = h.store.get_block(1).expect("Store should contain Block 1");
+        assert_eq!(block1.index(), 1, "Block1 Index");
+        assert_eq!(block1.round_received(), 2, "Block1 RoundReceived");
+        assert_eq!(block1.transactions().len(), 2, "Block1 transaction count");
+        assert_eq!(block1.transactions()[1], b"f02b", "Block1.Transactions[1]");
+        let frame2 = h.get_frame(block1.round_received()).unwrap();
+        assert_eq!(block1.frame_hash(), frame2.hash().unwrap().as_slice(), "Block1 FrameHash");
+
+        let pending = h.pending_rounds.get_ordered_pending_rounds();
+        assert_eq!(
+            pending,
+            vec![
+                PendingRound { index: 3, decided: false },
+                PendingRound { index: 4, decided: false },
+            ]
+        );
+
+        assert_eq!(h.anchor_block, None, "AnchorBlock should be None");
+    }
+
+    // Translation of hashgraph_test.go::TestKnown.
+    #[test]
+    fn test_known() {
+        let (h, _index) = init_consensus_hashgraph(false);
+        let peer_set = h.store.get_peer_set(0).unwrap();
+        let ids = peer_set.ids();
+
+        let expected_known: HashMap<u32, i64> = [
+            (ids[0], 10),
+            (ids[1], 9),
+            (ids[2], 9),
+        ]
+        .into_iter()
+        .collect();
+
+        let known = h.store.known_events();
+        for id in &ids {
+            assert_eq!(known[id], expected_known[id], "Known[{}] mismatch", id);
+        }
+    }
 }
