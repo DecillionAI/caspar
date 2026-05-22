@@ -6,7 +6,7 @@ use std::sync::Arc;
 use crate::drivers::network::chain::peers::{exclude_peer, Peer, PeerSet};
 
 /// Selects the next gossip peer based on a list of peers.
-pub trait PeerSelector {
+pub trait PeerSelector: Send {
     fn get_peers(&self) -> Arc<PeerSet>;
     fn update_last(&mut self, peer: u32, connected: bool) -> bool;
     fn next(&self) -> Option<Peer>;

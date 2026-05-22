@@ -5,12 +5,14 @@
 //! consensus `Core`, the `Node` gossip loop and the RPC handlers follow next.
 
 pub mod control_timer;
+pub mod core;
 pub mod peer_selector;
 pub mod promise;
 pub mod state;
 pub mod validator;
 
 pub use control_timer::ControlTimer;
+pub use core::Core;
 pub use peer_selector::{PeerSelector, RandomPeerSelector};
 pub use promise::{JoinPromise, JoinPromiseResponse};
 pub use state::{Manager, State, WGLIMIT};
