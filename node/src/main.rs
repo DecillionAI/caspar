@@ -24,6 +24,8 @@ mod golog;
 
 mod abstractions;
 mod core;
+mod drivers;
+mod logrus;
 mod multipart;
 mod util;
 

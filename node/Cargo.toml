@@ -18,14 +18,20 @@ anyhow = "1.0.102"
 base64 = "0.22.1"
 chrono = { version = "0.4.44", default-features = false, features = ["clock", "std"] }
 dashmap = "6.2.1"
+getrandom = "0.2"
+hex = "0.4.3"
+k256 = { version = "0.13.4", features = ["ecdsa", "arithmetic"] }
 log = "0.4.29"
+num-bigint = "0.4.6"
 postgres = "0.19.13"
 r2d2 = "0.8.10"
 r2d2_postgres = "0.18.2"
+rand = "0.10.1"
 rocksdb = "0.24.0"
 rsa = "0.9.10"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
+sha2 = "0.11.0"
 tar = "0.4.46"
 thiserror = "2.0.18"
 uuid = { version = "1.23.1", features = ["v4"] }
