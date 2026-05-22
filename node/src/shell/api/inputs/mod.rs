@@ -2,3 +2,4 @@
 
 pub mod invites;
 pub mod stores;
+pub mod users;
