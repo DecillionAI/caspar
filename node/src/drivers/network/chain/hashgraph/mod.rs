@@ -12,22 +12,30 @@
 //! gives the same deterministic, order-independent output.
 
 pub mod block;
+pub mod caches;
 pub mod errors;
 pub mod event;
 pub mod frame;
+pub mod inmem_store;
 pub mod internal_transaction;
 pub mod root;
 pub mod round_info;
+pub mod store;
 
 pub use block::{Block, BlockBody, BlockSignature, WireBlockSignature};
+pub use caches::{
+    Key, ParticipantEventsCache, PeerSetCache, PendingRound, PendingRoundsCache, SigPool, TreKey,
+};
 pub use errors::{is_normal_self_parent_error, SelfParentError};
 pub use event::{
     sort_by_topological_order, CoordinatesMap, Event, EventBody, EventCoordinates, FrameEvent,
     WireBody, WireEvent,
 };
 pub use frame::Frame;
+pub use inmem_store::InmemStore;
 pub use internal_transaction::{
     InternalTransaction, InternalTransactionBody, InternalTransactionReceipt, TransactionType,
 };
 pub use root::Root;
-pub use round_info::{PendingRound, RoundEvent, RoundInfo};
+pub use round_info::{RoundEvent, RoundInfo};
+pub use store::Store;

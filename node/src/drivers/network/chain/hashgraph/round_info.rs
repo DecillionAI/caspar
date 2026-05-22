@@ -8,9 +8,11 @@ use serde::{Deserialize, Serialize};
 use crate::drivers::network::chain::common::Trilean;
 use crate::drivers::network::chain::peers::PeerSet;
 
-/// A round queued for decision.
+/// Translation of the Go `pendingRound` type (unexported and unused in the
+/// original; the round-through-consensus type the hashgraph uses is
+/// `caches::PendingRound`).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct PendingRound {
+pub struct PendingRoundMarker {
     pub index: i64,
     pub decided: bool,
 }
@@ -27,7 +29,7 @@ pub struct RoundEvent {
 ///
 /// `created_events` is a `BTreeMap` so that marshalling is deterministic,
 /// matching the Go code's canonical codec handle.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase", default)]
 pub struct RoundInfo {
     /// The events that were "created" in this round.
