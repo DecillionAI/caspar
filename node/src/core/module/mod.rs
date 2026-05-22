@@ -6,5 +6,6 @@
 //! dependencies land.
 
 pub mod actor;
+pub mod globe;
 pub mod logger;
 pub mod pool;
