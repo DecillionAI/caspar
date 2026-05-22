@@ -1406,3 +1406,347 @@ fn middle_bit(ehex: &str) -> bool {
     };
     !(!hash.is_empty() && hash[hash.len() / 2] == 0)
 }
+
+#[cfg(test)]
+mod tests {
+    //! Translation of `chain/hashgraph/hashgraph_test.go`.
+    //!
+    //! The test module lives inside `hashgraph.rs` so it can exercise the
+    //! private predicate methods (`ancestor`, `see`, `lamport_timestamp`, ...).
+
+    use super::*;
+    use std::collections::HashMap;
+    use std::sync::Arc;
+
+    use k256::ecdsa::SigningKey;
+
+    use super::super::block::BlockSignature;
+    use super::super::event::Event;
+    use super::super::inmem_store::InmemStore;
+    use super::super::rocks_store::RocksDbStore;
+    use crate::drivers::network::chain::common;
+    use crate::drivers::network::chain::crypto::keys;
+    use crate::drivers::network::chain::peers::{Peer, PeerSet};
+
+    const CACHE_SIZE: i64 = 100;
+    const N: usize = 3;
+
+    /// Translation of the Go `TestNode` struct.
+    struct TestNode {
+        pub_bytes: Vec<u8>,
+        key: SigningKey,
+        #[allow(dead_code)]
+        events: Vec<Event>,
+    }
+
+    impl TestNode {
+        fn new(key: SigningKey) -> TestNode {
+            let pub_bytes = keys::from_public_key(key.verifying_key());
+            TestNode {
+                pub_bytes,
+                key,
+                events: Vec::new(),
+            }
+        }
+
+        fn sign_and_add_event(
+            &mut self,
+            mut event: Event,
+            name: &str,
+            index: &mut HashMap<String, String>,
+            ordered_events: &mut Vec<Event>,
+        ) {
+            event.sign(&self.key).unwrap();
+            index.insert(name.to_string(), event.hex());
+            self.events.push(event.clone());
+            ordered_events.push(event);
+        }
+    }
+
+    /// Translation of the Go `play` struct.
+    struct Play {
+        to: usize,
+        index: i64,
+        self_parent: String,
+        other_parent: String,
+        name: String,
+        tx_payload: Vec<Vec<u8>>,
+        sig_payload: Vec<BlockSignature>,
+    }
+
+    /// Convenience constructor for a `Play` with no transaction/signature
+    /// payload (the common case in the Go tests).
+    fn p(to: usize, index: i64, self_parent: &str, other_parent: &str, name: &str) -> Play {
+        Play {
+            to,
+            index,
+            self_parent: self_parent.to_string(),
+            other_parent: other_parent.to_string(),
+            name: name.to_string(),
+            tx_payload: Vec::new(),
+            sig_payload: Vec::new(),
+        }
+    }
+
+    fn idx(index: &HashMap<String, String>, name: &str) -> String {
+        index.get(name).cloned().unwrap_or_default()
+    }
+
+    fn test_logger() -> Entry {
+        common::new_test_entry(common::TEST_LOG_LEVEL)
+    }
+
+    fn temp_badger_dir() -> String {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        std::env::temp_dir()
+            .join(format!("babble-hg-{}-{}", std::process::id(), nanos))
+            .to_string_lossy()
+            .into_owned()
+    }
+
+    fn init_hashgraph_nodes(
+        n: usize,
+    ) -> (Vec<TestNode>, HashMap<String, String>, Vec<Event>, PeerSet) {
+        let mut nodes = Vec::new();
+        let mut pirs = Vec::new();
+        for _ in 0..n {
+            let key = keys::generate_ecdsa_key().unwrap();
+            let pub_hex = keys::public_key_hex(key.verifying_key());
+            pirs.push(Peer::new(&pub_hex, "", ""));
+            nodes.push(TestNode::new(key));
+        }
+        let peer_set = PeerSet::new(pirs);
+        (nodes, HashMap::new(), Vec::new(), peer_set)
+    }
+
+    fn play_events(
+        plays: &[Play],
+        nodes: &mut [TestNode],
+        index: &mut HashMap<String, String>,
+        ordered_events: &mut Vec<Event>,
+    ) {
+        for play in plays {
+            let sp = idx(index, &play.self_parent);
+            let op = idx(index, &play.other_parent);
+            let e = Event::new(
+                play.tx_payload.clone(),
+                vec![],
+                play.sig_payload.clone(),
+                vec![sp, op],
+                nodes[play.to].pub_bytes.clone(),
+                play.index,
+            );
+            nodes[play.to].sign_and_add_event(e, &play.name, index, ordered_events);
+        }
+    }
+
+    fn create_hashgraph(
+        db: bool,
+        ordered_events: &mut [Event],
+        peer_set: PeerSet,
+    ) -> Hashgraph {
+        let store: Box<dyn Store> = if db {
+            Box::new(RocksDbStore::new(CACHE_SIZE, &temp_badger_dir(), false).unwrap())
+        } else {
+            Box::new(InmemStore::new(CACHE_SIZE))
+        };
+
+        let mut hashgraph = Hashgraph::new(
+            store,
+            Box::new(dummy_internal_commit_callback),
+            Some(test_logger()),
+        );
+
+        hashgraph
+            .init(Arc::new(peer_set))
+            .expect("ERROR initializing Hashgraph");
+
+        for (i, ev) in ordered_events.iter_mut().enumerate() {
+            hashgraph
+                .insert_event(ev, true)
+                .unwrap_or_else(|e| panic!("ERROR inserting event {}: {}", i, e));
+        }
+
+        hashgraph
+    }
+
+    fn init_hashgraph_full(
+        plays: Vec<Play>,
+        db: bool,
+        n: usize,
+    ) -> (Hashgraph, HashMap<String, String>, Vec<Event>) {
+        let (mut nodes, mut index, mut ordered_events, peer_set) = init_hashgraph_nodes(n);
+        play_events(&plays, &mut nodes, &mut index, &mut ordered_events);
+        let hashgraph = create_hashgraph(db, &mut ordered_events, peer_set);
+        (hashgraph, index, ordered_events)
+    }
+
+    /*
+    |  e12  |
+    |   | \ |
+    |  s10 e20
+    |   | / |
+    |   /   |
+    | / |   |
+    s00 |  s20
+    |   |   |
+    e01 |   |
+    | \ |   |
+    e0  e1  e2
+    0   1   2
+    */
+    fn init_hashgraph() -> (Hashgraph, HashMap<String, String>) {
+        let plays = vec![
+            p(0, 0, "", "", "e0"),
+            p(1, 0, "", "", "e1"),
+            p(2, 0, "", "", "e2"),
+            p(0, 1, "e0", "e1", "e01"),
+            p(2, 1, "e2", "", "s20"),
+            p(1, 1, "e1", "", "s10"),
+            p(0, 2, "e01", "", "s00"),
+            p(2, 2, "s20", "s00", "e20"),
+            p(1, 2, "s10", "e20", "e12"),
+        ];
+        let (h, index, _) = init_hashgraph_full(plays, false, N);
+        (h, index)
+    }
+
+    /// `(descendant, ancestor, expected_value, expected_error)`.
+    type AncestryItem = (&'static str, &'static str, bool, bool);
+
+    // Translation of hashgraph_test.go::TestAncestor.
+    #[test]
+    fn test_ancestor() {
+        let (mut h, index) = init_hashgraph();
+        let expected: Vec<AncestryItem> = vec![
+            // first generation
+            ("e01", "e0", true, false),
+            ("e01", "e1", true, false),
+            ("s00", "e01", true, false),
+            ("s20", "e2", true, false),
+            ("e20", "s00", true, false),
+            ("e20", "s20", true, false),
+            ("e12", "e20", true, false),
+            ("e12", "s10", true, false),
+            // second generation
+            ("s00", "e0", true, false),
+            ("s00", "e1", true, false),
+            ("e20", "e01", true, false),
+            ("e20", "e2", true, false),
+            ("e12", "e1", true, false),
+            ("e12", "s20", true, false),
+            // third generation
+            ("e20", "e0", true, false),
+            ("e20", "e1", true, false),
+            ("e20", "e2", true, false),
+            ("e12", "e01", true, false),
+            ("e12", "e0", true, false),
+            ("e12", "e1", true, false),
+            ("e12", "e2", true, false),
+            // false positive
+            ("e01", "e2", false, false),
+            ("s00", "e2", false, false),
+            ("e0", "", false, true),
+            ("s00", "", false, true),
+            ("e12", "", false, true),
+        ];
+
+        for (descendant, ancestor, val, exp_err) in expected {
+            let (a, is_err) = match h.ancestor(&idx(&index, descendant), &idx(&index, ancestor)) {
+                Ok(v) => (v, false),
+                Err(_) => (false, true),
+            };
+            assert!(
+                !(is_err && !exp_err),
+                "Error computing ancestor({}, {})",
+                descendant,
+                ancestor
+            );
+            assert_eq!(a, val, "ancestor({}, {}) mismatch", descendant, ancestor);
+        }
+    }
+
+    // Translation of hashgraph_test.go::TestSelfAncestor.
+    #[test]
+    fn test_self_ancestor() {
+        let (mut h, index) = init_hashgraph();
+        let expected: Vec<AncestryItem> = vec![
+            ("e01", "e0", true, false),
+            ("s00", "e01", true, false),
+            ("e01", "e1", false, false),
+            ("e12", "e20", false, false),
+            ("s20", "e1", false, false),
+            ("s20", "", false, true),
+            ("e20", "e2", true, false),
+            ("e12", "e1", true, false),
+            ("e20", "e0", false, false),
+            ("e12", "e2", false, false),
+            ("e20", "e01", false, false),
+        ];
+
+        for (descendant, ancestor, val, exp_err) in expected {
+            let (a, is_err) =
+                match h.self_ancestor(&idx(&index, descendant), &idx(&index, ancestor)) {
+                    Ok(v) => (v, false),
+                    Err(_) => (false, true),
+                };
+            assert!(
+                !(is_err && !exp_err),
+                "Error computing self_ancestor({}, {})",
+                descendant,
+                ancestor
+            );
+            assert_eq!(a, val, "self_ancestor({}, {}) mismatch", descendant, ancestor);
+        }
+    }
+
+    // Translation of hashgraph_test.go::TestSee.
+    #[test]
+    fn test_see() {
+        let (mut h, index) = init_hashgraph();
+        let expected: Vec<AncestryItem> = vec![
+            ("e01", "e0", true, false),
+            ("e01", "e1", true, false),
+            ("e20", "e0", true, false),
+            ("e20", "e01", true, false),
+            ("e12", "e01", true, false),
+            ("e12", "e0", true, false),
+            ("e12", "e1", true, false),
+            ("e12", "s20", true, false),
+        ];
+
+        for (descendant, ancestor, val, _exp_err) in expected {
+            let a = h
+                .see(&idx(&index, descendant), &idx(&index, ancestor))
+                .unwrap_or(false);
+            assert_eq!(a, val, "see({}, {}) mismatch", descendant, ancestor);
+        }
+    }
+
+    // Translation of hashgraph_test.go::TestLamportTimestamp.
+    #[test]
+    fn test_lamport_timestamp() {
+        let (mut h, index) = init_hashgraph();
+        let expected: Vec<(&str, i64)> = vec![
+            ("e0", 0),
+            ("e1", 0),
+            ("e2", 0),
+            ("e01", 1),
+            ("s10", 1),
+            ("s20", 1),
+            ("s00", 2),
+            ("e20", 3),
+            ("e12", 4),
+        ];
+
+        for (e, ets) in expected {
+            let ts = h
+                .lamport_timestamp(&idx(&index, e))
+                .unwrap_or_else(|err| panic!("Error computing lamport_timestamp({}): {}", e, err));
+            assert_eq!(ts, ets, "{} LamportTimestamp mismatch", e);
+        }
+    }
+}
