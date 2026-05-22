@@ -5,4 +5,5 @@
 //! on (`crypto`, `future`, `origin`, `timer`). The bulk of `shell::api` and
 //! the source-comment-driven `extractor` / `doc` helpers wait for Phase 5.
 
+pub mod api;
 pub mod utils;
