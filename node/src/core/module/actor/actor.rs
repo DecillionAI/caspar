@@ -4,15 +4,18 @@ use std::sync::{Arc, Mutex};
 
 use dashmap::DashMap;
 
-use crate::abstractions::models::action::action::IAction;
+use crate::abstractions::models::action::action::{IAction, ISecureAction};
 use crate::abstractions::models::action::actor::IActor;
 use crate::util::AnyVal;
 
 /// Concrete [`IActor`] registry — stores actions by `key()` and lets callers
-/// look them up at runtime. `inject_service` is a no-op (matches Go), kept on
-/// the trait for compatibility.
+/// look them up at runtime. Secured actions live in a separate map so the
+/// driver layer can resolve them as `Arc<dyn ISecureAction>` without
+/// downcasting (which Rust doesn't support across distinct trait families).
+/// `inject_service` is a no-op (matches Go), kept on the trait for parity.
 pub struct Actor {
     actions: DashMap<String, Arc<dyn IAction>>,
+    secure_actions: DashMap<String, Arc<dyn ISecureAction>>,
     services: Mutex<Vec<AnyVal>>,
 }
 
@@ -27,6 +30,7 @@ impl Actor {
     pub fn new() -> Actor {
         Actor {
             actions: DashMap::new(),
+            secure_actions: DashMap::new(),
             services: Mutex::new(Vec::new()),
         }
     }
@@ -46,5 +50,13 @@ impl IActor for Actor {
 
     fn fetch_action(&self, key: &str) -> Option<Arc<dyn IAction>> {
         self.actions.get(key).map(|a| a.clone())
+    }
+
+    fn inject_secure_action(&self, action: Arc<dyn ISecureAction>) {
+        self.secure_actions.insert(action.key(), action);
+    }
+
+    fn fetch_secure_action(&self, key: &str) -> Option<Arc<dyn ISecureAction>> {
+        self.secure_actions.get(key).map(|a| a.clone())
     }
 }
