@@ -1421,10 +1421,12 @@ mod tests {
     use k256::ecdsa::SigningKey;
 
     use super::super::block::BlockSignature;
-    use super::super::event::Event;
+    use super::super::event::{CoordinatesMap, Event, EventCoordinates};
     use super::super::inmem_store::InmemStore;
     use super::super::rocks_store::RocksDbStore;
+    use super::super::round_info::{RoundEvent, RoundInfo};
     use crate::drivers::network::chain::common;
+    use crate::drivers::network::chain::common::Trilean;
     use crate::drivers::network::chain::crypto::keys;
     use crate::drivers::network::chain::peers::{Peer, PeerSet};
 
@@ -1747,6 +1749,314 @@ mod tests {
                 .lamport_timestamp(&idx(&index, e))
                 .unwrap_or_else(|err| panic!("Error computing lamport_timestamp({}): {}", e, err));
             assert_eq!(ts, ets, "{} LamportTimestamp mismatch", e);
+        }
+    }
+
+    /// Builds a `Play` carrying a transaction payload.
+    fn p_tx(
+        to: usize,
+        index: i64,
+        self_parent: &str,
+        other_parent: &str,
+        name: &str,
+        tx_payload: Vec<Vec<u8>>,
+    ) -> Play {
+        Play {
+            to,
+            index,
+            self_parent: self_parent.to_string(),
+            other_parent: other_parent.to_string(),
+            name: name.to_string(),
+            tx_payload,
+            sig_payload: Vec::new(),
+        }
+    }
+
+    fn init_round_hashgraph() -> (Hashgraph, HashMap<String, String>) {
+        let plays = vec![
+            p(0, 0, "", "", "e0"),
+            p(1, 0, "", "", "e1"),
+            p(2, 0, "", "", "e2"),
+            p(1, 1, "e1", "e0", "e10"),
+            p(2, 1, "e2", "", "s20"),
+            p(0, 1, "e0", "", "s00"),
+            p(2, 2, "s20", "e10", "e21"),
+            p(0, 2, "s00", "e21", "e02"),
+            p(1, 2, "e10", "", "s10"),
+            p(1, 3, "s10", "e02", "f1"),
+            p_tx(1, 4, "f1", "", "s11", vec![b"abc".to_vec()]),
+        ];
+        let (h, index, _) = init_hashgraph_full(plays, false, N);
+
+        // Set Rounds manually; normally handled by DivideRounds().
+        let mut round0: std::collections::BTreeMap<String, RoundEvent> =
+            std::collections::BTreeMap::new();
+        for name in ["e0", "e1", "e2"] {
+            round0.insert(
+                idx(&index, name),
+                RoundEvent {
+                    witness: true,
+                    famous: Trilean::Undefined,
+                },
+            );
+        }
+        h.store
+            .set_round(
+                0,
+                &RoundInfo {
+                    created_events: round0,
+                    ..RoundInfo::new()
+                },
+            )
+            .unwrap();
+
+        let mut round1: std::collections::BTreeMap<String, RoundEvent> =
+            std::collections::BTreeMap::new();
+        round1.insert(
+            idx(&index, "f1"),
+            RoundEvent {
+                witness: true,
+                famous: Trilean::Undefined,
+            },
+        );
+        h.store
+            .set_round(
+                1,
+                &RoundInfo {
+                    created_events: round1,
+                    ..RoundInfo::new()
+                },
+            )
+            .unwrap();
+
+        (h, index)
+    }
+
+    // Translation of hashgraph_test.go::TestInsertEvent (event-coordinates and
+    // undetermined-events checks).
+    #[test]
+    fn test_insert_event() {
+        let (h, index) = init_round_hashgraph();
+        let peer_set = h.store.get_peer_set(0).unwrap();
+        let pks = peer_set.pub_keys();
+
+        let coord = |name: &str, i: i64| EventCoordinates {
+            hash: idx(&index, name),
+            index: i,
+        };
+
+        // e0
+        let e0 = h.store.get_event(&idx(&index, "e0")).unwrap();
+        assert!(
+            e0.body.self_parent_index == -1
+                && e0.body.other_parent_creator_id == 0
+                && e0.body.other_parent_index == -1
+                && e0.body.creator_id == peer_set.by_pub_key[&e0.creator()].id(),
+            "Invalid wire info on e0"
+        );
+        let e0_fd: CoordinatesMap = [
+            (pks[0].clone(), coord("e0", 0)),
+            (pks[1].clone(), coord("e10", 1)),
+            (pks[2].clone(), coord("e21", 2)),
+        ]
+        .into_iter()
+        .collect();
+        let e0_la: CoordinatesMap = [(pks[0].clone(), coord("e0", 0))].into_iter().collect();
+        assert_eq!(e0.first_descendants, e0_fd, "e0 firstDescendants mismatch");
+        assert_eq!(e0.last_ancestors, e0_la, "e0 lastAncestors mismatch");
+
+        // e21
+        let e21 = h.store.get_event(&idx(&index, "e21")).unwrap();
+        let e10 = h.store.get_event(&idx(&index, "e10")).unwrap();
+        assert!(
+            e21.body.self_parent_index == 1
+                && e21.body.other_parent_creator_id == peer_set.by_pub_key[&e10.creator()].id()
+                && e21.body.other_parent_index == 1
+                && e21.body.creator_id == peer_set.by_pub_key[&e21.creator()].id(),
+            "Invalid wire info on e21"
+        );
+        let e21_fd: CoordinatesMap = [
+            (pks[0].clone(), coord("e02", 2)),
+            (pks[1].clone(), coord("f1", 3)),
+            (pks[2].clone(), coord("e21", 2)),
+        ]
+        .into_iter()
+        .collect();
+        let e21_la: CoordinatesMap = [
+            (pks[0].clone(), coord("e0", 0)),
+            (pks[1].clone(), coord("e10", 1)),
+            (pks[2].clone(), coord("e21", 2)),
+        ]
+        .into_iter()
+        .collect();
+        assert_eq!(e21.first_descendants, e21_fd, "e21 firstDescendants mismatch");
+        assert_eq!(e21.last_ancestors, e21_la, "e21 lastAncestors mismatch");
+
+        // f1
+        let f1 = h.store.get_event(&idx(&index, "f1")).unwrap();
+        assert!(
+            f1.body.self_parent_index == 2
+                && f1.body.other_parent_creator_id == peer_set.by_pub_key[&e0.creator()].id()
+                && f1.body.other_parent_index == 2
+                && f1.body.creator_id == peer_set.by_pub_key[&f1.creator()].id(),
+            "Invalid wire info on f1"
+        );
+        let f1_fd: CoordinatesMap = [(pks[1].clone(), coord("f1", 3))].into_iter().collect();
+        let f1_la: CoordinatesMap = [
+            (pks[0].clone(), coord("e02", 2)),
+            (pks[1].clone(), coord("f1", 3)),
+            (pks[2].clone(), coord("e21", 2)),
+        ]
+        .into_iter()
+        .collect();
+        assert_eq!(f1.first_descendants, f1_fd, "f1 firstDescendants mismatch");
+        assert_eq!(f1.last_ancestors, f1_la, "f1 lastAncestors mismatch");
+
+        // Check UndeterminedEvents.
+        let expected_undetermined = [
+            "e0", "e1", "e2", "e10", "s20", "s00", "e21", "e02", "s10", "f1", "s11",
+        ];
+        for (i, name) in expected_undetermined.iter().enumerate() {
+            assert_eq!(
+                h.undetermined_events[i],
+                idx(&index, name),
+                "UndeterminedEvents[{}] mismatch",
+                i
+            );
+        }
+        // 3 Events with index 0 + 1 Event with non-empty Transactions.
+        assert_eq!(h.pending_loaded_events, 4, "PendingLoadedEvents should be 4");
+    }
+
+    // Translation of hashgraph_test.go::TestReadWireInfo.
+    #[test]
+    fn test_read_wire_info() {
+        let (h, index) = init_round_hashgraph();
+        for (k, evh) in &index {
+            let ev = h.store.get_event(evh).unwrap();
+            let ev_wire = ev.to_wire();
+            let ev_from_wire = h.read_wire_info(&ev_wire).unwrap();
+
+            assert_eq!(
+                ev.body.block_signatures, ev_from_wire.body.block_signatures,
+                "BlockSignatures from wire mismatch for {}",
+                k
+            );
+            assert_eq!(ev.body, ev_from_wire.body, "Body from wire mismatch for {}", k);
+            assert_eq!(
+                ev.signature, ev_from_wire.signature,
+                "Signature from wire mismatch for {}",
+                k
+            );
+            assert!(ev.verify().unwrap_or(false), "Error verifying signature for {}", k);
+        }
+    }
+
+    // Translation of hashgraph_test.go::TestStronglySee.
+    #[test]
+    fn test_strongly_see() {
+        let (mut h, index) = init_round_hashgraph();
+        let expected: Vec<AncestryItem> = vec![
+            ("e21", "e0", true, false),
+            ("e02", "e10", true, false),
+            ("e02", "e0", true, false),
+            ("e02", "e1", true, false),
+            ("f1", "e21", true, false),
+            ("f1", "e10", true, false),
+            ("f1", "e0", true, false),
+            ("f1", "e1", true, false),
+            ("f1", "e2", true, false),
+            ("s11", "e2", true, false),
+            ("e10", "e0", false, false),
+            ("e21", "e1", false, false),
+            ("e21", "e2", false, false),
+            ("e02", "e2", false, false),
+            ("s11", "e02", false, false),
+            ("s11", "", false, true),
+        ];
+        let peer_set = h.store.get_peer_set(0).unwrap();
+
+        for (descendant, ancestor, val, exp_err) in expected {
+            let (a, is_err) = match h.strongly_see(
+                &idx(&index, descendant),
+                &idx(&index, ancestor),
+                &peer_set,
+            ) {
+                Ok(v) => (v, false),
+                Err(_) => (false, true),
+            };
+            assert!(
+                !(is_err && !exp_err),
+                "Error computing strongly_see({}, {})",
+                descendant,
+                ancestor
+            );
+            assert_eq!(a, val, "strongly_see({}, {}) mismatch", descendant, ancestor);
+        }
+    }
+
+    // Translation of hashgraph_test.go::TestWitness.
+    #[test]
+    fn test_witness() {
+        let (mut h, index) = init_round_hashgraph();
+        let expected: Vec<(&str, bool)> = vec![
+            ("e0", true),
+            ("e1", true),
+            ("e2", true),
+            ("f1", true),
+            ("e10", false),
+            ("e21", false),
+            ("e02", false),
+        ];
+        for (event, val) in expected {
+            let a = h
+                .witness(&idx(&index, event))
+                .unwrap_or_else(|e| panic!("Error computing witness({}): {}", event, e));
+            assert_eq!(a, val, "witness({}) mismatch", event);
+        }
+    }
+
+    // Translation of hashgraph_test.go::TestRound.
+    #[test]
+    fn test_round() {
+        let (mut h, index) = init_round_hashgraph();
+        let expected: Vec<(&str, i64)> = vec![
+            ("e0", 0),
+            ("e1", 0),
+            ("e2", 0),
+            ("s00", 0),
+            ("e10", 0),
+            ("s20", 0),
+            ("e21", 0),
+            ("e02", 0),
+            ("s10", 0),
+            ("f1", 1),
+            ("s11", 1),
+        ];
+        for (event, val) in expected {
+            let r = h
+                .round(&idx(&index, event))
+                .unwrap_or_else(|e| panic!("Error computing round({}): {}", event, e));
+            assert_eq!(r, val, "round({}) mismatch", event);
+        }
+    }
+
+    // Translation of hashgraph_test.go::TestRoundDiff.
+    #[test]
+    fn test_round_diff() {
+        let (mut h, index) = init_round_hashgraph();
+
+        match h.round_diff(&idx(&index, "f1"), &idx(&index, "e02")) {
+            Ok(d) => assert_eq!(d, 1, "RoundDiff(f1, e02) should be 1"),
+            Err(e) => panic!("RoundDiff(f1, e02) returned an error: {}", e),
+        }
+        match h.round_diff(&idx(&index, "e02"), &idx(&index, "f1")) {
+            Ok(d) => assert_eq!(d, -1, "RoundDiff(e02, f1) should be -1"),
+            Err(e) => panic!("RoundDiff(e02, f1) returned an error: {}", e),
+        }
+        match h.round_diff(&idx(&index, "e02"), &idx(&index, "e21")) {
+            Ok(d) => assert_eq!(d, 0, "RoundDiff(e02, e21) should be 0"),
+            Err(e) => panic!("RoundDiff(e02, e21) returned an error: {}", e),
         }
     }
 }
