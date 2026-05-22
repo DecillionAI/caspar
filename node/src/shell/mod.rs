@@ -6,4 +6,5 @@
 //! the source-comment-driven `extractor` / `doc` helpers wait for Phase 5.
 
 pub mod api;
+pub mod kasper;
 pub mod utils;

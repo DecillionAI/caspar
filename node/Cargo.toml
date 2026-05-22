@@ -22,6 +22,7 @@ dashmap = "6.2.1"
 getrandom = "0.2"
 hex = "0.4.3"
 k256 = { version = "0.13.4", features = ["ecdsa", "arithmetic"] }
+libc = "0.2"
 log = "0.4.29"
 num-bigint = "0.4.6"
 postgres = "0.19.13"

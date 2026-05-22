@@ -1,20 +1,15 @@
 // Caspar node — Rust translation of the Caspar (kasper) Go node.
 //
-// This crate is the result of a phased, file-by-file translation of the
-// original Go sources that previously lived under `node/src/**/*.go`.
-//
-// Translation phases (each landed as its own commit on
-// `claude/epic-hypatia-E9EMH`):
+// Translation phase summary:
 //   Phase 0  — workspace restructuring
 //   Phase 1  — foundation: `abstractions` (models + adapter traits), logger
 //   Phase 2  — Babble hashgraph + chain node consensus engine
 //   Phase 3  — core modules (core, globe, actor, pool)
 //   Phase 4  — drivers (file, security, signaler, storage, vmm, network)
 //   Phase 5  — shell API + utils + app wiring
-//   Phase 6  — final cleanup (remove Go sources, tooling, Dockerfile)
+//   Phase 6  — top-level binary, telemetry, tooling
 
 #![allow(dead_code)]
-// Re-exports in `mod.rs` files are consumed by later translation phases.
 #![allow(unused_imports)]
 #![allow(clippy::module_inception)]
 #![allow(clippy::type_complexity)]
@@ -28,8 +23,187 @@ mod drivers;
 mod logrus;
 mod multipart;
 mod shell;
+mod telemetry;
 mod util;
 
+use std::collections::HashMap;
+use std::env;
+use std::sync::Arc;
+use std::thread;
+use std::time::Duration;
+
+use crate::abstractions::models::action::action::ExtendedField;
+use crate::abstractions::models::core::ICore;
+use crate::shell::api::main_api::plug_all;
+use crate::shell::kasper::new_app;
+
 fn main() {
-    println!("caspar-node: Rust workspace bootstrapped (translation in progress)");
+    // .env loading: simple manual parser (skip dotenvy to avoid the extra
+    // dependency — the file lives next to the binary in production).
+    let _ = load_dotenv(".env");
+
+    if let Err(e) = telemetry::start_from_env() {
+        eprintln!("telemetry server start failed: {}", e);
+    }
+
+    let owner_id = env::var("OWNER_ID").unwrap_or_default();
+    let owner_pem = env::var("OWNER_PRIVATE_KEY").unwrap_or_default();
+    let owner_priv = match parse_owner_key(&owner_pem) {
+        Some(k) => k,
+        None => {
+            eprintln!("OWNER_PRIVATE_KEY missing or unparseable");
+            return;
+        }
+    };
+    let origin = env::var("ORIGIN").unwrap_or_default();
+    let app = new_app(&origin, &owner_id, owner_priv);
+
+    let storage_root = env::var("STORAGE_ROOT_PATH").unwrap_or_default();
+    let base_db_path = env::var("BASE_DB_PATH").unwrap_or_default();
+    let applet_db_path = env::var("APPLET_DB_PATH").unwrap_or_default();
+    let store_logs_db = env::var("STORE_LOGS_DB").unwrap_or_default();
+    let searcher_db = env::var("SEARCH_INDEX_PATH").unwrap_or_default();
+
+    if let Err(e) = app.load_inner(
+        vec!["keyhan".to_string()],
+        &storage_root,
+        &base_db_path,
+        &applet_db_path,
+        &store_logs_db,
+        &searcher_db,
+    ) {
+        eprintln!("app.load failed: {}", e);
+        return;
+    }
+
+    // Install SIGINT / SIGTERM handler: when received, close the app and
+    // exit. We use a small helper instead of pulling in signal-hook.
+    install_signal_handler({
+        let app = app.clone();
+        move || {
+            app.close();
+            std::process::exit(0);
+        }
+    });
+
+    let mut user_extender: HashMap<String, ExtendedField> = HashMap::new();
+    let make_field =
+        |name: &str, default: serde_json::Value, searchable: bool, primary: bool| ExtendedField {
+            name: name.to_string(),
+            path: "metadata.public.profile".to_string(),
+            typ: "string".to_string(),
+            default,
+            required: true,
+            searchable,
+            primary_prop: primary,
+            get_value: None,
+        };
+    user_extender.insert(
+        "name".to_string(),
+        make_field("name", serde_json::json!("Anonymous User"), true, true),
+    );
+    user_extender.insert(
+        "avatar".to_string(),
+        make_field("avatar", serde_json::json!("avatar"), false, true),
+    );
+    user_extender.insert(
+        "bio".to_string(),
+        make_field("bio", serde_json::json!("I'm a DecillionAI User"), false, false),
+    );
+    user_extender.insert(
+        "location".to_string(),
+        make_field("location", serde_json::json!("DecillionAI Land"), false, false),
+    );
+    let mut store_extender: HashMap<String, ExtendedField> = HashMap::new();
+    store_extender.insert(
+        "title".to_string(),
+        make_field("title", serde_json::json!("Untitled Store"), true, true),
+    );
+    store_extender.insert(
+        "avatar".to_string(),
+        make_field("avatar", serde_json::json!("avatar"), false, true),
+    );
+    let mut model_extender: HashMap<String, HashMap<String, ExtendedField>> = HashMap::new();
+    model_extender.insert("user".to_string(), user_extender);
+    model_extender.insert("store".to_string(), store_extender);
+
+    let app_for_plug: Arc<dyn crate::abstractions::models::core::ICore> = app.clone();
+    plug_all(app_for_plug, &model_extender);
+
+    let port_tcp: i64 = env::var("CLIENT_TCP_API_PORT")
+        .ok()
+        .and_then(|p| p.parse().ok())
+        .unwrap_or(0);
+    let port_ws: i64 = env::var("CLIENT_WS_API_PORT")
+        .ok()
+        .and_then(|p| p.parse().ok())
+        .unwrap_or(0);
+    let port_fed: i64 = env::var("FEDERATION_API_PORT")
+        .ok()
+        .and_then(|p| p.parse().ok())
+        .unwrap_or(0);
+    let port_chain: i64 = env::var("BLOCKCHAIN_API_PORT")
+        .ok()
+        .and_then(|p| p.parse().ok())
+        .unwrap_or(0);
+    let mut ports: HashMap<String, i64> = HashMap::new();
+    ports.insert("tcp".to_string(), port_tcp);
+    ports.insert("ws".to_string(), port_ws);
+    ports.insert("fed".to_string(), port_fed);
+    ports.insert("chain".to_string(), port_chain);
+    app.tools().network().run(ports);
+
+    // Block forever — background threads run the gossip / chain dispatch.
+    loop {
+        thread::sleep(Duration::from_secs(60 * 60));
+    }
+}
+
+fn parse_owner_key(pem: &str) -> Option<rsa::RsaPrivateKey> {
+    use rsa::pkcs8::DecodePrivateKey;
+    rsa::RsaPrivateKey::from_pkcs8_pem(pem).ok()
+}
+
+fn load_dotenv(path: &str) -> std::io::Result<()> {
+    let content = std::fs::read_to_string(path)?;
+    for line in content.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        if let Some((k, v)) = line.split_once('=') {
+            let k = k.trim();
+            let v = v
+                .trim()
+                .trim_start_matches('"')
+                .trim_end_matches('"')
+                .trim_start_matches('\'')
+                .trim_end_matches('\'');
+            // SAFETY: setenv is unsafe in multi-threaded contexts but this
+            // runs before any other thread is spawned.
+            unsafe {
+                env::set_var(k, v);
+            }
+        }
+    }
+    Ok(())
+}
+
+fn install_signal_handler<F: FnOnce() + Send + 'static>(callback: F) {
+    // Minimal SIGINT / SIGTERM handling without signal-hook: spawn a thread
+    // that masks the signals and waits via `libc::sigwait`. Linux only —
+    // matches the Caspar deployment target.
+    thread::spawn(move || {
+        #[cfg(target_os = "linux")]
+        unsafe {
+            let mut mask: libc::sigset_t = std::mem::zeroed();
+            libc::sigemptyset(&mut mask);
+            libc::sigaddset(&mut mask, libc::SIGINT);
+            libc::sigaddset(&mut mask, libc::SIGTERM);
+            libc::pthread_sigmask(libc::SIG_BLOCK, &mask, std::ptr::null_mut());
+            let mut sig: libc::c_int = 0;
+            libc::sigwait(&mask, &mut sig);
+        }
+        callback();
+    });
 }
