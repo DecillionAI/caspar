@@ -4,3 +4,4 @@
 pub mod base;
 pub mod secured;
 pub mod state;
+pub mod trx;
