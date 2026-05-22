@@ -18,6 +18,7 @@ pub mod event;
 pub mod frame;
 pub mod inmem_store;
 pub mod internal_transaction;
+pub mod rocks_store;
 pub mod root;
 pub mod round_info;
 pub mod store;
@@ -36,6 +37,7 @@ pub use inmem_store::InmemStore;
 pub use internal_transaction::{
     InternalTransaction, InternalTransactionBody, InternalTransactionReceipt, TransactionType,
 };
+pub use rocks_store::RocksDbStore;
 pub use root::Root;
 pub use round_info::{RoundEvent, RoundInfo};
 pub use store::Store;
