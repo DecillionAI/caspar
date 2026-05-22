@@ -27,6 +27,7 @@ mod core;
 mod drivers;
 mod logrus;
 mod multipart;
+mod shell;
 mod util;
 
 fn main() {
