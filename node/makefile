@@ -1,53 +1,34 @@
-BUILD_TAGS?=babble
+# Caspar node build targets. The Go toolchain isn't required; everything
+# is `cargo`.
 
-# vendor installs all the Go dependencies in vendor/
-vendor:
-	(rm go.sum || rm -rf vendor ) && GO111MODULE=on go mod vendor
+CARGO ?= cargo
 
-# install compiles and places the binary in GOPATH/bin
-install:
-	go install --ldflags '-extldflags "-static"' \
-		--ldflags "-X kasper/src/version.GitCommit=`git rev-parse HEAD`" \
-		./cmd/babble
+.PHONY: build install dist test clean lint doc casparctl casparctl-install
 
-# build compiles and places the binary in /build
 build:
-	CGO_ENABLED=0 go build \
-		--ldflags "-X kasper/src/version.GitCommit=`git rev-parse HEAD`" \
-		-o build/babble ./cmd/babble/
+	$(CARGO) build --release
 
-# dist builds binaries for all platforms and packages them for distribution
+install: build
+	cp target/release/caspar-node     $$HOME/.cargo/bin/caspar-node
+	cp target/release/caspar-keygen   $$HOME/.cargo/bin/caspar-keygen
+
 dist:
 	@BUILD_TAGS='$(BUILD_TAGS)' $(CURDIR)/scripts/dist.sh $(VERSION)
 
-# dist builds aar for mobile android
-mobile-dist:
-	@BUILD_TAGS='$(BUILD_TAGS)' $(CURDIR)/scripts/dist_mobile.sh $(VERSION)
-
-tests:  test
-
 test:
-	go test -count=1 -tags=unit ./...
+	$(CARGO) test
 
-flagtest:
-	go test -count=1 -run TestFlagEmpty ./...
-
-extratests:
-	 go test -count=1 -run Extra ./...
-
-alltests:
-	go test -count=1 ./...
- 
 lint:
-	golint ./...
+	$(CARGO) clippy --all-targets
 
 doc:
-	GO111MODULE=off godoc -play -goroot .
+	$(CARGO) doc --no-deps
 
-.PHONY: vendor install build dist test flagtest extratests alltests tests mobile-dist casparctl-build casparctl-install
+clean:
+	$(CARGO) clean
 
-casparctl-build:
-	cd .. && go build -o node/build/casparctl ./cmd/casparctl
+casparctl:
+	$(CARGO) build --release --manifest-path ../cmd/casparctl/Cargo.toml
 
-casparctl-install:
-	cd ../cmd/casparctl && go install .
+casparctl-install: casparctl
+	cp ../cmd/casparctl/target/release/casparctl $$HOME/.cargo/bin/casparctl

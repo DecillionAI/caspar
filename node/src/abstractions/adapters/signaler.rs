@@ -12,11 +12,14 @@ pub type SignalFn = Arc<dyn Fn(String, Value) + Send + Sync>;
 pub type JoinFn = Arc<dyn Fn(String, String) + Send + Sync>;
 
 /// A group of stores sharing a single listener.
-#[derive(Clone)]
+///
+/// `listener` and `override_` are mutated after construction (see
+/// `ISignaler::listen_to_group`), so they live behind a `Mutex` to stay
+/// thread-safe.
 pub struct Group {
     pub stores: Arc<DashMap<String, String>>,
-    pub listener: Arc<Listener>,
-    pub override_: bool,
+    pub listener: std::sync::Mutex<Option<Arc<Listener>>>,
+    pub override_: std::sync::Mutex<bool>,
 }
 
 /// A single signal listener.

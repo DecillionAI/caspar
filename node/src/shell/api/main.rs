@@ -1,0 +1,24 @@
+//! Translation of `shell/api/main/api.go`.
+//!
+//! Go used reflection to enumerate plugger methods at runtime; the Rust
+//! port enumerates them explicitly: each action module's `install`
+//! function registers its handlers with the actor.
+
+use std::collections::HashMap;
+use std::sync::Arc;
+
+use crate::abstractions::models::action::action::ExtendedField;
+use crate::abstractions::models::core::ICore;
+
+use super::actions;
+
+/// Mirrors `PlugAll(core, modelExtender)`.
+pub fn plug_all(
+    app: Arc<dyn ICore>,
+    _model_extender: &HashMap<String, HashMap<String, ExtendedField>>,
+) {
+    actions::auth::install(app.clone());
+    actions::creature::install(app.clone());
+    actions::dummy::install(app.clone());
+    actions::program::install(app.clone());
+}

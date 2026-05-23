@@ -5,9 +5,14 @@
 //! dependency base), then the hashgraph, transport (`net`), the consensus
 //! `node`, proxy, service and the `babble`/`chain` assembly.
 
+pub mod babble;
+pub mod chain;
+
+pub use chain::{Blockchain, CliConfig};
 pub mod common;
 pub mod config;
 pub mod crypto;
+pub mod dummy;
 pub mod hashgraph;
 pub mod net;
 pub mod node;

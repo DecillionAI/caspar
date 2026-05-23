@@ -15,7 +15,7 @@ mkdir -p $dest
 echo "api.decillionai.com:$PORT" > $dest/addr
 
 echo "Generating key pair for node$i"
-go run ../keygen/keygen.go
+cargo run --manifest-path "$(dirname "$0")/../Cargo.toml" --bin caspar-keygen --release
 
 PFILE=$DEST/peers.json
 echo "[" > $PFILE
