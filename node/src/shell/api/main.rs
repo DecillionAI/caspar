@@ -12,13 +12,19 @@ use crate::abstractions::models::core::ICore;
 
 use super::actions;
 
+fn clone_model_extender(
+    model_extender: &HashMap<String, HashMap<String, ExtendedField>>,
+) -> HashMap<String, HashMap<String, ExtendedField>> {
+    model_extender.clone()
+}
+
 /// Mirrors `PlugAll(core, modelExtender)`.
 pub fn plug_all(
     app: Arc<dyn ICore>,
-    _model_extender: &HashMap<String, HashMap<String, ExtendedField>>,
+    model_extender: &HashMap<String, HashMap<String, ExtendedField>>,
 ) {
     actions::auth::install(app.clone());
-    actions::creature::install(app.clone());
+    actions::creature::install(app.clone(), clone_model_extender(model_extender));
     actions::dummy::install(app.clone());
     actions::program::install(app.clone());
 }
