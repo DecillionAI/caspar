@@ -704,6 +704,12 @@ impl Core {
         })
     }
 
+
+    /// Runtime start phase invoked after load/module initialization.
+    pub fn run(self: &Arc<Self>) {
+        crate::drivers::vmm::bootstrap::run();
+    }
+
     /// Strongly-typed `Load`. Run once on startup after the constructor.
     pub fn load_inner(
         self: &Arc<Self>,

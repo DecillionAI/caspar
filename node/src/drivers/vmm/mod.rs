@@ -7,10 +7,11 @@
 //! dispatched through [`Vmm::vm_callback`], and the result is queued back
 //! onto the outbound REQ channel as an `apiResponse`.
 
+pub mod appengine;
+pub mod bootstrap;
 pub mod hostcall_entities;
 pub mod hostcall_global;
 pub mod hostcall_logs;
-pub mod appengine;
 pub mod vmm;
 
 pub use vmm::Vmm;

@@ -131,6 +131,8 @@ fn main() {
     let app_for_plug: Arc<dyn crate::abstractions::models::core::ICore> = app.clone();
     plug_all(app_for_plug, &model_extender);
 
+    app.run();
+
     let port_tcp: i64 = env::var("CLIENT_TCP_API_PORT")
         .ok()
         .and_then(|p| p.parse().ok())
