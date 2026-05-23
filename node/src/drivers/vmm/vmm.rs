@@ -10,10 +10,10 @@
 use std::fs;
 use std::sync::{Arc, Mutex};
 use std::thread;
+use crate::drivers::vmm::appengine::dispatch_packet;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::Result;
-use crossbeam_channel::{unbounded, Receiver, Sender};
 use serde_json::{json, Value};
 
 use crate::abstractions::adapters::file::IFile;
@@ -28,10 +28,6 @@ use crate::shell::api::updates::stores as updates_stores;
 
 /// Default appengine REP socket exposed *by* the node (the engine connects
 /// to this with a REQ socket).
-const HOST_BIND_ADDR: &str = "tcp://*:5555";
-/// Default appengine REQ socket exposed *by* the engine (the node connects
-/// to this to push runVm / terminateVm / buildVmImage etc.).
-const APP_ENGINE_ADDR: &str = "tcp://localhost:5556";
 
 /// The virtual-machine driver.
 pub struct Vmm {
@@ -39,8 +35,7 @@ pub struct Vmm {
     pub(super) storage_root: String,
     pub(super) storage: Arc<dyn IStorage>,
     pub(super) file: Arc<dyn IFile>,
-    pub(super) ae_socket_tx: Sender<String>,
-    ae_socket_rx: Mutex<Option<Receiver<String>>>,
+
 }
 
 impl Vmm {
@@ -53,94 +48,18 @@ impl Vmm {
         file: Arc<dyn IFile>,
     ) -> Arc<Vmm> {
         let _ = fs::create_dir_all(kv_db_path);
-        let (tx, rx) = unbounded::<String>();
         let vmm = Arc::new(Vmm {
             app,
             storage_root: storage_root.to_string(),
             storage,
             file,
-            ae_socket_tx: tx,
-            ae_socket_rx: Mutex::new(Some(rx)),
+
         });
-        let vmm_for_loop = vmm.clone();
-        thread::spawn(move || vmm_for_loop.start_zmq_loop());
         vmm
     }
 
-    fn start_zmq_loop(self: Arc<Self>) {
-        let ctx = match zmq::Context::new() {
-            ctx => ctx,
-        };
-        let rep_socket = match ctx.socket(zmq::REP) {
-            Ok(s) => s,
-            Err(e) => {
-                eprintln!("vmm: cannot open REP socket: {}", e);
-                return;
-            }
-        };
-        if let Err(e) = rep_socket.bind(HOST_BIND_ADDR) {
-            eprintln!("vmm: REP bind: {}", e);
-            return;
-        }
-
-        let req_socket = match ctx.socket(zmq::REQ) {
-            Ok(s) => s,
-            Err(e) => {
-                eprintln!("vmm: cannot open REQ socket: {}", e);
-                return;
-            }
-        };
-        println!("Connecting to the app engine server...");
-        if let Err(e) = req_socket.connect(APP_ENGINE_ADDR) {
-            eprintln!("vmm: REQ connect: {}", e);
-            return;
-        }
-
-        // REQ writer thread: drain the outbound channel into the engine.
-        let req_rx = self
-            .ae_socket_rx
-            .lock()
-            .unwrap()
-            .take()
-            .expect("ae_socket_rx already taken");
-        thread::spawn(move || loop {
-            let msg = match req_rx.recv() {
-                Ok(m) => m,
-                Err(_) => return,
-            };
-            if let Err(e) = req_socket.send(&msg, 0) {
-                eprintln!("vmm: REQ send: {}", e);
-                continue;
-            }
-            let _ = req_socket.recv_bytes(0);
-        });
-
-        // REP loop: pull host calls off the engine, dispatch, ack.
-        loop {
-            let msg = match rep_socket.recv_string(0) {
-                Ok(Ok(s)) => s,
-                Ok(Err(_)) => continue,
-                Err(_) => return,
-            };
-            let trans = self.clone();
-            thread::spawn(move || {
-                let (res, req_id) = trans.vm_callback(&msg);
-                let result = json!({
-                    "type": "apiResponse",
-                    "requestId": req_id,
-                    "data": res,
-                });
-                let _ = trans
-                    .ae_socket_tx
-                    .send(serde_json::to_string(&result).unwrap_or_default());
-            });
-            let _ = rep_socket.send("", 0);
-        }
-    }
-
     pub(super) fn send_to_engine(&self, value: Value) {
-        let s = serde_json::to_string(&value).unwrap_or_default();
-        let _ = self.ae_socket_tx.send(s);
+        let _ = dispatch_packet(&value);
     }
 
     /// `RunVm(machineId, storeId, data)`.
@@ -257,7 +176,6 @@ impl IVmm for Vmm {
         let trans = Arc::new(VmmListenerCtx {
             app: self.app.clone(),
             storage_root: self.storage_root.clone(),
-            ae_socket_tx: self.ae_socket_tx.clone(),
         });
         let machine_id_owned = machine_id.to_string();
         let listener = Arc::new(Listener {
@@ -282,9 +200,7 @@ impl IVmm for Vmm {
                     "astPath": ast_path,
                     "vmType": vm_type,
                 });
-                let _ = trans.ae_socket_tx.send(
-                    serde_json::to_string(&payload).unwrap_or_default(),
-                );
+                let _ = dispatch_packet(&payload);
             }),
         });
         self.app.tools().signaler().listen_to_single(listener);
@@ -299,7 +215,6 @@ impl IVmm for Vmm {
             app: self.app.clone(),
             storage_root: self.storage_root.clone(),
             storage: self.storage.clone(),
-            ae_socket_tx: self.ae_socket_tx.clone(),
         });
         trans.run_vm(machine_id, store_id, data);
     }
@@ -353,7 +268,6 @@ struct VmmShim {
     app: Arc<dyn ICore>,
     storage_root: String,
     storage: Arc<dyn IStorage>,
-    ae_socket_tx: Sender<String>,
 }
 
 impl VmmShim {
@@ -408,9 +322,7 @@ impl VmmShim {
             "astPath": ast_path,
             "vmType": vm_type,
         });
-        let _ = self.ae_socket_tx.send(
-            serde_json::to_string(&payload).unwrap_or_default(),
-        );
+        let _ = dispatch_packet(&payload);
         let _ = &self.storage_root;
     }
 }
@@ -420,7 +332,6 @@ impl VmmShim {
 struct VmmListenerCtx {
     app: Arc<dyn ICore>,
     storage_root: String,
-    ae_socket_tx: Sender<String>,
 }
 
 impl VmmListenerCtx {

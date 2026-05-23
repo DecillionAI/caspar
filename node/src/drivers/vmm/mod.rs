@@ -10,6 +10,7 @@
 pub mod hostcall_entities;
 pub mod hostcall_global;
 pub mod hostcall_logs;
+pub mod appengine;
 pub mod vmm;
 
 pub use vmm::Vmm;
