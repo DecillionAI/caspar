@@ -1,19 +1,25 @@
-//! Thin compatibility layer that exposes appengine bootstrap APIs from
-//! the parent `vmm` module. This mirrors the historical Go layout where
-//! appengine bootstrap is triggered from the core runtime `run` stage.
+//! Embedded bootstrap helpers for the VMM runtime.
 
-use std::sync::Once;
-use std::thread;
+use crate::drivers::vmm::host::vm_host_functions::{with_docker_controller, with_fire_controller};
+use crate::drivers::vmm::prelude::*;
 
-pub use crate::drivers::vmm::appengine::bootstrap::restore_previously_running_vms;
+/// Start bootstrap services for the in-process VMM runtime.
+///
+/// The legacy request/response ZMQ bridge is removed in monolithic mode,
+/// so startup is a no-op.
+pub fn run() {}
 
-static APPENGINE_BOOTSTRAP: Once = Once::new();
-
-/// Start embedded appengine bridge loops once per process.
-pub fn run() {
-    APPENGINE_BOOTSTRAP.call_once(|| {
-        thread::spawn(|| {
-            crate::drivers::vmm::appengine::bootstrap::run();
-        });
-    });
+pub fn restore_previously_running_vms(snapshot: &JsonValue) -> Result<JsonValue, String> {
+    let runtimes = snapshot["vms"].as_array().cloned().unwrap_or_default();
+    let mut restored = 0;
+    for vm in runtimes {
+        let runtime = vm["runtime"].as_str().unwrap_or("wasm");
+        if runtime == "docker" {
+            let _ = with_docker_controller(|controller| controller.run_vm(&vm));
+        } else if runtime == "fire" {
+            let _ = with_fire_controller(|controller| controller.run_vm(&vm));
+        }
+        restored += 1;
+    }
+    Ok(json!({"ok": true, "restored": restored}))
 }

@@ -1,17 +1,27 @@
 //! Translation of `drivers/vmm` — the virtual-machine driver.
 //!
-//! The driver speaks to the Caspar app-engine (a separate process) over two
-//! ZeroMQ sockets: a REP socket (`tcp://*:5555`) for host calls coming from
-//! the engine, and a REQ socket (`tcp://localhost:5556`) for VM control
-//! commands going *to* the engine. Inbound host calls are decoded as JSON,
-//! dispatched through [`Vmm::vm_callback`], and the result is queued back
-//! onto the outbound REQ channel as an `apiResponse`.
+//! Monolithic in-process VM driver.
+//!
+//! VM control and host calls are routed as in-memory JSON packets through
+//! [`dispatch_packet`] and handled by the bridge packet router.
 
-pub mod appengine;
+mod prelude;
 pub mod bootstrap;
+pub mod bridge;
+pub mod controllers;
+pub mod globals;
+pub mod host;
 pub mod hostcall_entities;
 pub mod hostcall_global;
 pub mod hostcall_logs;
+pub mod models;
+pub mod network;
 pub mod vmm;
 
+use serde_json::Value as JsonValue;
+
 pub use vmm::Vmm;
+
+pub fn dispatch_packet(packet: &JsonValue) -> String {
+    bridge::vm_packet_router::route_vm_packet(packet)
+}
