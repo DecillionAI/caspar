@@ -7,18 +7,18 @@
 //! [`hostcall_logs`](super::hostcall_logs); the dispatcher lives in
 //! [`hostcall_global`](super::hostcall_global).
 
+use crate::drivers::vmm::appengine::dispatch_packet;
 use std::fs;
 use std::sync::{Arc, Mutex};
 use std::thread;
-use crate::drivers::vmm::appengine::dispatch_packet;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::Result;
 use serde_json::{json, Value};
 
 use crate::abstractions::adapters::file::IFile;
-use crate::abstractions::adapters::storage::IStorage;
 use crate::abstractions::adapters::signaler::Listener;
+use crate::abstractions::adapters::storage::IStorage;
 use crate::abstractions::adapters::vmm::IVmm;
 use crate::abstractions::models::core::ICore;
 use crate::abstractions::models::trx::ITrx;
@@ -35,7 +35,6 @@ pub struct Vmm {
     pub(super) storage_root: String,
     pub(super) storage: Arc<dyn IStorage>,
     pub(super) file: Arc<dyn IFile>,
-
 }
 
 impl Vmm {
@@ -53,7 +52,6 @@ impl Vmm {
             storage_root: storage_root.to_string(),
             storage,
             file,
-
         });
         vmm
     }
@@ -126,7 +124,11 @@ impl Vmm {
         machine_id: &str,
         entity_id: &str,
     ) -> (String, String) {
-        let default_path = format!("{}/machines/{}/module", self.storage.storage_root(), machine_id);
+        let default_path = format!(
+            "{}/machines/{}/module",
+            self.storage.storage_root(),
+            machine_id
+        );
         let path_slot = Arc::new(Mutex::new(default_path));
         let type_slot = Arc::new(Mutex::new("wasm".to_string()));
         let path_clone = path_slot.clone();
@@ -148,13 +150,17 @@ impl Vmm {
                     *type_clone.lock().unwrap() = vm.runtime.trim().to_lowercase();
                 }
                 if !entity_id_owned.is_empty() {
-                    let runtime_link =
-                        trx.get_link(&format!("vmEntityType::{}::{}", machine_id_owned, entity_id_owned));
+                    let runtime_link = trx.get_link(&format!(
+                        "vmEntityType::{}::{}",
+                        machine_id_owned, entity_id_owned
+                    ));
                     if !runtime_link.is_empty() {
                         *type_clone.lock().unwrap() = runtime_link.trim().to_lowercase();
                     }
-                    let path_link =
-                        trx.get_link(&format!("vmEntityPath::{}::{}", machine_id_owned, entity_id_owned));
+                    let path_link = trx.get_link(&format!(
+                        "vmEntityPath::{}::{}",
+                        machine_id_owned, entity_id_owned
+                    ));
                     if !path_link.is_empty() {
                         *path_clone.lock().unwrap() = path_link;
                     }
@@ -301,12 +307,8 @@ impl VmmShim {
             return;
         }
         let store = store_slot.lock().unwrap().clone();
-        let (ast_path, vm_type) = resolve_vm_execution_target(
-            &self.app,
-            &self.storage,
-            machine_id,
-            "",
-        );
+        let (ast_path, vm_type) =
+            resolve_vm_execution_target(&self.app, &self.storage, machine_id, "");
         let send_payload = updates_stores::Send {
             user: User::default(),
             store,
@@ -378,13 +380,17 @@ fn resolve_vm_execution_target_inner(
                 *type_clone.lock().unwrap() = vm.runtime.trim().to_lowercase();
             }
             if !entity_id_owned.is_empty() {
-                let runtime_link =
-                    trx.get_link(&format!("vmEntityType::{}::{}", machine_id_owned, entity_id_owned));
+                let runtime_link = trx.get_link(&format!(
+                    "vmEntityType::{}::{}",
+                    machine_id_owned, entity_id_owned
+                ));
                 if !runtime_link.is_empty() {
                     *type_clone.lock().unwrap() = runtime_link.trim().to_lowercase();
                 }
-                let path_link =
-                    trx.get_link(&format!("vmEntityPath::{}::{}", machine_id_owned, entity_id_owned));
+                let path_link = trx.get_link(&format!(
+                    "vmEntityPath::{}::{}",
+                    machine_id_owned, entity_id_owned
+                ));
                 if !path_link.is_empty() {
                     *path_clone.lock().unwrap() = path_link;
                 }
@@ -400,7 +406,10 @@ fn resolve_vm_execution_target_inner(
 /// `isManagedRuntime` — runtimes whose VMs run inside the appengine.
 pub(super) fn is_managed_runtime(runtime: &str) -> bool {
     let r = runtime.trim().to_lowercase();
-    matches!(r.as_str(), "wasm" | "javascript" | "elpify" | "elpian" | "fire")
+    matches!(
+        r.as_str(),
+        "wasm" | "javascript" | "elpify" | "elpian" | "fire"
+    )
 }
 
 /// `normalizeRuntime` — Go's `strings.ToLower(TrimSpace(.))`.
