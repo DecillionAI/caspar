@@ -7,7 +7,7 @@
 //! [`hostcall_logs`](super::hostcall_logs); the dispatcher lives in
 //! [`hostcall_global`](super::hostcall_global).
 
-use crate::drivers::vmm::appengine::dispatch_packet;
+use crate::drivers::vmm::dispatch_packet;
 use std::fs;
 use std::sync::{Arc, Mutex};
 use std::thread;
