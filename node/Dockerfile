@@ -25,46 +25,34 @@ ENV C_INCLUDE_PATH="/root/.wasmedge/include:$C_INCLUDE_PATH"
 ENV CPLUS_INCLUDE_PATH="/root/.wasmedge/include:$CPLUS_INCLUDE_PATH"
 ENV WASMEDGE_LIB_DIR="/root/.wasmedge/lib"
 
-RUN apt install -y libgflags-dev libsnappy-dev libbz2-dev liblz4-dev libnuma-dev
-RUN wget https://github.com/facebook/rocksdb/archive/refs/tags/v10.0.1.tar.gz
-RUN tar -xvf v10.0.1.tar.gz && mv rocksdb-10.0.1 rocksdb
-RUN cd rocksdb && mkdir build
-WORKDIR /app/rocksdb/build
-RUN cmake .. -DCMAKE_POSITION_INDEPENDENT_CODE=ON -DWITH_SNAPPY=ON -DWITH_ZSTD=ON -DWITH_LZ4=ON -DWITH_BZ2=ON -DWITH_STATIC=ON
-WORKDIR /app/rocksdb
-RUN make install
+RUN apt install -y libgflags-dev libsnappy-dev libbz2-dev liblz4-dev libnuma-dev libzmq3-dev
 
-WORKDIR /app
-
-RUN apt install -y golang
-ENV GOPROXY=https://goproxy.io,direct
-ENV DOCKER_API_VERSION=1.39
-
-RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
 ENV PATH="/root/.cargo/bin:$PATH"
 
-RUN apt install -y libzmq3-dev
-RUN pkg-config --modversion libzmq
+COPY . /app
 
-COPY . .
+RUN mkdir -p /app/storage
 
-RUN mkdir /app/storage
-
-RUN bash scripts/install-fcvmm.sh
+RUN bash node/scripts/install-fcvmm.sh
 
 RUN apt install -y openjdk-17-jdk openjdk-17-jre
 ENV JAVA_HOME="/usr/lib/jvm/java-17-openjdk-arm64"
 ENV PATH=$JAVA_HOME/bin:$PATH
 
-RUN bash scripts/install-questdb.sh
+RUN bash node/scripts/install-questdb.sh
 ENV PKG_CONFIG_PATH="$PKG_CONFIG_PATH:/usr/local/lib/pkgconfig"
 
-WORKDIR /app/appengine
+# Build the Rust appengine that the vmm driver bridges to over ZMQ.
+WORKDIR /app/node/crates/appengine
+RUN cargo build --release
 
-RUN cargo build
-
+# Build the node binary, the keygen helper, and the casparctl CLI.
 WORKDIR /app
+RUN cargo build --release --manifest-path node/Cargo.toml
+RUN cargo build --release --manifest-path cmd/casparctl/Cargo.toml
+RUN cp node/target/release/caspar-node    /app/kasper
+RUN cp node/target/release/caspar-keygen  /app/caspar-keygen
+RUN cp cmd/casparctl/target/release/casparctl /app/casparctl
 
-RUN CGO_ENABLED=1 go build -o kasper .
-
-ENTRYPOINT ["bash", "/app/scripts/run.sh"]
+ENTRYPOINT ["bash", "/app/node/scripts/run.sh"]
