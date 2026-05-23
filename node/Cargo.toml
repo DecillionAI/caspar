@@ -15,7 +15,15 @@ path = "src/bin/keygen.rs"
 [workspace]
 resolver = "2"
 members = ["."]
-exclude = ["crates/appengine"]
+
+
+[workspace.dependencies]
+async-wasi = { path = "crates/async-wasi", version = "0.2.0" }
+cfg-if = "1.0.0"
+parking_lot = "0.12.1"
+wasmedge-macro = { path = "crates/wasmedge-macro", version = "0.6" }
+wasmedge-types = { path = "crates/wasmedge-types", version = "0.6" }
+wat = "1.0"
 
 [dependencies]
 anyhow = "1.0.102"
@@ -45,7 +53,6 @@ tar = "0.4.46"
 thiserror = "2.0.18"
 tungstenite = { version = "0.24", default-features = false, features = ["handshake"] }
 uuid = { version = "1.23.1", features = ["v4"] }
-zmq = "0.10"
 
 [profile.release]
 opt-level = 3
