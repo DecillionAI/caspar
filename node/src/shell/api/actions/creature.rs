@@ -15,6 +15,7 @@ use base64::Engine;
 use chrono::Utc;
 use serde_json::{json, Map, Value};
 
+use crate::abstractions::models::action::action::ExtendedField;
 use crate::abstractions::models::action::action::ISecureAction;
 use crate::abstractions::models::core::ICore;
 use crate::abstractions::models::input::IInput;
@@ -27,9 +28,9 @@ use crate::shell::api::inputs::creatures::{
     CreateInput as CreatureCreateInput, SignalInput as CreatureSignalInput,
 };
 use crate::shell::api::inputs::users::{
-    AuthenticateInput, CheckSignInput, ConsumeLockInput, DeleteInput, FindInput, GetByUsernameInput,
-    GetInput, ListInput, LockTokenInput, LoginInput, MetaInput, MintInput, TransferInput,
-    UpdateInput,
+    AuthenticateInput, CheckSignInput, ConsumeLockInput, DeleteInput, FindInput,
+    GetByUsernameInput, GetInput, ListInput, LockTokenInput, LoginInput, MetaInput, MintInput,
+    TransferInput, UpdateInput,
 };
 use crate::shell::api::model::{Creature, Machine, Session, Store, User};
 use crate::shell::api::outputs::users::{AuthenticateOutput, GetOutput, LoginOutput};
@@ -262,8 +263,11 @@ fn signal(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
                 if store_id.is_empty() {
                     return Err(anyhow!("storeId is required for broadcast"));
                 }
-                if trx.get_link(&format!("onaccess::{}::{}", store_id, state.info().user_id()))
-                    != "true"
+                if trx.get_link(&format!(
+                    "onaccess::{}::{}",
+                    store_id,
+                    state.info().user_id()
+                )) != "true"
                 {
                     return Err(anyhow!("access denied"));
                 }
@@ -693,7 +697,10 @@ fn login(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
             if email.is_empty() || !email.contains('@') {
                 email = format!("{}@dev.local", input.username);
             }
-            log::info!("[DEV] firebase disabled; accepting login for email: {}", email);
+            log::info!(
+                "[DEV] firebase disabled; accepting login for email: {}",
+                email
+            );
 
             let trx = state.trx();
             let user_id = trx.get_link(&format!("UserEmailToId::{}", email));
@@ -800,10 +807,7 @@ fn delete(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
             )
             .unwrap_or_default();
             for store in &store_list {
-                trx.del_key(&format!(
-                    "link::onaccess::{}::{}",
-                    store.id, input.user_id
-                ));
+                trx.del_key(&format!("link::onaccess::{}::{}", store.id, input.user_id));
             }
             let created_store_list = Store::list(
                 &*trx,
@@ -858,10 +862,7 @@ fn update(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
                     if trx.has_index("User", "username", "id", &next_username) {
                         return Err(anyhow!("username already exists"));
                     }
-                    trx.del_key(&format!(
-                        "index::User::username::id::{}",
-                        user.username
-                    ));
+                    trx.del_key(&format!("index::User::username::id::{}", user.username));
                     user.username = next_username;
                 }
             }
@@ -906,7 +907,28 @@ fn meta(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
     )
 }
 
-fn get_by_username(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
+fn apply_extender_fields(
+    trx: &dyn crate::abstractions::models::trx::ITrx,
+    user_id: &str,
+    mut user_map: HashMap<String, Value>,
+    extender: &HashMap<String, ExtendedField>,
+) -> HashMap<String, Value> {
+    for (key, field) in extender {
+        let value = trx
+            .get_json(
+                &format!("UserMeta::{}", user_id),
+                &format!("{}.{}", field.path, key),
+            )
+            .unwrap_or_else(|_| field.default.clone());
+        user_map.insert(key.clone(), value);
+    }
+    user_map
+}
+
+fn get_by_username(
+    app: Arc<dyn ICore>,
+    user_extender: HashMap<String, ExtendedField>,
+) -> Arc<dyn ISecureAction> {
     build_secure_action::<GetByUsernameInput, _>(
         app,
         "/creatures/getByUsername",
@@ -923,32 +945,25 @@ fn get_by_username(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
             }
             .pull(&*trx);
             let m = object_to_map(&result).unwrap_or_default();
-            // NOTE: Go ran the registered `modelExtender["user"]` getters here
-            // to inject dynamic fields. The Rust shell does not yet thread
-            // ExtendedField through the per-action handlers, so we mirror the
-            // baseline object only — extender support is a follow-up.
             let user_map: HashMap<String, Value> = m.into_iter().collect();
+            let user_map = apply_extender_fields(&*trx, &result.id, user_map, &user_extender);
             Ok(serde_json::to_value(GetOutput { user: user_map })?)
         },
     )
 }
 
-fn find(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
+fn find(
+    app: Arc<dyn ICore>,
+    user_extender: HashMap<String, ExtendedField>,
+) -> Arc<dyn ISecureAction> {
     build_secure_action::<FindInput, _>(
         app,
         "/creatures/find",
         user_guard(),
         move |state: Arc<dyn IState>, input: FindInput| -> Result<Value> {
             let trx = state.trx();
-            let users = User::search(
-                &*trx,
-                0,
-                1,
-                "username",
-                &input.username,
-                &HashMap::new(),
-            )
-            .unwrap_or_default();
+            let users = User::search(&*trx, 0, 1, "username", &input.username, &HashMap::new())
+                .unwrap_or_default();
             if users.is_empty() {
                 return Err(anyhow!("user not found"));
             }
@@ -961,7 +976,11 @@ fn find(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
 }
 
 /// Install every creature action onto the actor.
-pub fn install(app: Arc<dyn ICore>) {
+pub fn install(
+    app: Arc<dyn ICore>,
+    model_extender: HashMap<String, HashMap<String, ExtendedField>>,
+) {
+    let user_extender = model_extender.get("user").cloned().unwrap_or_default();
     let actor = app.actor();
     let handlers: Vec<Arc<dyn ISecureAction>> = vec![
         create(app.clone()),
@@ -978,8 +997,8 @@ pub fn install(app: Arc<dyn ICore>) {
         delete(app.clone()),
         update(app.clone()),
         meta(app.clone()),
-        get_by_username(app.clone()),
-        find(app.clone()),
+        get_by_username(app.clone(), user_extender.clone()),
+        find(app.clone(), user_extender.clone()),
     ];
     for h in handlers {
         actor.inject_secure_action(h);

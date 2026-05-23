@@ -5,14 +5,11 @@
 //!
 //! * **Per-minute billing background loop.** Go's `Install` spawned a
 //!   15-second ticker calling `chargeRunningStandaloneVmsIfNeeded`, which
-//!   advances locked-token billing for every running standalone VM. The
-//!   helper is preserved (`charge_running_standalone_vms_if_needed`) and is
-//!   safe to invoke inline, but the timer scheduler is left as a `TODO` — it
-//!   needs a proper async runtime + cancellation hook on shutdown.
-//! * **Chain re-entry for `consumeLock`.** The Go helper synchronously called
-//!   `Globe.SendBaseRequestOnChain("/creatures/consumeLock", ...)` from the
-//!   ticker. Without the ticker we don't currently issue the re-entry; the
-//!   inline path on the next `runEntity` keeps the lock honest.
+//!   advances locked-token billing for every running standalone VM. The Rust
+//!   port mirrors that ticker using a background thread.
+//! * **Chain re-entry for `consumeLock`.** The billing helper now synchronously
+//!   calls `Globe.SendBaseRequestOnChain("/creatures/consumeLock", ...)` and
+//!   updates VM billing state on success.
 //! * The Go module also boots the existing programs (calling `Vmm.Assign` and
 //!   replaying any pending `vmAlarm*` links). The Rust `install` mirrors the
 //!   one-shot scan; the timed alarm replay is preserved.
@@ -237,8 +234,7 @@ pub(crate) fn charge_running_standalone_vms_if_needed(app: &Arc<dyn ICore>, lock
                 if vm_id.is_empty() || tx.get_link(&format!("VmStatus::{}", vm_id)) != "running" {
                     continue;
                 }
-                let billing = match tx.get_json(&format!("Json::VmBilling::{}", vm_id), "payment")
-                {
+                let billing = match tx.get_json(&format!("Json::VmBilling::{}", vm_id), "payment") {
                     Ok(b) => b,
                     Err(_) => continue,
                 };
@@ -256,10 +252,7 @@ pub(crate) fn charge_running_standalone_vms_if_needed(app: &Arc<dyn ICore>, lock
                     .and_then(|v| v.as_str())
                     .unwrap_or("")
                     .to_string();
-                let per_minute_cost = billing
-                    .get("perMinuteCost")
-                    .and_then(as_i64)
-                    .unwrap_or(0);
+                let per_minute_cost = billing.get("perMinuteCost").and_then(as_i64).unwrap_or(0);
                 let last_charge_minute = billing
                     .get("lastChargeMinute")
                     .and_then(as_i64)
@@ -369,11 +362,70 @@ pub(crate) fn charge_running_standalone_vms_if_needed(app: &Arc<dyn ICore>, lock
             );
             continue;
         }
-        // The Go version submits a `/creatures/consumeLock` chain request
-        // here. Without an async runtime we elide the synchronous
-        // SendBaseRequestOnChain call (which would deadlock the chain). On a
-        // future inline `runEntity` call the user still validates step
-        // signatures against the locked tokens, so funds aren't free.
+        let payload = json!({
+            "type": "pay",
+            "userId": target.get("payerUserId").and_then(|v| v.as_str()).unwrap_or(""),
+            "lockId": target.get("lockId").and_then(|v| v.as_str()).unwrap_or(""),
+            "signature": target.get("signature").and_then(|v| v.as_str()).unwrap_or(""),
+            "amount": target.get("amount").and_then(as_i64).unwrap_or(0),
+            "step": target.get("step").and_then(as_i64).unwrap_or(-1),
+        });
+        let payload_bytes = serde_json::to_vec(&payload).unwrap_or_default();
+        let sig = app.sign_packet_as_owner(&payload_bytes);
+        let (tx, rx) = std::sync::mpsc::channel::<bool>();
+        let owner = app.owner_id();
+        app.globe().send_base_request_on_chain(
+            "/creatures/consumeLock",
+            payload_bytes,
+            &sig,
+            &owner,
+            "",
+            Box::new(move |_data, status, err| {
+                let ok = err.is_none() && status < 400;
+                let _ = tx.send(ok);
+            }),
+        );
+        let consumed = rx
+            .recv_timeout(std::time::Duration::from_secs(30))
+            .unwrap_or(false);
+        let vm_id = target
+            .get("vmId")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let machine_id = target
+            .get("machineId")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let entity_id = target
+            .get("entityId")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        if consumed {
+            let vm_for_closure = vm_id.clone();
+            app.modify_state(
+                false,
+                Box::new(move |tx: &dyn ITrx| {
+                    let mut billing = tx
+                        .get_json(&format!("Json::VmBilling::{}", vm_for_closure), "payment")
+                        .unwrap_or_default();
+                    let current_step = billing.get("currentStep").and_then(as_i64).unwrap_or(0);
+                    billing.insert("currentStep".into(), json!(current_step + 1));
+                    billing.insert("lastChargeMinute".into(), json!(current_minute));
+                    tx.put_json(
+                        &format!("Json::VmBilling::{}", vm_for_closure),
+                        "payment",
+                        &Value::Object(billing),
+                        true,
+                    )?;
+                    Ok(())
+                }),
+            );
+        } else {
+            terminate_standalone_vm(app, &machine_id, &entity_id, &vm_id);
+        }
     }
     *guard = current_minute;
 }
@@ -511,8 +563,13 @@ fn update_program(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
             program.path = input.path.clone();
             program.push(&*trx);
             if !input.metadata.is_empty() {
-                let meta_value =
-                    Value::Object(input.metadata.iter().map(|(k, v)| (k.clone(), v.clone())).collect());
+                let meta_value = Value::Object(
+                    input
+                        .metadata
+                        .iter()
+                        .map(|(k, v)| (k.clone(), v.clone()))
+                        .collect(),
+                );
                 trx.put_json(
                     &format!("ProgMeta::{}", program.machine_id),
                     "metadata",
@@ -612,7 +669,8 @@ fn run_program_entity(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
                 let entity_id = input.entity_id.clone();
                 let vm_id_async = vm_id.clone();
                 let resources_async = resources.clone();
-                let image_ref = format!("{}/{}", input.machine_id.replace('@', "_"), entity_image_id);
+                let image_ref =
+                    format!("{}/{}", input.machine_id.replace('@', "_"), entity_image_id);
                 let params_async = params.clone();
                 let _ = async_once(move || {
                     let msg = json!({
@@ -878,9 +936,10 @@ fn read_machine_builds(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
         user_guard(),
         move |state: Arc<dyn IState>, input: MachineBuildsInput| -> Result<Value> {
             let prefix = format!("VmBuilds::{}::", input.machine_id);
-            let builds = state
-                .trx()
-                .get_links_list(&prefix, input.offset, input.count, &[false])?;
+            let builds =
+                state
+                    .trx()
+                    .get_links_list(&prefix, input.offset, input.count, &[false])?;
             Ok(json!({"buildsList": builds}))
         },
     )
@@ -1151,14 +1210,15 @@ fn install_program_bootstrap(app: Arc<dyn ICore>) {
                         let app_async = app_for_closure.clone();
                         let machine_id = program.machine_id.clone();
                         let store_id_clone = store_id.clone();
-                        let alarm_time_raw =
-                            trx.get_link(&format!("vmAlarmTime::{}", machine_id));
+                        let alarm_time_raw = trx.get_link(&format!("vmAlarmTime::{}", machine_id));
                         let alarm_data = trx.get_link(&format!("vmAlarmData::{}", machine_id));
                         let _ = async_once(move || {
                             let t = alarm_time_raw.parse::<i64>().unwrap_or(0);
                             let ct = chrono::Utc::now().timestamp_millis();
                             if t > ct {
-                                std::thread::sleep(std::time::Duration::from_millis((t - ct) as u64));
+                                std::thread::sleep(std::time::Duration::from_millis(
+                                    (t - ct) as u64,
+                                ));
                             }
                             // Note: the original Go path cleared the alarm
                             // links inside a state-modifying closure; here we
@@ -1169,10 +1229,11 @@ fn install_program_bootstrap(app: Arc<dyn ICore>) {
                                 .security()
                                 .has_access_to_store(&machine_id, &store_id_clone)
                             {
-                                app_async
-                                    .tools()
-                                    .vmm()
-                                    .run_vm(&machine_id, &store_id_clone, &alarm_data);
+                                app_async.tools().vmm().run_vm(
+                                    &machine_id,
+                                    &store_id_clone,
+                                    &alarm_data,
+                                );
                             }
                         });
                     }
@@ -1216,5 +1277,11 @@ pub fn install(app: Arc<dyn ICore>) {
     for h in handlers {
         actor.inject_secure_action(h);
     }
-    install_program_bootstrap(app);
+    install_program_bootstrap(app.clone());
+    let billing_lock = Arc::new(Mutex::new(-1i64));
+    let app_bg = app.clone();
+    std::thread::spawn(move || loop {
+        charge_running_standalone_vms_if_needed(&app_bg, &billing_lock);
+        std::thread::sleep(std::time::Duration::from_secs(15));
+    });
 }
