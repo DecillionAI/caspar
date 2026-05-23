@@ -10,6 +10,7 @@ pub struct GetServerKeyInput {}
 impl IInput for GetServerKeyInput {
     fn get_store_id(&self) -> String { String::new() }
     fn origin(&self) -> String { String::new() }
+    fn as_any(&self) -> &dyn std::any::Any { self }
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -18,4 +19,5 @@ pub struct GetServersMapInput {}
 impl IInput for GetServersMapInput {
     fn get_store_id(&self) -> String { String::new() }
     fn origin(&self) -> String { String::new() }
+    fn as_any(&self) -> &dyn std::any::Any { self }
 }

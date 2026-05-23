@@ -29,6 +29,9 @@ impl IInput for SignalInput {
     fn origin(&self) -> String {
         String::new()
     }
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

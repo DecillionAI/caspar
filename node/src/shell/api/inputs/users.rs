@@ -12,6 +12,7 @@ macro_rules! input_impls {
             impl IInput for $t {
                 fn get_store_id(&self) -> String { String::new() }
                 fn origin(&self) -> String { $origin.to_string() }
+                fn as_any(&self) -> &dyn std::any::Any { self }
             }
         )*
     };
@@ -29,6 +30,10 @@ pub struct ConsumeLockInput {
     pub signature: String,
     #[serde(default)]
     pub amount: i64,
+    /// Optional step index inside a multi-step lock. Matches Go's `*int`
+    /// (`nil` = auto-pick the next consumable step).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub step: Option<i64>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

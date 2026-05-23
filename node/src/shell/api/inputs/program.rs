@@ -14,6 +14,7 @@ macro_rules! input_impls {
             impl IInput for $t {
                 fn get_store_id(&self) -> String { String::new() }
                 fn origin(&self) -> String { $origin.to_string() }
+                fn as_any(&self) -> &dyn std::any::Any { self }
             }
         )*
     };

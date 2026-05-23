@@ -285,6 +285,7 @@ impl Core {
             lock_id: pay.lock_id.clone(),
             signature: pay.lock_signature.clone(),
             amount: pay.amount,
+            step: None,
         };
         let inp = serde_json::to_vec(&input).unwrap_or_default();
         let sign = self.sign_packet_as_owner(&inp);

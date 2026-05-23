@@ -27,6 +27,7 @@ pub struct CreateInput {
 impl IInput for CreateInput {
     fn get_store_id(&self) -> String { String::new() }
     fn origin(&self) -> String { "global".to_string() }
+    fn as_any(&self) -> &dyn std::any::Any { self }
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -50,4 +51,5 @@ pub struct SignalInput {
 impl IInput for SignalInput {
     fn get_store_id(&self) -> String { self.store_id.clone() }
     fn origin(&self) -> String { String::new() }
+    fn as_any(&self) -> &dyn std::any::Any { self }
 }
