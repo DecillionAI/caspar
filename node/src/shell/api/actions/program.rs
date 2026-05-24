@@ -23,11 +23,11 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 use uuid::Uuid;
 
-use crate::abstractions::models::action::action::ISecureAction;
+use crate::abstractions::models::action::ISecureAction;
 use crate::abstractions::models::core::ICore;
 use crate::abstractions::models::trx::ITrx;
 use crate::abstractions::state::IState;
-use crate::core::module::actor::model::secured::guard::Guard;
+use crate::core::actor::model::secured::guard::Guard;
 use crate::shell::api::inputs::program::{
     CreateMachineInput, DeleteProgramInput, DeployInput, ListAppMachsInput, ListInput,
     MachineBuildsInput, ReadVmLogsInput, RunProgramEntityInput, UpdateProgramInput,

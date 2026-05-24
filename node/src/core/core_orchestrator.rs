@@ -1,0 +1,1113 @@
+//! Translation of `core/module/core/core.go` — the `Core` orchestrator.
+//!
+//! `Core` is the `ICore` implementation, the central object that gives every
+//! action / driver access to the rest of the system. It owns the `ITools`
+//! bundle (storage, security, signaler, network, file, vmm), the `IActor`
+//! registry, the `IGlobe` validator-set coordinator, and the chain dispatch
+//! channel.
+//!
+//! The chain dispatch goroutine, the election ticker, and the chain-packet
+//! callbacks all stay as background threads spawned by `Load`.
+
+use std::collections::HashMap;
+use std::env;
+use std::sync::{Arc, Mutex};
+use std::thread;
+use std::time::{Duration, SystemTime};
+
+use anyhow::Result;
+use base64::{engine::general_purpose::STANDARD as B64, Engine};
+use rsa::pkcs1v15::SigningKey as Pkcs1v15SigningKey;
+use rsa::pkcs8::DecodePrivateKey;
+use rsa::pss::SigningKey as PssSigningKey;
+use rsa::rand_core::OsRng;
+use rsa::sha2::Sha256;
+use rsa::signature::{RandomizedSigner, SignatureEncoding};
+use rsa::RsaPrivateKey;
+use serde_json::{json, Value};
+
+use crate::abstractions::ports::file::IFile;
+use crate::abstractions::ports::network::INetwork;
+use crate::abstractions::ports::security::ISecurity;
+use crate::abstractions::ports::signaler::ISignaler;
+use crate::abstractions::ports::storage::IStorage;
+use crate::abstractions::ports::tools::ITools;
+use crate::abstractions::ports::vmm::IVmm;
+use crate::abstractions::models::action::TrxClosure;
+use crate::abstractions::models::action::actor::IActor;
+use crate::abstractions::models::chain::{
+    ChainBaseRequest, ChainCallback, ChainElectionPacket, ChainMessage, ChainPayPacket,
+    ChainResponse, ChainStakePacket, MessageCallback,
+};
+use crate::abstractions::models::core::{ICore, StateClosure};
+use crate::abstractions::models::globe::IGlobe;
+use crate::abstractions::models::info::IInfo;
+use crate::abstractions::models::trx::ITrx;
+use crate::abstractions::models::worker::Trx as WorkerTrx;
+use crate::core::actor::{Actor, Info as BaseInfo, State as ActorState};
+use crate::core::actor::model::trx::TrxWrapper;
+use crate::core::globe::{ChainPacketOp, Globe};
+use crate::drivers::file::File as FileDriver;
+use crate::drivers::network::Network as NetworkDriver;
+use crate::drivers::network::chain::Blockchain;
+use crate::drivers::network::federation::FedNet;
+use crate::drivers::security::Security;
+use crate::drivers::signaler::Signaler;
+use crate::drivers::storage::Storage;
+use crate::drivers::vmm::Vmm;
+use crate::shell::api::inputs::users::ConsumeLockInput;
+use crate::shell::api::model::Program;
+use crate::shell::utils::crypto::secure_unique_string;
+use crate::util::GoError;
+
+const MAX_VALIDATOR_COUNT: usize = 50;
+const ELECTION_COMMIT_SECONDS: i64 = 120;
+const ELECTION_REVEAL_SECONDS: i64 = 120;
+
+/// Tools — aggregates every driver behind a single `ITools` impl.
+pub struct Tools {
+    security: Arc<dyn ISecurity>,
+    signaler: Arc<dyn ISignaler>,
+    storage: Arc<dyn IStorage>,
+    network: Arc<dyn INetwork>,
+    file: Arc<dyn IFile>,
+    vmm: Arc<dyn IVmm>,
+}
+
+impl ITools for Tools {
+    fn security(&self) -> Arc<dyn ISecurity> {
+        self.security.clone()
+    }
+    fn signaler(&self) -> Arc<dyn ISignaler> {
+        self.signaler.clone()
+    }
+    fn storage(&self) -> Arc<dyn IStorage> {
+        self.storage.clone()
+    }
+    fn network(&self) -> Arc<dyn INetwork> {
+        self.network.clone()
+    }
+    fn file(&self) -> Arc<dyn IFile> {
+        self.file.clone()
+    }
+    fn vmm(&self) -> Arc<dyn IVmm> {
+        self.vmm.clone()
+    }
+}
+
+/// Submission envelope routed onto the chain dispatch channel.
+#[derive(Clone)]
+struct ChainSubmission {
+    chain_id: String,
+    op: ChainPacketOp,
+}
+
+/// The Caspar node orchestrator implementing [`ICore`].
+pub struct Core {
+    owner_id: String,
+    owner_priv_key: Arc<RsaPrivateKey>,
+    id: String,
+    ip: String,
+
+    actor: Arc<dyn IActor>,
+    state: Mutex<CoreState>,
+    tools: Mutex<Option<Arc<dyn ITools>>>,
+    globe: Mutex<Option<Arc<dyn IGlobe>>>,
+    chain_tx: Mutex<Option<crossbeam_channel::Sender<ChainSubmission>>>,
+    started: Mutex<bool>,
+    callbacks: Mutex<HashMap<String, Arc<ChainCallback>>>,
+    message_callbacks: Mutex<HashMap<String, Arc<MessageCallback>>>,
+
+    gods: Mutex<Vec<String>>,
+    free_nodes: Mutex<HashMap<String, bool>>,
+    app_pending_trxs: Mutex<Vec<WorkerTrx>>,
+    elections: Mutex<Vec<crate::abstractions::models::chain::Election>>,
+    cost: Mutex<CostConfig>,
+    priv_key: Mutex<Option<Arc<RsaPrivateKey>>>,
+}
+
+#[derive(Default)]
+struct CoreState {
+    elec_starter: String,
+    elec_start_time: i64,
+    elec_reg: bool,
+}
+
+#[derive(Default, Clone)]
+struct CostConfig {
+    execution_cost_per_second: i64,
+    vm_ram_cost_per_mb_minute: i64,
+    vm_cpu_core_cost_per_minute: i64,
+    vm_disk_cost_per_gb_minute: i64,
+}
+
+impl Core {
+    /// `NewCore(origin, ownerId, ownerPrivateKey)`.
+    pub fn new(
+        origin: &str,
+        owner_id: &str,
+        owner_priv_key: Arc<RsaPrivateKey>,
+    ) -> Arc<Core> {
+        let mut free_nodes = HashMap::new();
+        if let Ok(root) = env::var("ROOT_NODE") {
+            free_nodes.insert(root, true);
+        }
+        Arc::new(Core {
+            owner_id: owner_id.to_string(),
+            owner_priv_key,
+            id: origin.to_string(),
+            ip: origin.to_string(),
+            actor: Arc::new(Actor::new()),
+            state: Mutex::new(CoreState::default()),
+            tools: Mutex::new(None),
+            globe: Mutex::new(None),
+            chain_tx: Mutex::new(None),
+            started: Mutex::new(false),
+            callbacks: Mutex::new(HashMap::new()),
+            message_callbacks: Mutex::new(HashMap::new()),
+            gods: Mutex::new(Vec::new()),
+            free_nodes: Mutex::new(free_nodes),
+            app_pending_trxs: Mutex::new(Vec::new()),
+            elections: Mutex::new(Vec::new()),
+            cost: Mutex::new(CostConfig::default()),
+            priv_key: Mutex::new(None),
+        })
+    }
+
+    pub fn mark_as_started(&self) {
+        *self.started.lock().unwrap() = true;
+    }
+
+    fn parse_private_key(pem_bytes: &[u8]) -> Result<RsaPrivateKey> {
+        let s = std::str::from_utf8(pem_bytes)?;
+        Ok(RsaPrivateKey::from_pkcs8_pem(s)?)
+    }
+
+    /// Sign `data` with the given RSA key using PSS-SHA256 + the same salt
+    /// length Go used (`PSSSaltLengthEqualsHash`).
+    fn sign_with(key: &RsaPrivateKey, data: &[u8]) -> String {
+        let _ = Pkcs1v15SigningKey::<Sha256>::new(key.clone());
+        let signing_key = PssSigningKey::<Sha256>::new(key.clone());
+        let sig = signing_key.sign_with_rng(&mut OsRng, data);
+        B64.encode(sig.to_bytes())
+    }
+
+    fn chain_message_targets_local(&self, packet: &ChainMessage) -> bool {
+        packet.recievers.contains_key("*") || packet.recievers.contains_key(&self.id)
+    }
+
+    fn chain_message_machine_ids(&self, packet: &ChainMessage) -> HashMap<String, bool> {
+        let mut machine_ids = HashMap::new();
+        if let Some(map) = packet.recievers.get(&self.id) {
+            for k in map.keys() {
+                machine_ids.insert(k.clone(), true);
+            }
+        }
+        if let Some(pay) = &packet.pay {
+            for m in &pay.machine_ids {
+                machine_ids.insert(m.clone(), true);
+            }
+        }
+        machine_ids
+    }
+
+    fn run_chain_message(self: &Arc<Self>, packet: ChainMessage) {
+        let machine_ids = self.chain_message_machine_ids(&packet);
+        for machine_id in machine_ids.keys() {
+            let runtime_slot = Arc::new(Mutex::new(String::new()));
+            let runtime_clone = runtime_slot.clone();
+            let machine_id_owned = machine_id.clone();
+            self.modify_state(
+                true,
+                Box::new(move |trx: &dyn ITrx| {
+                    let vm = Program {
+                        machine_id: machine_id_owned.clone(),
+                        ..Default::default()
+                    }
+                    .pull(trx);
+                    *runtime_clone.lock().unwrap() = vm.runtime;
+                    Ok(())
+                }),
+            );
+            let runtime_type = runtime_slot.lock().unwrap().clone();
+            if matches!(
+                runtime_type.as_str(),
+                "wasm" | "docker" | "javascript" | "elpify" | "elpian" | "fire"
+            ) {
+                let listeners = self.tools().signaler().listeners();
+                let listener = listeners.get(machine_id).map(|e| e.value().clone());
+                if let Some(listener) = listener {
+                    let payload = packet.payload.clone();
+                    let machine_id_inner = machine_id.clone();
+                    thread::spawn(move || {
+                        let value =
+                            Value::String(String::from_utf8_lossy(&payload).into_owned());
+                        (listener.signal)("creatures/signal".to_string(), value);
+                        let _ = machine_id_inner;
+                    });
+                    continue;
+                }
+            }
+            let runtime_clone = runtime_type.clone();
+            let machine_id_owned = machine_id.clone();
+            let store_id = packet.store_id.clone();
+            let payload = packet.payload.clone();
+            let trans = self.clone();
+            thread::spawn(move || {
+                if matches!(
+                    runtime_clone.as_str(),
+                    "wasm" | "javascript" | "elpify" | "elpian" | "fire"
+                ) {
+                    let data = String::from_utf8_lossy(&payload).into_owned();
+                    trans.tools().vmm().run_vm(&machine_id_owned, &store_id, &data);
+                }
+            });
+        }
+    }
+
+    fn consume_pay_lock_on_chain(self: &Arc<Self>, pay: Option<&ChainPayPacket>) -> bool {
+        let Some(pay) = pay else {
+            return false;
+        };
+        if pay.lock_id.is_empty()
+            || pay.user_id.is_empty()
+            || pay.lock_signature.is_empty()
+            || pay.amount <= 0
+        {
+            return false;
+        }
+        let Some(globe) = self.globe.lock().unwrap().clone() else {
+            return false;
+        };
+        let input = ConsumeLockInput {
+            typ: "pay".to_string(),
+            user_id: pay.user_id.clone(),
+            lock_id: pay.lock_id.clone(),
+            signature: pay.lock_signature.clone(),
+            amount: pay.amount,
+            step: None,
+        };
+        let inp = serde_json::to_vec(&input).unwrap_or_default();
+        let sign = self.sign_packet_as_owner(&inp);
+        let (tx, rx) = std::sync::mpsc::channel::<bool>();
+        let owner = self.owner_id.clone();
+        let cb: crate::abstractions::models::globe::BaseResponseCallback =
+            Box::new(move |_data: Vec<u8>, status: i64, err: Option<GoError>| {
+                let ok = err.is_none() && status < 400;
+                let _ = tx.send(ok);
+            });
+        globe.send_base_request_on_chain(
+            "/creatures/consumeLock",
+            inp,
+            &sign,
+            &owner,
+            "",
+            cb,
+        );
+        rx.recv_timeout(Duration::from_secs(30)).unwrap_or(false)
+    }
+
+    fn handle_chain_packet(self: &Arc<Self>, typ: &str, trx_payload: &[u8]) -> String {
+        if let Some(globe) = self.globe.lock().unwrap().clone() {
+            if globe.handle(typ, trx_payload.to_vec()) {
+                return String::new();
+            }
+        }
+        match typ {
+            "message" => {
+                let packet: ChainMessage = match serde_json::from_slice(trx_payload) {
+                    Ok(p) => p,
+                    Err(e) => {
+                        eprintln!("handle_chain_packet: bad message: {}", e);
+                        return String::new();
+                    }
+                };
+                let mut packet = packet;
+                if packet.message_type.is_empty() {
+                    packet.message_type = "vm.execute".to_string();
+                }
+                if !packet.reply_to.is_empty() {
+                    let cb = self
+                        .message_callbacks
+                        .lock()
+                        .unwrap()
+                        .get(&packet.reply_to)
+                        .cloned();
+                    if let Some(cb) = cb {
+                        (cb.fn_)(packet.key.clone(), packet.payload.clone());
+                    }
+                } else if self.chain_message_targets_local(&packet) {
+                    match packet.message_type.as_str() {
+                        "vm.cost.negotiate" => {
+                            if packet.author == self.id {
+                                return String::new();
+                            }
+                            let cost_per_second =
+                                self.cost.lock().unwrap().execution_cost_per_second;
+                            let pay = ChainPayPacket {
+                                typ: "vm.cost.ack".to_string(),
+                                session_id: packet.request_id.clone(),
+                                cost_per_second,
+                                ..Default::default()
+                            };
+                            let key = packet.key.clone();
+                            let submitter = packet.submitter.clone();
+                            let mut receivers: HashMap<String, HashMap<String, bool>> =
+                                HashMap::new();
+                            receivers.insert(submitter.clone(), HashMap::new());
+                            let id = self.id.clone();
+                            let signed = self.sign_packet(cost_per_second.to_string().as_bytes());
+                            let trans = self.clone();
+                            thread::spawn(move || {
+                                let reply = ChainMessage {
+                                    key,
+                                    message_type: "vm.cost.ack".to_string(),
+                                    reply_to: packet.request_id.clone(),
+                                    recievers: receivers,
+                                    signatures: vec![signed],
+                                    submitter: id.clone(),
+                                    request_id: secure_unique_string(),
+                                    author: id,
+                                    pay: Some(pay),
+                                    ..ChainMessage::default()
+                                };
+                                trans.submit_chain_op("main", ChainPacketOp::Message(reply));
+                            });
+                        }
+                        "vm.execute.request" | "vm.execute.charge" | "vm.execute" => {
+                            if matches!(
+                                packet.message_type.as_str(),
+                                "vm.execute.request" | "vm.execute.charge"
+                            ) {
+                                if let Some(pay) = packet.pay.as_ref() {
+                                    let free =
+                                        self.free_nodes.lock().unwrap().contains_key(&packet.submitter);
+                                    if !free && !self.consume_pay_lock_on_chain(Some(pay)) {
+                                        return String::new();
+                                    }
+                                    let mut packet_cpy = packet.clone();
+                                    let cps =
+                                        self.cost.lock().unwrap().execution_cost_per_second;
+                                    if let Some(p) = packet_cpy.pay.as_mut() {
+                                        if p.accepted_seconds <= 0 && cps > 0 {
+                                            p.accepted_seconds = p.amount / cps;
+                                        }
+                                    }
+                                    let trans = self.clone();
+                                    thread::spawn(move || {
+                                        trans.run_chain_message(packet_cpy);
+                                    });
+                                    return String::new();
+                                }
+                            }
+                            self.run_chain_message(packet);
+                        }
+                        _ => {}
+                    }
+                }
+                String::new()
+            }
+            "base" => {
+                let packet: ChainBaseRequest = match serde_json::from_slice(trx_payload) {
+                    Ok(p) => p,
+                    Err(e) => {
+                        eprintln!("handle_chain_packet: bad base: {}", e);
+                        return String::new();
+                    }
+                };
+                {
+                    let mut cbs = self.callbacks.lock().unwrap();
+                    cbs.entry(packet.request_id.clone())
+                        .or_insert_with(|| Arc::new(ChainCallback {
+                            fn_: Arc::new(|_, _, _| {}),
+                            executors: HashMap::new(),
+                            responses: HashMap::new(),
+                            tag: String::new(),
+                        }));
+                }
+                let user_id = packet
+                    .author
+                    .strip_prefix("user::")
+                    .unwrap_or("")
+                    .to_string();
+                let secure = match self.actor.fetch_secure_action(&packet.key) {
+                    Some(s) => s,
+                    None => return String::new(),
+                };
+                let raw_payload =
+                    serde_json::from_slice::<Value>(&packet.payload).unwrap_or(Value::Null);
+                let input = match secure.parse_input("chain", raw_payload) {
+                    Ok(i) => i,
+                    Err(e) => {
+                        eprintln!("parse_input chain: {}", e);
+                        let signature = self.sign_packet(e.to_string().as_bytes());
+                        if let Some(globe) = self.globe.lock().unwrap().clone() {
+                            globe.exec_base_response_on_chain(
+                                &packet.request_id,
+                                Vec::new(),
+                                &signature,
+                                400,
+                                "input parsing error",
+                                Vec::new(),
+                                &packet.tag,
+                                &user_id,
+                            );
+                        }
+                        return String::new();
+                    }
+                };
+                let signature = packet.signatures.get(1).cloned().unwrap_or_default();
+                let res = secure.securly_act_chain(
+                    &user_id,
+                    &packet.request_id,
+                    &packet.payload,
+                    &signature,
+                    input,
+                    &packet.submitter,
+                    &packet.tag,
+                );
+                if packet.submitter == self.id {
+                    let cb = self.callbacks.lock().unwrap().remove(&packet.request_id);
+                    if let Some(cb) = cb {
+                        match res {
+                            Ok((status, value)) => {
+                                let data = serde_json::to_vec(&value).unwrap_or_default();
+                                (cb.fn_)(data, status, None);
+                            }
+                            Err(e) => {
+                                (cb.fn_)(b"{}".to_vec(), 500, Some(e));
+                            }
+                        }
+                    }
+                }
+                String::new()
+            }
+            _ => String::new(),
+        }
+    }
+
+    fn submit_chain_op(&self, chain_id: &str, op: ChainPacketOp) {
+        if let Some(tx) = self.chain_tx.lock().unwrap().clone() {
+            let _ = tx.send(ChainSubmission {
+                chain_id: chain_id.to_string(),
+                op,
+            });
+        }
+    }
+}
+
+impl ICore for Core {
+    fn owner_id(&self) -> String {
+        self.owner_id.clone()
+    }
+    fn id(&self) -> String {
+        self.id.clone()
+    }
+    fn gods(&self) -> Vec<String> {
+        self.gods.lock().unwrap().clone()
+    }
+    fn add_god(&self, username: &str) {
+        if username.is_empty() {
+            return;
+        }
+        let mut gods = self.gods.lock().unwrap();
+        if !gods.iter().any(|g| g == username) {
+            gods.push(username.to_string());
+        }
+    }
+    fn tools(&self) -> Arc<dyn ITools> {
+        self.tools
+            .lock()
+            .unwrap()
+            .clone()
+            .expect("Core.tools accessed before Load()")
+    }
+    fn free_nodes(&self) -> HashMap<String, bool> {
+        self.free_nodes.lock().unwrap().clone()
+    }
+    fn add_free_node(&self, node_id: &str) {
+        if node_id.is_empty() {
+            return;
+        }
+        self.free_nodes
+            .lock()
+            .unwrap()
+            .insert(node_id.to_string(), true);
+    }
+    fn actor(&self) -> Arc<dyn IActor> {
+        self.actor.clone()
+    }
+    fn load(&self, args: Vec<String>, config: HashMap<String, Value>) {
+        // The `args`/`config` here are the same shape as Go's variadic
+        // `args ...interface{}` map. We route through `Core::load_inner`
+        // which expects strongly-typed paths; this trait method exists so
+        // the abstraction signature stays Go-compatible. main.rs uses
+        // `load_inner` directly.
+        let _ = (args, config);
+    }
+    fn close(&self) {
+        if let Some(tools) = self.tools.lock().unwrap().clone() {
+            tools.network().chain().close();
+            // KvDb / TsDb close on drop via their Arc owners.
+            tools.vmm().close_kvdb();
+        }
+    }
+    fn plant_chain_trigger(
+        &self,
+        count: i64,
+        user_id: &str,
+        tag: &str,
+        machine_id: &str,
+        store_id: &str,
+        input: &str,
+    ) {
+        let user_id_owned = user_id.to_string();
+        let tag_owned = tag.to_string();
+        let machine_id_owned = machine_id.to_string();
+        let store_id_owned = store_id.to_string();
+        let input_owned = input.to_string();
+        self.modify_state(
+            false,
+            Box::new(move |trx: &dyn ITrx| {
+                let tail = secure_unique_string();
+                let prefix = format!("chainCallback::{}_{}", user_id_owned, tag_owned);
+                let already = !trx.get_by_prefix(&format!("{}|>", prefix)).is_empty();
+                trx.put_bytes(&format!("{}|>{}", prefix, tail), vec![0x01]);
+                trx.put_bytes(
+                    &format!("{}|{}::machineId", prefix, tail),
+                    machine_id_owned.as_bytes().to_vec(),
+                );
+                trx.put_bytes(
+                    &format!("{}|{}::storeId", prefix, tail),
+                    store_id_owned.as_bytes().to_vec(),
+                );
+                trx.put_bytes(
+                    &format!("{}|{}::attachment", prefix, tail),
+                    input_owned.as_bytes().to_vec(),
+                );
+                if !already {
+                    trx.put_bytes(
+                        &format!("{}::targetCount", prefix),
+                        (count as u32).to_be_bytes().to_vec(),
+                    );
+                    trx.put_bytes(&format!("{}::tempCount", prefix), 0u32.to_be_bytes().to_vec());
+                }
+                Ok(())
+            }),
+        );
+    }
+    fn app_pending_trxs(&self) {
+        let pending = std::mem::take(&mut *self.app_pending_trxs.lock().unwrap());
+        let wasm_trxs: Vec<WorkerTrx> = pending
+            .into_iter()
+            .filter(|t| t.runtime == "wasm")
+            .collect();
+        if !wasm_trxs.is_empty() {
+            self.tools().vmm().execute_chain_trxs_group(wasm_trxs);
+        }
+    }
+    fn ip_addr(&self) -> String {
+        self.ip.clone()
+    }
+    fn modify_state(&self, readonly: bool, mut fn_: TrxClosure) {
+        let Some(tools) = self.tools.lock().unwrap().clone() else {
+            return;
+        };
+        let core_clone: Arc<dyn ICore> = self.weak_self();
+        let trx = TrxWrapper::new(core_clone, tools.storage(), readonly);
+        let res = fn_(&*trx);
+        if res.is_ok() {
+            trx.commit();
+        } else {
+            trx.discard();
+        }
+    }
+    fn modify_state_securly_with_source(
+        &self,
+        readonly: bool,
+        info: Arc<dyn IInfo>,
+        src: &str,
+        mut fn_: StateClosure,
+    ) {
+        let Some(tools) = self.tools.lock().unwrap().clone() else {
+            return;
+        };
+        let core_clone: Arc<dyn ICore> = self.weak_self();
+        let trx = TrxWrapper::new(core_clone, tools.storage(), readonly);
+        let state: Arc<dyn crate::abstractions::state::IState> =
+            Arc::new(ActorState::new(Some(info), Some(trx.clone()), src));
+        let res = fn_(state);
+        if res.is_ok() {
+            trx.commit();
+        } else {
+            trx.discard();
+        }
+    }
+    fn modify_state_securly(&self, readonly: bool, info: Arc<dyn IInfo>, fn_: StateClosure) {
+        self.modify_state_securly_with_source(readonly, info, "", fn_);
+    }
+    fn sign_packet(&self, data: &[u8]) -> String {
+        let key = self.priv_key.lock().unwrap().clone();
+        match key {
+            Some(k) => Self::sign_with(&k, data),
+            None => String::new(),
+        }
+    }
+    fn sign_packet_as_owner(&self, data: &[u8]) -> String {
+        Self::sign_with(&self.owner_priv_key, data)
+    }
+    fn execution_cost_per_second(&self) -> i64 {
+        self.cost.lock().unwrap().execution_cost_per_second
+    }
+    fn vm_ram_cost_per_mb_per_minute(&self) -> i64 {
+        self.cost.lock().unwrap().vm_ram_cost_per_mb_minute
+    }
+    fn vm_cpu_core_cost_per_minute(&self) -> i64 {
+        self.cost.lock().unwrap().vm_cpu_core_cost_per_minute
+    }
+    fn vm_disk_cost_per_gb_per_minute(&self) -> i64 {
+        self.cost.lock().unwrap().vm_disk_cost_per_gb_minute
+    }
+    fn globe(&self) -> Arc<dyn IGlobe> {
+        self.globe
+            .lock()
+            .unwrap()
+            .clone()
+            .expect("Core.globe accessed before Load()")
+    }
+}
+
+impl Core {
+    /// Build a fresh `Arc<dyn ICore>` pointing at the same underlying
+    /// `Core` state. Used by paths that need to hand an `Arc<dyn ICore>`
+    /// to drivers / closures.
+    fn weak_self(&self) -> Arc<dyn ICore> {
+        // We can't recover the real `Arc<Core>` from `&self` without an
+        // upgrade target, so construct a forwarding wrapper that holds
+        // references to every interior field. For our use sites the
+        // wrapper is short-lived (one transaction), so the extra Arc
+        // allocations are not a hot path.
+        Arc::new(WeakCoreView {
+            inner: CoreWeakHandles {
+                tools: self.tools.lock().unwrap().clone(),
+                actor: self.actor.clone(),
+                owner_id: self.owner_id.clone(),
+                id: self.id.clone(),
+                ip: self.ip.clone(),
+                owner_priv_key: self.owner_priv_key.clone(),
+                priv_key: self.priv_key.lock().unwrap().clone(),
+                cost: self.cost.lock().unwrap().clone(),
+                globe: self.globe.lock().unwrap().clone(),
+                gods: self.gods.lock().unwrap().clone(),
+                free_nodes: self.free_nodes.lock().unwrap().clone(),
+            },
+        })
+    }
+
+
+    /// Runtime start phase invoked after load/module initialization.
+    pub fn run(self: &Arc<Self>) {
+        crate::drivers::vmm::bootstrap::run();
+    }
+
+    /// Strongly-typed `Load`. Run once on startup after the constructor.
+    pub fn load_inner(
+        self: &Arc<Self>,
+        gods: Vec<String>,
+        storage_root: &str,
+        base_db_path: &str,
+        applet_db_path: &str,
+        store_logs_db: &str,
+        searcher_db: &str,
+    ) -> Result<()> {
+        *self.gods.lock().unwrap() = gods;
+        let _ = applet_db_path; // currently fed straight into Vmm
+        let _ = store_logs_db;
+        let _ = searcher_db;
+
+        // Stage 1 of federation must run before the rest so we can pass
+        // the same `Arc<FedNet>` into the storage / network drivers.
+        let fed: Arc<FedNet> = FedNet::first_stage(self.clone());
+        let storage: Arc<dyn IStorage> = Storage::new(
+            self.clone(),
+            storage_root,
+            base_db_path,
+            store_logs_db,
+            searcher_db,
+        )?;
+        let signaler: Arc<dyn ISignaler> =
+            Signaler::new(self.clone(), fed.clone());
+        let security: Arc<dyn ISecurity> = Security::new(
+            self.clone(),
+            storage_root,
+            storage.clone(),
+            signaler.clone(),
+        );
+        let file: Arc<dyn IFile> = Arc::new(FileDriver::new(storage_root));
+        let chain: Arc<dyn crate::abstractions::ports::network::chain::IChain> =
+            Blockchain::new(self.clone(), storage_root);
+        let network: Arc<dyn INetwork> = NetworkDriver::new(
+            self.clone(),
+            storage.clone(),
+            security.clone(),
+            signaler.clone(),
+            fed.clone(),
+            chain.clone(),
+            None,
+        );
+        let vmm: Arc<dyn IVmm> = Vmm::new(
+            self.clone(),
+            storage_root,
+            storage.clone(),
+            applet_db_path,
+            file.clone(),
+        );
+
+        // Stage 2 — federation needs storage/file/signaler.
+        fed.second_stage(storage.clone(), file.clone(), signaler.clone());
+
+        // Load the server private key for signing.
+        let pem = security.fetch_key_pair("server_key");
+        if let Some(first) = pem.into_iter().next() {
+            if let Ok(key) = Self::parse_private_key(&first) {
+                *self.priv_key.lock().unwrap() = Some(Arc::new(key));
+            }
+        }
+
+        // Install tools + chain restore.
+        let tools: Arc<dyn ITools> = Arc::new(Tools {
+            security,
+            signaler,
+            storage,
+            network: network.clone(),
+            file,
+            vmm,
+        });
+        *self.tools.lock().unwrap() = Some(tools);
+        network.chain().restore_from_storage();
+
+        // Cost knobs from env (matches Go).
+        let mut cost = self.cost.lock().unwrap();
+        if let Ok(v) = env::var("VM_EXEC_COST_PER_SECOND") {
+            if let Ok(n) = v.parse::<i64>() {
+                cost.execution_cost_per_second = n.max(0);
+            }
+        }
+        if let Ok(v) = env::var("VM_RAM_COST_PER_MB_PER_MINUTE") {
+            if let Ok(n) = v.parse::<i64>() {
+                cost.vm_ram_cost_per_mb_minute = n.max(0);
+            }
+        }
+        if let Ok(v) = env::var("VM_CPU_CORE_COST_PER_MINUTE") {
+            if let Ok(n) = v.parse::<i64>() {
+                cost.vm_cpu_core_cost_per_minute = n.max(0);
+            }
+        }
+        if let Ok(v) = env::var("VM_DISK_COST_PER_GB_PER_MINUTE") {
+            if let Ok(n) = v.parse::<i64>() {
+                cost.vm_disk_cost_per_gb_minute = n.max(0);
+            }
+        }
+        drop(cost);
+
+        // Chain submission channel.
+        let (chain_tx, chain_rx) = crossbeam_channel::unbounded::<ChainSubmission>();
+        *self.chain_tx.lock().unwrap() = Some(chain_tx.clone());
+
+        // Globe.
+        let peers_fn = {
+            let net = network.clone();
+            Arc::new(move || net.chain().peers()) as crate::core::globe::PeersFn
+        };
+        let sign_fn: crate::core::globe::SignPacketFn = {
+            let me = self.clone();
+            Arc::new(move |data| me.sign_packet(data))
+        };
+        let submit_fn: crate::core::globe::SubmitChainPacketFn = {
+            let chain_tx_clone = chain_tx.clone();
+            Arc::new(move |chain_id: &str, op: ChainPacketOp| {
+                let _ = chain_tx_clone.send(ChainSubmission {
+                    chain_id: chain_id.to_string(),
+                    op,
+                });
+            })
+        };
+        let set_chain_callback_fn: crate::core::globe::SetChainCallbackFn = {
+            let core_for_cb = self.clone();
+            Arc::new(move |callback_id: &str, cb: ChainCallback| {
+                core_for_cb
+                    .callbacks
+                    .lock()
+                    .unwrap()
+                    .insert(callback_id.to_string(), Arc::new(cb));
+            })
+        };
+        let set_message_cb_fn: crate::core::globe::SetMessageCbFn = {
+            let core_for_msg = self.clone();
+            Arc::new(move |callback_id: &str, cb: MessageCallback| {
+                core_for_msg
+                    .message_callbacks
+                    .lock()
+                    .unwrap()
+                    .insert(callback_id.to_string(), Arc::new(cb));
+            })
+        };
+        let globe = Globe::new(
+            self.id.clone(),
+            self.ip.clone(),
+            peers_fn,
+            sign_fn,
+            submit_fn,
+            set_chain_callback_fn,
+            set_message_cb_fn,
+            MAX_VALIDATOR_COUNT,
+            ELECTION_COMMIT_SECONDS,
+            ELECTION_REVEAL_SECONDS,
+        );
+        *self.globe.lock().unwrap() = Some(globe.clone());
+
+        // Wire the chain pipeline so committed blocks flow through
+        // `handle_chain_packet`.
+        let trans = self.clone();
+        let pipeline: crate::abstractions::ports::network::chain::PipelineFn =
+            Box::new(move |txs: Vec<Vec<u8>>, insider_cb: Box<dyn Fn(Vec<u8>) + Send + Sync>| {
+                let mut machine_ids: Vec<String> = Vec::new();
+                for tx in txs {
+                    let s = String::from_utf8_lossy(&tx);
+                    let first_index = match s.find("::") {
+                        Some(i) => i,
+                        None => continue,
+                    };
+                    let typ = &s[..first_index];
+                    let body = &tx[first_index + 2..];
+                    if typ == "nodeJoined" {
+                        insider_cb(tx.clone());
+                    } else if typ == &format!("sharderMap|{}", trans.id) {
+                        insider_cb(tx.clone());
+                    } else {
+                        let r = trans.handle_chain_packet(typ, body);
+                        if !r.is_empty() {
+                            machine_ids.push(r);
+                        }
+                    }
+                }
+                trans.app_pending_trxs();
+                machine_ids
+            });
+        network.chain().register_pipeline(pipeline);
+
+        // Background: drain the chain submission queue and forward each
+        // payload onto the right shard.
+        let trans = self.clone();
+        thread::spawn(move || {
+            while let Ok(envelope) = chain_rx.recv() {
+                let chain_id = if envelope.chain_id.is_empty() {
+                    "main".to_string()
+                } else {
+                    envelope.chain_id.clone()
+                };
+                let (typ, payload) = match &envelope.op {
+                    ChainPacketOp::BaseRequest(req) => (
+                        "base".to_string(),
+                        serde_json::to_vec(req).unwrap_or_default(),
+                    ),
+                    ChainPacketOp::Message(m) => (
+                        "message".to_string(),
+                        serde_json::to_vec(m).unwrap_or_default(),
+                    ),
+                    ChainPacketOp::Election(e) => (
+                        "election".to_string(),
+                        serde_json::to_vec(e).unwrap_or_default(),
+                    ),
+                    ChainPacketOp::Stake(s) => (
+                        "stake".to_string(),
+                        serde_json::to_vec(s).unwrap_or_default(),
+                    ),
+                    ChainPacketOp::Response(r) => (
+                        "response".to_string(),
+                        serde_json::to_vec(r).unwrap_or_default(),
+                    ),
+                };
+                let machine_id = match &envelope.op {
+                    ChainPacketOp::Message(m) => trans
+                        .chain_message_machine_ids(m)
+                        .into_keys()
+                        .next()
+                        .unwrap_or_default(),
+                    _ => String::new(),
+                };
+                let mut framed = Vec::new();
+                framed.extend_from_slice(typ.as_bytes());
+                framed.extend_from_slice(b"::");
+                framed.extend_from_slice(&payload);
+                trans
+                    .tools()
+                    .network()
+                    .chain()
+                    .submit_trx(&chain_id, &machine_id, &typ, framed);
+            }
+        });
+
+        // Background: every second, ask the globe to start a scheduled
+        // election if the hour aligns.
+        let trans = self.clone();
+        thread::spawn(move || loop {
+            thread::sleep(Duration::from_secs(1));
+            let globe = trans.globe.lock().unwrap().clone();
+            if let Some(g) = globe {
+                g.try_start_scheduled_election(SystemTime::now());
+            }
+        });
+
+        Ok(())
+    }
+}
+
+/// Small forwarding shim around the parts of `Core` that an `Arc<dyn ICore>`
+/// needs. `Core::weak_self` builds one of these on demand so the
+/// `modify_state` family can synthesise an `Arc<dyn ICore>` for `TrxWrapper`
+/// without holding a real reference to itself.
+struct CoreWeakHandles {
+    tools: Option<Arc<dyn ITools>>,
+    actor: Arc<dyn IActor>,
+    owner_id: String,
+    id: String,
+    ip: String,
+    owner_priv_key: Arc<RsaPrivateKey>,
+    priv_key: Option<Arc<RsaPrivateKey>>,
+    cost: CostConfig,
+    globe: Option<Arc<dyn IGlobe>>,
+    gods: Vec<String>,
+    free_nodes: HashMap<String, bool>,
+}
+
+struct WeakCoreView {
+    inner: CoreWeakHandles,
+}
+
+impl ICore for WeakCoreView {
+    fn owner_id(&self) -> String {
+        self.inner.owner_id.clone()
+    }
+    fn id(&self) -> String {
+        self.inner.id.clone()
+    }
+    fn gods(&self) -> Vec<String> {
+        self.inner.gods.clone()
+    }
+    fn add_god(&self, _: &str) {}
+    fn tools(&self) -> Arc<dyn ITools> {
+        self.inner.tools.clone().expect("tools unset on weak view")
+    }
+    fn free_nodes(&self) -> HashMap<String, bool> {
+        self.inner.free_nodes.clone()
+    }
+    fn add_free_node(&self, _: &str) {}
+    fn actor(&self) -> Arc<dyn IActor> {
+        self.inner.actor.clone()
+    }
+    fn load(&self, _: Vec<String>, _: HashMap<String, Value>) {}
+    fn close(&self) {}
+    fn plant_chain_trigger(&self, _: i64, _: &str, _: &str, _: &str, _: &str, _: &str) {}
+    fn app_pending_trxs(&self) {}
+    fn ip_addr(&self) -> String {
+        self.inner.ip.clone()
+    }
+    fn modify_state(&self, readonly: bool, mut fn_: TrxClosure) {
+        let Some(tools) = self.inner.tools.clone() else {
+            return;
+        };
+        // Build a fresh weak-view-of-weak-view so the trx wrapper can hold
+        // a `Arc<dyn ICore>` of its own — finite recursion ends here
+        // because the resulting closures don't recurse back into
+        // modify_state.
+        let core_for_trx: Arc<dyn ICore> = Arc::new(WeakCoreView {
+            inner: CoreWeakHandles { ..clone_handles(&self.inner) },
+        });
+        let trx = TrxWrapper::new(core_for_trx, tools.storage(), readonly);
+        let res = fn_(&*trx);
+        if res.is_ok() {
+            trx.commit();
+        } else {
+            trx.discard();
+        }
+    }
+    fn modify_state_securly_with_source(
+        &self,
+        readonly: bool,
+        info: Arc<dyn IInfo>,
+        src: &str,
+        mut fn_: StateClosure,
+    ) {
+        let Some(tools) = self.inner.tools.clone() else {
+            return;
+        };
+        let core_for_trx: Arc<dyn ICore> = Arc::new(WeakCoreView {
+            inner: CoreWeakHandles { ..clone_handles(&self.inner) },
+        });
+        let trx = TrxWrapper::new(core_for_trx, tools.storage(), readonly);
+        let state: Arc<dyn crate::abstractions::state::IState> =
+            Arc::new(ActorState::new(Some(info), Some(trx.clone()), src));
+        let res = fn_(state);
+        if res.is_ok() {
+            trx.commit();
+        } else {
+            trx.discard();
+        }
+    }
+    fn modify_state_securly(&self, readonly: bool, info: Arc<dyn IInfo>, fn_: StateClosure) {
+        self.modify_state_securly_with_source(readonly, info, "", fn_);
+    }
+    fn sign_packet(&self, data: &[u8]) -> String {
+        match &self.inner.priv_key {
+            Some(k) => Core::sign_with(k, data),
+            None => String::new(),
+        }
+    }
+    fn sign_packet_as_owner(&self, data: &[u8]) -> String {
+        Core::sign_with(&self.inner.owner_priv_key, data)
+    }
+    fn execution_cost_per_second(&self) -> i64 {
+        self.inner.cost.execution_cost_per_second
+    }
+    fn vm_ram_cost_per_mb_per_minute(&self) -> i64 {
+        self.inner.cost.vm_ram_cost_per_mb_minute
+    }
+    fn vm_cpu_core_cost_per_minute(&self) -> i64 {
+        self.inner.cost.vm_cpu_core_cost_per_minute
+    }
+    fn vm_disk_cost_per_gb_per_minute(&self) -> i64 {
+        self.inner.cost.vm_disk_cost_per_gb_minute
+    }
+    fn globe(&self) -> Arc<dyn IGlobe> {
+        self.inner
+            .globe
+            .clone()
+            .expect("Globe unset on weak view")
+    }
+}
+
+fn clone_handles(h: &CoreWeakHandles) -> CoreWeakHandles {
+    CoreWeakHandles {
+        tools: h.tools.clone(),
+        actor: h.actor.clone(),
+        owner_id: h.owner_id.clone(),
+        id: h.id.clone(),
+        ip: h.ip.clone(),
+        owner_priv_key: h.owner_priv_key.clone(),
+        priv_key: h.priv_key.clone(),
+        cost: h.cost.clone(),
+        globe: h.globe.clone(),
+        gods: h.gods.clone(),
+        free_nodes: h.free_nodes.clone(),
+    }
+}
+
+#[allow(dead_code)]
+fn _force_use() -> Result<()> {
+    Ok(())
+}
+
+// Pull in BaseInfo / json to keep imports tight.
+#[allow(dead_code)]
+fn _hint(_: BaseInfo, _: Value) {}

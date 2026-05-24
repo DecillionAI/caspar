@@ -15,15 +15,15 @@ use base64::Engine;
 use chrono::Utc;
 use serde_json::{json, Map, Value};
 
-use crate::abstractions::models::action::action::ExtendedField;
-use crate::abstractions::models::action::action::ISecureAction;
+use crate::abstractions::models::action::ExtendedField;
+use crate::abstractions::models::action::ISecureAction;
 use crate::abstractions::models::core::ICore;
 use crate::abstractions::models::input::IInput;
 use crate::abstractions::models::trx::object_to_map;
 use crate::abstractions::state::IState;
-use crate::core::module::actor::model::base::info::Info as BaseInfo;
-use crate::core::module::actor::model::secured::guard::Guard;
-use crate::core::module::actor::model::state::state::State as ActorState;
+use crate::core::actor::model::base::info::Info as BaseInfo;
+use crate::core::actor::model::secured::guard::Guard;
+use crate::core::actor::model::state::State as ActorState;
 use crate::shell::api::inputs::creatures::{
     CreateInput as CreatureCreateInput, SignalInput as CreatureSignalInput,
 };

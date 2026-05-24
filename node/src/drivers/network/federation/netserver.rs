@@ -10,7 +10,7 @@ use std::thread;
 use anyhow::Result;
 use dashmap::DashMap;
 
-use crate::abstractions::adapters::network::network::TlsConfig;
+use crate::abstractions::ports::network::TlsConfig;
 use crate::abstractions::models::core::ICore;
 use crate::abstractions::models::packet::OriginPacket;
 use crate::drivers::network::framing::{

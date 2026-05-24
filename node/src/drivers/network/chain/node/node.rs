@@ -23,7 +23,7 @@ use crate::drivers::network::chain::hashgraph::{self as hg, Block, Store, WireEv
 use crate::drivers::network::chain::net::{Rpc, Transport};
 use crate::drivers::network::chain::peers::{Peer, PeerSet};
 use crate::drivers::network::chain::proxy::AppProxy;
-use crate::logrus::Entry;
+use crate::compat::logrus::Entry;
 
 /// A Babble node, implemented as a state machine.
 pub struct Node {

@@ -15,15 +15,12 @@
 #![allow(clippy::type_complexity)]
 
 #[macro_use]
-mod golog;
+mod compat;
 
 mod abstractions;
 mod bots;
 mod core;
 mod drivers;
-mod logrus;
-mod multipart;
-mod pprof_server;
 mod shell;
 mod telemetry;
 mod util;
@@ -34,7 +31,7 @@ use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
-use crate::abstractions::models::action::action::ExtendedField;
+use crate::abstractions::models::action::ExtendedField;
 use crate::abstractions::models::core::ICore;
 use crate::shell::api::main_api::plug_all;
 use crate::shell::kasper::new_app;
@@ -46,7 +43,7 @@ fn main() {
 
     // Runtime profiling HTTP server (was Go `net/http/pprof` on :9999;
     // now Rust-native via the `pprof` crate). Queried by `casparctl pprof`.
-    pprof_server::start_from_env();
+    telemetry::pprof::start_from_env();
 
     if let Err(e) = telemetry::start_from_env() {
         eprintln!("telemetry server start failed: {}", e);

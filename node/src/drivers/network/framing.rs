@@ -27,7 +27,7 @@ use anyhow::{anyhow, Result};
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, ServerName};
 use rustls::{ClientConfig, ClientConnection, ServerConfig, ServerConnection, StreamOwned};
 
-use crate::abstractions::adapters::network::network::TlsConfig;
+use crate::abstractions::ports::network::TlsConfig;
 
 /// Maximum frame size we accept — matches the Go driver's `20_000_000`
 /// safety cap.

@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use crate::abstractions::models::action::action::{IAction, ISecureAction};
+use crate::abstractions::models::action::{IAction, ISecureAction};
 use crate::util::AnyVal;
 
 /// Registry of actions and services.

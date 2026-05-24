@@ -6,7 +6,7 @@
 use std::sync::Arc;
 
 use crate::drivers::network::chain::proxy::InmemProxy;
-use crate::logrus::Entry;
+use crate::compat::logrus::Entry;
 
 use super::state::State;
 

@@ -10,7 +10,7 @@ use anyhow::Result;
 
 use super::net_transport::NetworkTransport;
 use super::tcp_stream_layer::TcpStreamLayer;
-use crate::logrus::Entry;
+use crate::compat::logrus::Entry;
 
 /// Creates a [`NetworkTransport`] over plain TCP. The returned `Arc` already
 /// has its accept loop running.

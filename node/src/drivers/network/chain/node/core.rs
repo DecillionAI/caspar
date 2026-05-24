@@ -27,7 +27,7 @@ use crate::drivers::network::chain::hashgraph::{
 };
 use crate::drivers::network::chain::peers::PeerSet;
 use crate::drivers::network::chain::proxy::CommitCallback;
-use crate::logrus::Entry;
+use crate::compat::logrus::Entry;
 
 /// Manipulates the hashgraph on behalf of the `Node`.
 pub struct Core {
