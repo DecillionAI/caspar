@@ -39,6 +39,10 @@ struct FedPacketCallback {
     user_id: String,
     key: String,
     request: Vec<u8>,
+    /// Caller-supplied correlation id (Go: `UserRequestId`). Stored so
+    /// downstream tooling can match a federation response back to the
+    /// original user-facing request that triggered it.
+    user_request_id: String,
     callback: Arc<Mutex<Option<FedRequestCallback>>>,
 }
 
@@ -460,6 +464,7 @@ impl IFederation for FedNet {
             user_id: user_id.to_string(),
             key: path.to_string(),
             request: payload.clone(),
+            user_request_id: request_id.to_string(),
             callback: Arc::new(Mutex::new(Some(callback))),
         });
         self.packet_callbacks

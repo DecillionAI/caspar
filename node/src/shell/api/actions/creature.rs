@@ -908,18 +908,35 @@ fn meta(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
 }
 
 fn apply_extender_fields(
+    state: &Arc<dyn IState>,
     trx: &dyn crate::abstractions::models::trx::ITrx,
     user_id: &str,
     mut user_map: HashMap<String, Value>,
     extender: &HashMap<String, ExtendedField>,
 ) -> HashMap<String, Value> {
+    // Mirrors the Go `for name, field := range ex { ... }` loop in
+    // `creature/creature.go`:
+    //   * if the field exposes a `GetValue` callback, invoke it with
+    //     `(state, current_map)` and store the result;
+    //   * otherwise pull the field from the user's metadata document at
+    //     `field.path`, falling back to the declared default.
+    // `trx.get_json` always returns the *object* at the given JSON path
+    // (`serde_json::Map<String, Value>`), so we extract the specific key
+    // from that object to obtain a single `Value`.
     for (key, field) in extender {
+        if let Some(get_value) = &field.get_value {
+            let snapshot: serde_json::Map<String, Value> =
+                user_map.clone().into_iter().collect();
+            if let Ok(v) = get_value(state.clone(), snapshot) {
+                user_map.insert(key.clone(), v);
+                continue;
+            }
+        }
         let value = trx
-            .get_json(
-                &format!("UserMeta::{}", user_id),
-                &format!("{}.{}", field.path, key),
-            )
-            .unwrap_or_else(|_| field.default.clone());
+            .get_json(&format!("UserMeta::{}", user_id), &field.path)
+            .ok()
+            .and_then(|m| m.get(key).cloned())
+            .unwrap_or_else(|| field.default.clone());
         user_map.insert(key.clone(), value);
     }
     user_map
@@ -946,7 +963,8 @@ fn get_by_username(
             .pull(&*trx);
             let m = object_to_map(&result).unwrap_or_default();
             let user_map: HashMap<String, Value> = m.into_iter().collect();
-            let user_map = apply_extender_fields(&*trx, &result.id, user_map, &user_extender);
+            let user_map =
+                apply_extender_fields(&state, &*trx, &result.id, user_map, &user_extender);
             Ok(serde_json::to_value(GetOutput { user: user_map })?)
         },
     )
@@ -970,6 +988,8 @@ fn find(
             let result = users.into_iter().next().unwrap();
             let m = object_to_map(&result).unwrap_or_default();
             let user_map: HashMap<String, Value> = m.into_iter().collect();
+            let user_map =
+                apply_extender_fields(&state, &*trx, &result.id, user_map, &user_extender);
             Ok(serde_json::to_value(GetOutput { user: user_map })?)
         },
     )
