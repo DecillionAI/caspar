@@ -25,15 +25,12 @@ use crate::core::actor::model::base::info::Info as BaseInfo;
 use crate::core::actor::model::secured::guard::Guard;
 use crate::core::actor::model::state::State as ActorState;
 use crate::shell::api::packets::creatures::{
-    CreateInput as CreatureCreateInput, SignalInput as CreatureSignalInput,
-};
-use crate::shell::api::packets::users::{
-    AuthenticateInput, CheckSignInput, ConsumeLockInput, DeleteInput, FindInput,
-    GetByUsernameInput, GetInput, ListInput, LockTokenInput, LoginInput, MetaInput, MintInput,
-    TransferInput, UpdateInput,
+    AuthenticateInput, AuthenticateOutput, CheckSignInput, ConsumeLockInput,
+    CreateInput as CreatureCreateInput, DeleteInput, FindInput, GetByUsernameInput, GetInput,
+    GetOutput, ListInput, LockTokenInput, LoginInput, LoginOutput, MetaInput, MintInput,
+    SignalInput as CreatureSignalInput, TransferInput, UpdateInput,
 };
 use crate::shell::api::model::{Creature, Machine, Session, Store, User};
-use crate::shell::api::packets::users::{AuthenticateOutput, GetOutput, LoginOutput};
 use crate::shell::api::updates::stores::Send as StoresSend;
 use crate::shell::utils::crypto::{secure_key_pairs, secure_unique_string};
 use crate::shell::utils::future::async_once;

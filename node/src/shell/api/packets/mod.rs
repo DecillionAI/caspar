@@ -10,4 +10,3 @@ pub mod plugin;
 pub mod program;
 pub mod simple;
 pub mod stores;
-pub mod users;
