@@ -7,7 +7,7 @@ use serde_json::{json, Value};
 use crate::models::transaction::ITrx;
 use crate::shell::api::model::{Machine, Program};
 
-use super::vmm::{check_str, now_unix_ms, Vmm};
+use super::driver::{check_str, now_unix_ms, Vmm};
 
 impl Vmm {
     pub(super) fn resolve_vm_ownership(&self, vm_id: &str) -> (String, String) {

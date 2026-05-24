@@ -15,7 +15,7 @@ use crate::models::state::IState;
 use crate::core::actor::model::base::info::Info as BaseInfo;
 use crate::shell::api::model::{Creature, Store};
 
-use super::vmm::{check_bool, check_i64, check_str, normalize_runtime, is_managed_runtime, Vmm};
+use super::driver::{check_bool, check_i64, check_str, normalize_runtime, is_managed_runtime, Vmm};
 
 fn number_from_input(input: &Value, key: &str, def: i64) -> i64 {
     check_i64(input, key, def)
@@ -1046,7 +1046,7 @@ impl Vmm {
                 let machine_id_inner = machine_id_owned.clone();
                 let store_id_inner = store_id_owned.clone();
                 let data_inner = data_owned.clone();
-                let now_ms = super::vmm::now_unix_ms();
+                let now_ms = super::driver::now_unix_ms();
                 let alarm_time = now_ms + count * 1000;
                 app.modify_state(
                     false,
