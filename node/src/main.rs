@@ -23,6 +23,7 @@ mod core;
 mod drivers;
 mod logrus;
 mod multipart;
+mod pprof_server;
 mod shell;
 mod telemetry;
 mod util;
@@ -42,6 +43,10 @@ fn main() {
     // .env loading: simple manual parser (skip dotenvy to avoid the extra
     // dependency — the file lives next to the binary in production).
     let _ = load_dotenv(".env");
+
+    // Runtime profiling HTTP server (was Go `net/http/pprof` on :9999;
+    // now Rust-native via the `pprof` crate). Queried by `casparctl pprof`.
+    pprof_server::start_from_env();
 
     if let Err(e) = telemetry::start_from_env() {
         eprintln!("telemetry server start failed: {}", e);

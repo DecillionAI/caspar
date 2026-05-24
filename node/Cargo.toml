@@ -53,6 +53,7 @@ tar = "0.4.46"
 thiserror = "2.0.18"
 tungstenite = { version = "0.24", default-features = false, features = ["handshake"] }
 uuid = { version = "1.23.1", features = ["v4"] }
+pprof = { version = "0.13", features = ["flamegraph", "protobuf-codec"] }
 
 [profile.release]
 opt-level = 3
