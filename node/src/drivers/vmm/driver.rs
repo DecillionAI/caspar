@@ -16,13 +16,13 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use anyhow::Result;
 use serde_json::{json, Value};
 
-use crate::abstractions::ports::file::IFile;
-use crate::abstractions::ports::signaler::Listener;
-use crate::abstractions::ports::storage::IStorage;
-use crate::abstractions::ports::vmm::IVmm;
-use crate::abstractions::models::core::ICore;
-use crate::abstractions::models::trx::ITrx;
-use crate::abstractions::models::worker::Trx as WorkerTrx;
+use crate::models::ports::file::IFile;
+use crate::models::ports::signaler::Listener;
+use crate::models::ports::storage::IStorage;
+use crate::models::ports::vmm::IVmm;
+use crate::models::core::ICore;
+use crate::models::transaction::ITrx;
+use crate::models::worker::Trx as WorkerTrx;
 use crate::shell::api::model::{Program, Store, User};
 use crate::shell::api::packets::stores;
 

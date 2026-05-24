@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::abstractions::models::input::IInput;
+use crate::models::input::IInput;
 
 macro_rules! input_impls {
     ($($t:ty => $origin:expr),* $(,)?) => {

@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use rsa::RsaPrivateKey;
 
-use crate::abstractions::models::core::ICore;
+use crate::models::core::ICore;
 use crate::core::core_orchestrator::Core;
 
 pub type Kasper = Arc<dyn ICore>;

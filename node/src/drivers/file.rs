@@ -11,7 +11,7 @@ use std::path::Path;
 
 use anyhow::{anyhow, Result};
 
-use crate::abstractions::ports::file::IFile;
+use crate::models::ports::file::IFile;
 use crate::compat::multipart::FileHeader;
 
 /// Filesystem-backed [`IFile`] implementation. Stateless apart from the

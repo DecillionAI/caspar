@@ -23,10 +23,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 use uuid::Uuid;
 
-use crate::abstractions::models::action::ISecureAction;
-use crate::abstractions::models::core::ICore;
-use crate::abstractions::models::trx::ITrx;
-use crate::abstractions::state::IState;
+use crate::models::action::ISecureAction;
+use crate::models::core::ICore;
+use crate::models::transaction::ITrx;
+use crate::models::state::IState;
 use crate::core::actor::model::secured::guard::Guard;
 use crate::shell::api::packets::program::{
     CreateMachineInput, DeleteProgramInput, DeployInput, ListAppMachsInput, ListInput,
@@ -492,7 +492,7 @@ fn create_program(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
             let program = Program {
                 machine_id: app_for_handler.tools().storage().gen_id(
                     &*trx,
-                    &crate::abstractions::models::input::IInput::origin(&input),
+                    &crate::models::input::IInput::origin(&input),
                 ),
                 app_id: machine.id.clone(),
                 path: input.path.clone(),

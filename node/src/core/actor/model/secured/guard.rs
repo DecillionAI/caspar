@@ -8,8 +8,8 @@ use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
 
-use crate::abstractions::models::core::ICore;
-use crate::abstractions::models::trx::ITrx;
+use crate::models::core::ICore;
+use crate::models::transaction::ITrx;
 
 use crate::core::actor::model::base::info::Info;
 

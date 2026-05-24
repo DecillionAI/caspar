@@ -6,9 +6,9 @@ use std::sync::Arc;
 use anyhow::Result;
 use serde_json::{json, Value};
 
-use crate::abstractions::models::action::ISecureAction;
-use crate::abstractions::models::core::ICore;
-use crate::abstractions::state::IState;
+use crate::models::action::ISecureAction;
+use crate::models::core::ICore;
+use crate::models::state::IState;
 use crate::core::actor::model::secured::guard::Guard;
 use crate::shell::api::packets::simple::HelloInput;
 use crate::shell::utils::future::async_once;

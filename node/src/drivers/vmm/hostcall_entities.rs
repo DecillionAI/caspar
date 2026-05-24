@@ -8,10 +8,10 @@ use std::sync::{Arc, Mutex};
 
 use serde_json::{json, Map, Value};
 
-use crate::abstractions::models::core::{StateClosure, ICore};
-use crate::abstractions::models::info::IInfo;
-use crate::abstractions::models::trx::ITrx;
-use crate::abstractions::state::IState;
+use crate::models::core::{StateClosure, ICore};
+use crate::models::info::IInfo;
+use crate::models::transaction::ITrx;
+use crate::models::state::IState;
 use crate::core::actor::model::base::info::Info as BaseInfo;
 use crate::shell::api::model::{Creature, Store};
 
@@ -1226,11 +1226,11 @@ fn parse_chain_receivers(input: &Value) -> HashMap<String, HashMap<String, bool>
 
 fn parse_chain_pay_packet(
     input: &Value,
-) -> Option<crate::abstractions::models::chain::ChainPayPacket> {
+) -> Option<crate::models::chain::ChainPayPacket> {
     let Some(pay_obj) = input.get("pay").and_then(Value::as_object) else {
         return None;
     };
-    use crate::abstractions::models::chain::ChainPayPacket;
+    use crate::models::chain::ChainPayPacket;
     let mut pay = ChainPayPacket::default();
     let s = |k: &str| pay_obj.get(k).and_then(Value::as_str).map(str::to_string);
     let i = |k: &str| pay_obj.get(k).and_then(Value::as_i64).or_else(|| pay_obj.get(k).and_then(Value::as_f64).map(|v| v as i64));

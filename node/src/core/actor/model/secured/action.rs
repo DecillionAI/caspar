@@ -12,12 +12,12 @@ use std::sync::{Arc, Mutex};
 use anyhow::{anyhow, Result};
 use serde_json::{Map, Value};
 
-use crate::abstractions::ports::network::federation::FedRequestCallback;
-use crate::abstractions::models::action::{IAction, ISecureAction};
-use crate::abstractions::models::core::{ICore, StateClosure};
-use crate::abstractions::models::globe::BaseResponseCallback;
-use crate::abstractions::models::input::IInput;
-use crate::abstractions::state::IState;
+use crate::models::ports::network::federation::FedRequestCallback;
+use crate::models::action::{IAction, ISecureAction};
+use crate::models::core::{ICore, StateClosure};
+use crate::models::globe::BaseResponseCallback;
+use crate::models::input::IInput;
+use crate::models::state::IState;
 use crate::util::GoError;
 
 use super::guard::Guard;

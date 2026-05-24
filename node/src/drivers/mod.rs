@@ -1,7 +1,7 @@
 //! Driver adapters — concrete implementations of the port traits defined
-//! in [`crate::abstractions::ports`].
+//! in [`crate::models::ports`].
 //!
-//! - `file` — filesystem-backed [`crate::abstractions::ports::file::IFile`]
+//! - `file` — filesystem-backed [`crate::models::ports::file::IFile`]
 //! - `signaler` — in-process pub/sub event bus
 //! - `storage` — RocksDB + PostgreSQL persistence
 //! - `security` — RSA/ECDSA signing and verification

@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
-use crate::abstractions::models::trx::ITrx;
+use crate::models::transaction::ITrx;
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Creature {

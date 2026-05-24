@@ -7,8 +7,8 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::abstractions::models::action::ExtendedField;
-use crate::abstractions::models::core::ICore;
+use crate::models::action::ExtendedField;
+use crate::models::core::ICore;
 
 use super::actions;
 

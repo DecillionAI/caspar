@@ -29,16 +29,16 @@ use rocksdb::{IteratorMode, WriteBatchWithTransaction};
 use rsa::{RsaPrivateKey, RsaPublicKey};
 use serde_json::{Map, Value};
 
-use crate::abstractions::ports::storage::IStorage;
-use crate::abstractions::models::core::ICore;
-use crate::abstractions::models::trx::ITrx;
-use crate::abstractions::models::update::Update;
+use crate::models::ports::storage::IStorage;
+use crate::models::core::ICore;
+use crate::models::transaction::ITrx;
+use crate::models::update::Update;
 use crate::shell::utils::crypto as cryp;
 
 /// `TrxWrapper` is the per-call transaction handle.
 pub struct TrxWrapper {
     _core: Arc<dyn ICore>,
-    db: crate::abstractions::ports::storage::KvDb,
+    db: crate::models::ports::storage::KvDb,
     readonly: bool,
     inner: Mutex<Inner>,
 }
@@ -626,12 +626,12 @@ fn merge_objects(dst: &mut Map<String, Value>, src: &Map<String, Value>) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::abstractions::ports::file::IFile;
-    use crate::abstractions::ports::network::INetwork;
-    use crate::abstractions::ports::security::ISecurity;
-    use crate::abstractions::ports::signaler::ISignaler;
-    use crate::abstractions::ports::tools::ITools;
-    use crate::abstractions::ports::vmm::IVmm;
+    use crate::models::ports::file::IFile;
+    use crate::models::ports::network::INetwork;
+    use crate::models::ports::security::ISecurity;
+    use crate::models::ports::signaler::ISignaler;
+    use crate::models::ports::tools::ITools;
+    use crate::models::ports::vmm::IVmm;
     use std::sync::Arc;
 
     // ---- minimal `ICore` stub for unit tests -------------------------------
@@ -651,7 +651,7 @@ mod tests {
         }
         fn free_nodes(&self) -> HashMap<String, bool> { HashMap::new() }
         fn add_free_node(&self, _: &str) {}
-        fn actor(&self) -> Arc<dyn crate::abstractions::models::action::actor::IActor> {
+        fn actor(&self) -> Arc<dyn crate::models::action::actor::IActor> {
             unimplemented!()
         }
         fn load(&self, _: Vec<String>, _: HashMap<String, Value>) {}
@@ -662,7 +662,7 @@ mod tests {
         fn modify_state(
             &self,
             _: bool,
-            mut fn_: crate::abstractions::models::action::TrxClosure,
+            mut fn_: crate::models::action::TrxClosure,
         ) {
             let tw = TrxWrapper::new(
                 Arc::new(StubCore { storage: self.storage.clone() }),
@@ -674,16 +674,16 @@ mod tests {
         fn modify_state_securly_with_source(
             &self,
             _: bool,
-            _: Arc<dyn crate::abstractions::models::info::IInfo>,
+            _: Arc<dyn crate::models::info::IInfo>,
             _: &str,
-            _: crate::abstractions::models::core::StateClosure,
+            _: crate::models::core::StateClosure,
         ) {
         }
         fn modify_state_securly(
             &self,
             _: bool,
-            _: Arc<dyn crate::abstractions::models::info::IInfo>,
-            _: crate::abstractions::models::core::StateClosure,
+            _: Arc<dyn crate::models::info::IInfo>,
+            _: crate::models::core::StateClosure,
         ) {
         }
         fn sign_packet(&self, _: &[u8]) -> String { String::new() }
@@ -692,15 +692,15 @@ mod tests {
         fn vm_ram_cost_per_mb_per_minute(&self) -> i64 { 0 }
         fn vm_cpu_core_cost_per_minute(&self) -> i64 { 0 }
         fn vm_disk_cost_per_gb_per_minute(&self) -> i64 { 0 }
-        fn globe(&self) -> Arc<dyn crate::abstractions::models::globe::IGlobe> {
+        fn globe(&self) -> Arc<dyn crate::models::globe::IGlobe> {
             unimplemented!()
         }
     }
 
     struct StubStorage {
         root: String,
-        kv: crate::abstractions::ports::storage::KvDb,
-        ts: crate::abstractions::ports::storage::TsDb,
+        kv: crate::models::ports::storage::KvDb,
+        ts: crate::models::ports::storage::TsDb,
     }
 
     impl StubStorage {
@@ -714,7 +714,7 @@ mod tests {
                     .as_nanos()
             );
             std::fs::create_dir_all(&dir).unwrap();
-            let kv: crate::abstractions::ports::storage::KvDb = Arc::new(
+            let kv: crate::models::ports::storage::KvDb = Arc::new(
                 rocksdb::TransactionDB::open_default(&dir).expect("rocksdb"),
             );
             // The tests never touch ts_db, but the trait requires a value.
@@ -730,19 +730,19 @@ mod tests {
 
     impl IStorage for StubStorage {
         fn storage_root(&self) -> String { self.root.clone() }
-        fn kv_db(&self) -> crate::abstractions::ports::storage::KvDb { self.kv.clone() }
-        fn ts_db(&self) -> crate::abstractions::ports::storage::TsDb { self.ts.clone() }
+        fn kv_db(&self) -> crate::models::ports::storage::KvDb { self.kv.clone() }
+        fn ts_db(&self) -> crate::models::ports::storage::TsDb { self.ts.clone() }
         fn gen_id(&self, _t: &dyn ITrx, _: &str) -> String { String::new() }
         fn log_time_sieries(
             &self, _: &str, _: &str, _: &str, _: i64,
-        ) -> crate::abstractions::models::packet::LogPacket { Default::default() }
+        ) -> crate::models::packet::LogPacket { Default::default() }
         fn update_log(
             &self, _: &str, _: &str, _: &str, _: &str, _: i64,
-        ) -> crate::abstractions::models::packet::LogPacket { Default::default() }
-        fn read_store_logs(&self, _: &str, _: i64, _: i64) -> Vec<crate::abstractions::models::packet::LogPacket> { Vec::new() }
-        fn pick_store_logs(&self, _: &str, _: Vec<String>) -> Vec<crate::abstractions::models::packet::LogPacket> { Vec::new() }
-        fn log_vm(&self, _: &str, _: &str, _: &str, _: i64) -> crate::abstractions::models::packet::BuildPacket { Default::default() }
-        fn read_vm_logs(&self, _: &str, _: &str, _: i64, _: i64) -> Vec<crate::abstractions::models::packet::BuildPacket> { Vec::new() }
+        ) -> crate::models::packet::LogPacket { Default::default() }
+        fn read_store_logs(&self, _: &str, _: i64, _: i64) -> Vec<crate::models::packet::LogPacket> { Vec::new() }
+        fn pick_store_logs(&self, _: &str, _: Vec<String>) -> Vec<crate::models::packet::LogPacket> { Vec::new() }
+        fn log_vm(&self, _: &str, _: &str, _: &str, _: i64) -> crate::models::packet::BuildPacket { Default::default() }
+        fn read_vm_logs(&self, _: &str, _: &str, _: i64, _: i64) -> Vec<crate::models::packet::BuildPacket> { Vec::new() }
     }
 
     fn fresh_trx(readonly: bool) -> (Arc<dyn IStorage>, Arc<TrxWrapper>) {

@@ -15,12 +15,12 @@ use base64::Engine;
 use chrono::Utc;
 use serde_json::{json, Map, Value};
 
-use crate::abstractions::models::action::ExtendedField;
-use crate::abstractions::models::action::ISecureAction;
-use crate::abstractions::models::core::ICore;
-use crate::abstractions::models::input::IInput;
-use crate::abstractions::models::trx::object_to_map;
-use crate::abstractions::state::IState;
+use crate::models::action::ExtendedField;
+use crate::models::action::ISecureAction;
+use crate::models::core::ICore;
+use crate::models::input::IInput;
+use crate::models::transaction::object_to_map;
+use crate::models::state::IState;
 use crate::core::actor::model::base::info::Info as BaseInfo;
 use crate::core::actor::model::secured::guard::Guard;
 use crate::core::actor::model::state::State as ActorState;
@@ -906,7 +906,7 @@ fn meta(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
 
 fn apply_extender_fields(
     state: &Arc<dyn IState>,
-    trx: &dyn crate::abstractions::models::trx::ITrx,
+    trx: &dyn crate::models::transaction::ITrx,
     user_id: &str,
     mut user_map: HashMap<String, Value>,
     extender: &HashMap<String, ExtendedField>,

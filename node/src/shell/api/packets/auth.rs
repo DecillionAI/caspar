@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::abstractions::models::input::IInput;
+use crate::models::input::IInput;
 
 // ---- Inputs ----------------------------------------------------------------
 

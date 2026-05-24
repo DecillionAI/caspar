@@ -9,15 +9,15 @@ use std::sync::Arc;
 
 use anyhow::Result;
 
-use crate::abstractions::ports::network::chain::IChain;
-use crate::abstractions::ports::network::federation::IFederation;
-use crate::abstractions::ports::network::{INetwork, TlsConfig};
-use crate::abstractions::ports::network::tcp::ITcp;
-use crate::abstractions::ports::network::ws::IWs;
-use crate::abstractions::ports::security::ISecurity;
-use crate::abstractions::ports::signaler::ISignaler;
-use crate::abstractions::ports::storage::IStorage;
-use crate::abstractions::models::core::ICore;
+use crate::models::ports::network::chain::IChain;
+use crate::models::ports::network::federation::IFederation;
+use crate::models::ports::network::{INetwork, TlsConfig};
+use crate::models::ports::network::tcp::ITcp;
+use crate::models::ports::network::ws::IWs;
+use crate::models::ports::security::ISecurity;
+use crate::models::ports::signaler::ISignaler;
+use crate::models::ports::storage::IStorage;
+use crate::models::core::ICore;
 use crate::drivers::network::client::{Tcp as TcpDriver, Ws as WsDriver};
 
 /// Concrete [`INetwork`] implementation.

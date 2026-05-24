@@ -19,10 +19,10 @@ use dashmap::DashMap;
 
 use uuid::Uuid;
 
-use crate::abstractions::ports::network::chain::{IChain, PipelineFn};
-use crate::abstractions::ports::network::TlsConfig;
-use crate::abstractions::models::core::ICore;
-use crate::abstractions::models::trx::ITrx;
+use crate::models::ports::network::chain::{IChain, PipelineFn};
+use crate::models::ports::network::TlsConfig;
+use crate::models::core::ICore;
+use crate::models::transaction::ITrx;
 use crate::drivers::network::chain::babble::{load_key_for_config, Babble};
 use crate::drivers::network::chain::config::Config;
 use crate::drivers::network::chain::hashgraph::{Block, InternalTransactionReceipt};

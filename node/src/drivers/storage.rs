@@ -18,10 +18,10 @@ use r2d2_postgres::PostgresConnectionManager;
 use rocksdb::TransactionDB;
 use uuid::Uuid;
 
-use crate::abstractions::ports::storage::{IStorage, KvDb, TsDb};
-use crate::abstractions::models::core::ICore;
-use crate::abstractions::models::packet::{BuildPacket, LogPacket};
-use crate::abstractions::models::trx::ITrx;
+use crate::models::ports::storage::{IStorage, KvDb, TsDb};
+use crate::models::core::ICore;
+use crate::models::packet::{BuildPacket, LogPacket};
+use crate::models::transaction::ITrx;
 
 /// Concrete [`IStorage`] implementation.
 pub struct Storage {
