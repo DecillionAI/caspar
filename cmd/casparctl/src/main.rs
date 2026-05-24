@@ -1674,4 +1674,63 @@ mod tests {
         assert!(s.contains("2024-"));
         assert_ne!(s, "2024-06-01T12:00:00Z");
     }
+
+    // ─── saved-name / saved-image round trip ──────────────────────────────
+
+    fn tmp_project_dir(label: &str) -> std::path::PathBuf {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir = std::env::temp_dir()
+            .join(format!("casparctl-{}-{}-{}", label, std::process::id(), nanos));
+        std::fs::create_dir_all(&dir).unwrap();
+        // Drop a Dockerfile so validate_node_project_dir accepts the dir.
+        std::fs::write(dir.join("Dockerfile"), "FROM scratch\n").unwrap();
+        dir
+    }
+
+    #[test]
+    fn validate_node_project_dir_requires_dockerfile() {
+        let dir = tmp_project_dir("validate-ok");
+        validate_node_project_dir(&dir).expect("dockerfile present");
+        std::fs::remove_file(dir.join("Dockerfile")).unwrap();
+        let err = validate_node_project_dir(&dir).expect_err("missing dockerfile");
+        assert!(format!("{}", err).contains("Dockerfile not found"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn write_then_load_saved_name_round_trip() {
+        let dir = tmp_project_dir("name-rt");
+        write_saved_name(&dir, "caspar-node").expect("write");
+        let name = load_saved_name(&dir).expect("load");
+        assert_eq!(name, "caspar-node");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn write_saved_name_validates_input() {
+        let dir = tmp_project_dir("name-validate");
+        let err = write_saved_name(&dir, "bad name").expect_err("invalid name");
+        assert!(format!("{}", err).contains("allowed characters"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn load_saved_name_errors_when_missing() {
+        let dir = tmp_project_dir("name-missing");
+        let err = load_saved_name(&dir).expect_err("file missing");
+        assert!(format!("{}", err).contains("could not read"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn write_then_load_saved_image_round_trip() {
+        let dir = tmp_project_dir("image-rt");
+        write_saved_image(&dir, "caspar-image-1").expect("write");
+        let img = load_saved_image(&dir).expect("load");
+        assert_eq!(img, "caspar-image-1");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

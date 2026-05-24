@@ -160,3 +160,66 @@ impl std::fmt::Debug for Entry {
         write!(f, "logrus::Entry({} fields)", self.fields.len())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn logger_set_and_get_level_round_trip() {
+        let logger = Logger::new();
+        logger.set_level(Level::Warn);
+        assert_eq!(logger.level(), Level::Warn);
+        logger.set_level(Level::Trace);
+        assert_eq!(logger.level(), Level::Trace);
+    }
+
+    #[test]
+    fn level_ordering_is_ascending_by_verbosity() {
+        // logrus levels: Panic(0) < Fatal < Error < Warn < Info < Debug < Trace(6).
+        // The Rust enum derives PartialOrd from its discriminant, so more
+        // verbose levels compare greater.
+        assert!(Level::Panic < Level::Error);
+        assert!(Level::Error < Level::Info);
+        assert!(Level::Info < Level::Debug);
+        assert!(Level::Debug < Level::Trace);
+    }
+
+    #[test]
+    fn standalone_entry_has_no_fields() {
+        let e = Entry::standalone();
+        assert!(format!("{:?}", e).contains("0 fields"));
+    }
+
+    #[test]
+    fn with_field_grows_field_count() {
+        let e = Entry::standalone().with_field("k", "v");
+        assert!(format!("{:?}", e).contains("1 fields"));
+    }
+
+    #[test]
+    fn with_fields_appends_all_pairs() {
+        let e = Entry::standalone()
+            .with_fields(&[("a", "1".to_string()), ("b", "2".to_string())]);
+        assert!(format!("{:?}", e).contains("2 fields"));
+    }
+
+    #[test]
+    fn with_error_records_a_field() {
+        let e = Entry::standalone().with_error("oops");
+        assert!(format!("{:?}", e).contains("1 fields"));
+    }
+
+    #[test]
+    fn emit_at_higher_verbosity_than_logger_is_suppressed_without_panic() {
+        let logger = Logger::new();
+        logger.set_level(Level::Error);
+        let e = Entry::new(logger);
+        // These all exercise the suppressed branch (level > Error). They
+        // should not panic nor terminate the process.
+        e.trace("nope");
+        e.debug("nope");
+        e.info("nope");
+        e.warn("nope");
+    }
+}

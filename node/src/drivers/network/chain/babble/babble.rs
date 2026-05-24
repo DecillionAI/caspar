@@ -353,3 +353,97 @@ fn to_iso8601(t: DateTime<Utc>) -> String {
 
 // Unused-import suppression in case `Path` becomes needed later.
 const _: fn() -> Option<&'static Path> = || None;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::drivers::network::chain::crypto::keys::{
+        dump_private_key, generate_ecdsa_key, parse_private_key,
+    };
+
+    fn tmp_data_dir(label: &str) -> std::path::PathBuf {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir = std::env::temp_dir()
+            .join(format!("babble-{}-{}-{}", label, std::process::id(), nanos));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn load_key_for_config_is_no_op_when_key_already_set() {
+        let mut cfg = Config::new_default_config("127.0.0.1:1");
+        cfg.data_dir = tmp_data_dir("load-noop").to_string_lossy().into_owned();
+        let key = generate_ecdsa_key().unwrap();
+        let expected_d = dump_private_key(&key);
+        cfg.key = Some(key);
+
+        // No keyfile exists, but `load_key_for_config` must not touch the
+        // existing key — and must not error.
+        load_key_for_config(&mut cfg).expect("noop when key set");
+        assert_eq!(dump_private_key(cfg.key.as_ref().unwrap()), expected_d);
+        let _ = std::fs::remove_dir_all(&cfg.data_dir);
+    }
+
+    #[test]
+    fn load_key_for_config_reads_from_disk_when_keyfile_present() {
+        let dir = tmp_data_dir("load-disk");
+        let mut cfg = Config::new_default_config("127.0.0.1:1");
+        cfg.data_dir = dir.to_string_lossy().into_owned();
+
+        // Write a key to `<data_dir>/priv_key` using the same writer Babble
+        // uses to load it.
+        let key = generate_ecdsa_key().unwrap();
+        let keyfile = SimpleKeyfile::new(&cfg.keyfile());
+        keyfile.write_key(&key).expect("write key");
+
+        load_key_for_config(&mut cfg).expect("load");
+        let loaded = cfg.key.as_ref().expect("key populated");
+        assert_eq!(
+            dump_private_key(loaded),
+            dump_private_key(&key),
+            "loaded key D must match the one written"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn load_key_for_config_errors_when_keyfile_missing() {
+        let dir = tmp_data_dir("load-missing");
+        let mut cfg = Config::new_default_config("127.0.0.1:1");
+        cfg.data_dir = dir.to_string_lossy().into_owned();
+        let err = load_key_for_config(&mut cfg).expect_err("file missing");
+        assert!(format!("{}", err).contains("Error reading private key"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn backup_file_name_appends_utc_timestamp_suffix() {
+        let name = backup_file_name("peers.json");
+        // Format: "<base>--UTC--<YYYY-MM-DDThh-mm-ss.nnnnnnnnnZ>".
+        assert!(name.starts_with("peers.json--UTC--"));
+        let suffix = &name["peers.json--UTC--".len()..];
+        assert!(suffix.ends_with('Z'));
+        assert!(suffix.contains('T'));
+    }
+
+    #[test]
+    fn to_iso8601_format_is_path_safe() {
+        let t = chrono::DateTime::<chrono::Utc>::from_timestamp(0, 0).unwrap();
+        let s = to_iso8601(t);
+        // Path-safe representation (no colons) of the unix epoch.
+        assert_eq!(s, "1970-01-01T00-00-00.000000000Z");
+    }
+
+    #[test]
+    fn parse_private_key_round_trip_through_load() {
+        // Sanity: the key produced by `generate_ecdsa_key` survives a
+        // `dump -> parse` round trip — used by `load_key_for_config`.
+        let key = generate_ecdsa_key().unwrap();
+        let bytes = dump_private_key(&key);
+        let parsed = parse_private_key(&bytes).expect("parse");
+        assert_eq!(dump_private_key(&parsed), bytes);
+    }
+}
