@@ -31,7 +31,7 @@ use crate::shell::api::packets::creatures::{
     SignalInput as CreatureSignalInput, TransferInput, UpdateInput,
 };
 use crate::shell::api::model::{Creature, Machine, Session, Store, User};
-use crate::shell::api::updates::stores::Send as StoresSend;
+use crate::shell::api::packets::stores::Send as StoresSend;
 use crate::shell::utils::crypto::{secure_key_pairs, secure_unique_string};
 use crate::shell::utils::future::async_once;
 

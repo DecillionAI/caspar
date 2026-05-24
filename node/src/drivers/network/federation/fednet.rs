@@ -27,7 +27,6 @@ use crate::abstractions::models::core::ICore;
 use crate::abstractions::models::packet::{build_error_json, OriginPacket};
 use crate::abstractions::models::trx::ITrx;
 use crate::shell::api::packets::{invites, stores};
-use crate::shell::api::updates::stores as updates_stores;
 use crate::shell::utils::crypto::secure_unique_string;
 use crate::util::GoError;
 
@@ -268,7 +267,7 @@ impl FedNet {
     fn react_to_update(&self, key: &str, data: &[u8]) {
         match key {
             "stores/update" => {
-                if let Ok(tc) = serde_json::from_slice::<updates_stores::Update>(data) {
+                if let Ok(tc) = serde_json::from_slice::<stores::Update>(data) {
                     self.app.modify_state(
                         false,
                         Box::new(move |trx: &dyn ITrx| {
@@ -279,7 +278,7 @@ impl FedNet {
                 }
             }
             "stores/delete" => {
-                if let Ok(tc) = serde_json::from_slice::<updates_stores::Delete>(data) {
+                if let Ok(tc) = serde_json::from_slice::<stores::Delete>(data) {
                     let id = tc.store.id;
                     self.app.modify_state(
                         false,
@@ -291,7 +290,7 @@ impl FedNet {
                 }
             }
             "stores/addMember" | "stores/join" => {
-                if let Ok(tc) = serde_json::from_slice::<updates_stores::AddMember>(data) {
+                if let Ok(tc) = serde_json::from_slice::<stores::AddMember>(data) {
                     let store_id = tc.store_id;
                     let user_id = tc.user.id;
                     self.app.modify_state(
@@ -305,7 +304,7 @@ impl FedNet {
                 }
             }
             "stores/removeMember" => {
-                if let Ok(tc) = serde_json::from_slice::<updates_stores::AddMember>(data) {
+                if let Ok(tc) = serde_json::from_slice::<stores::AddMember>(data) {
                     let store_id = tc.store_id;
                     let user_id = tc.user.id;
                     self.app.modify_state(
@@ -319,7 +318,7 @@ impl FedNet {
                 }
             }
             "stores/updateMember" => {
-                if let Ok(tc) = serde_json::from_slice::<updates_stores::UpdateMember>(data) {
+                if let Ok(tc) = serde_json::from_slice::<stores::UpdateMember>(data) {
                     let key_ = format!("member_{}_{}", tc.store_id, tc.user.id);
                     let payload = serde_json::to_value(&tc.metadata).unwrap_or(Value::Null);
                     self.app.modify_state(

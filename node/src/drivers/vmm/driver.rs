@@ -24,7 +24,7 @@ use crate::abstractions::models::core::ICore;
 use crate::abstractions::models::trx::ITrx;
 use crate::abstractions::models::worker::Trx as WorkerTrx;
 use crate::shell::api::model::{Program, Store, User};
-use crate::shell::api::updates::stores as updates_stores;
+use crate::shell::api::packets::stores;
 
 /// Default appengine REP socket exposed *by* the node (the engine connects
 /// to this with a REQ socket).
@@ -102,7 +102,7 @@ impl Vmm {
         }
         let store = store_slot.lock().unwrap().clone();
         let (ast_path, vm_type) = self.resolve_vm_execution_target(machine_id, entity_id);
-        let send_payload = updates_stores::Send {
+        let send_payload = stores::Send {
             user: User::default(),
             store,
             action: "single".to_string(),
@@ -193,7 +193,7 @@ impl IVmm for Vmm {
                     return;
                 }
                 let raw = serde_json::to_vec(&value).unwrap_or_default();
-                let entity_id = serde_json::from_slice::<updates_stores::Send>(&raw)
+                let entity_id = serde_json::from_slice::<stores::Send>(&raw)
                     .ok()
                     .map(|p| p.entity_id)
                     .unwrap_or_default();
@@ -309,7 +309,7 @@ impl VmmShim {
         let store = store_slot.lock().unwrap().clone();
         let (ast_path, vm_type) =
             resolve_vm_execution_target(&self.app, &self.storage, machine_id, "");
-        let send_payload = updates_stores::Send {
+        let send_payload = stores::Send {
             user: User::default(),
             store,
             action: "single".to_string(),
