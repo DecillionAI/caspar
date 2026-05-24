@@ -9,8 +9,8 @@ use crate::abstractions::models::action::ISecureAction;
 use crate::abstractions::models::core::ICore;
 use crate::abstractions::state::IState;
 use crate::core::actor::model::secured::guard::Guard;
-use crate::shell::api::inputs::auth::{GetServerKeyInput, GetServersMapInput};
-use crate::shell::api::outputs::auth::{GetServerKeyOutput, GetServersMapOutput};
+use crate::shell::api::packets::auth::{GetServerKeyInput, GetServersMapInput};
+use crate::shell::api::packets::auth::{GetServerKeyOutput, GetServersMapOutput};
 
 use super::util::build_secure_action;
 

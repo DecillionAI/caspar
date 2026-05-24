@@ -10,7 +10,7 @@ use crate::abstractions::models::action::ISecureAction;
 use crate::abstractions::models::core::ICore;
 use crate::abstractions::state::IState;
 use crate::core::actor::model::secured::guard::Guard;
-use crate::shell::api::inputs::simple::HelloInput;
+use crate::shell::api::packets::simple::HelloInput;
 use crate::shell::utils::future::async_once;
 
 use super::util::build_secure_action;

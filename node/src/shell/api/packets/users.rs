@@ -1,10 +1,12 @@
-//! Translation of `shell/api/inputs/users` — request payload structs the
-//! user-management actions consume.
+//! Request and response payloads for the `users` action namespace.
+
+use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::abstractions::models::input::IInput;
+use crate::shell::api::model::{Session, User};
 
 macro_rules! input_impls {
     ($($t:ty => $origin:expr),* $(,)?) => {
@@ -17,6 +19,12 @@ macro_rules! input_impls {
         )*
     };
 }
+
+fn i64_is_zero(n: &i64) -> bool {
+    *n == 0
+}
+
+// ---- Inputs ----------------------------------------------------------------
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ConsumeLockInput {
@@ -125,10 +133,6 @@ pub struct LockTokenInput {
     pub steps: Vec<LockTokenStepInput>,
 }
 
-fn i64_is_zero(n: &i64) -> bool {
-    *n == 0
-}
-
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct LockTokenStepInput {
     #[serde(default)]
@@ -185,4 +189,38 @@ input_impls! {
     TransferInput    => "global",
     UpdateInput      => "global",
     LoginInput       => "",
+}
+
+// ---- Outputs ---------------------------------------------------------------
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct AuthenticateOutput {
+    #[serde(default)]
+    pub authenticated: bool,
+    #[serde(default)]
+    pub user: HashMap<String, Value>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct CreateOutput {
+    #[serde(default)]
+    pub user: User,
+    #[serde(default)]
+    pub session: Session,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct GetOutput {
+    #[serde(default)]
+    pub user: HashMap<String, Value>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct LoginOutput {
+    #[serde(default)]
+    pub user: User,
+    #[serde(default)]
+    pub session: Session,
+    #[serde(rename = "privateKey", default)]
+    pub private_key: String,
 }

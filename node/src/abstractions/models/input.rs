@@ -6,7 +6,7 @@
 
 use std::any::Any;
 
-/// An action input payload. Concrete inputs live under `shell/api/inputs`.
+/// An action input payload. Concrete inputs live under `shell/api/packets`.
 pub trait IInput: Send + Sync + Any {
     fn get_store_id(&self) -> String;
     fn origin(&self) -> String;

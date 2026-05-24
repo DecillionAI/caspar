@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 use serde_json::Value;
 
 use crate::abstractions::models::core::ICore;
-use crate::shell::api::inputs::stores::SignalInput;
+use crate::shell::api::packets::stores::SignalInput;
 use crate::shell::utils::crypto::secure_unique_string;
 
 /// `BotAgent` — a tiny in-process bot that emits `/stores/signal` packets

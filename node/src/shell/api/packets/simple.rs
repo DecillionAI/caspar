@@ -1,4 +1,5 @@
-//! Translation of `shell/api/inputs/{empty,hello,ping}.go`.
+//! Request and response payloads for the trivial action namespaces —
+//! `empty`, `hello`, `ping`.
 
 use serde::{Deserialize, Serialize};
 

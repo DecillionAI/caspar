@@ -55,7 +55,7 @@ use crate::drivers::security::Security;
 use crate::drivers::signaler::Signaler;
 use crate::drivers::storage::Storage;
 use crate::drivers::vmm::Vmm;
-use crate::shell::api::inputs::users::ConsumeLockInput;
+use crate::shell::api::packets::users::ConsumeLockInput;
 use crate::shell::api::model::Program;
 use crate::shell::utils::crypto::secure_unique_string;
 use crate::util::GoError;

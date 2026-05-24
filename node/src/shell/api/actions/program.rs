@@ -28,13 +28,13 @@ use crate::abstractions::models::core::ICore;
 use crate::abstractions::models::trx::ITrx;
 use crate::abstractions::state::IState;
 use crate::core::actor::model::secured::guard::Guard;
-use crate::shell::api::inputs::program::{
+use crate::shell::api::packets::program::{
     CreateMachineInput, DeleteProgramInput, DeployInput, ListAppMachsInput, ListInput,
     MachineBuildsInput, ReadVmLogsInput, RunProgramEntityInput, UpdateProgramInput,
     VmResourcesInput, VmTerminalInput,
 };
 use crate::shell::api::model::{Entity, Machine, Program, User};
-use crate::shell::api::outputs::plugin::PlugInput;
+use crate::shell::api::packets::plugin::PlugInput;
 use crate::shell::utils::future::async_once;
 
 use super::util::build_secure_action;

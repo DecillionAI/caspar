@@ -1,5 +1,5 @@
-//! Translation of `shell/api/inputs/program` — request payloads for the
-//! program / app / machine lifecycle actions exposed by the shell.
+//! Request and response payloads for the `program` action namespace —
+//! the program / app / machine lifecycle actions exposed by the shell.
 
 use std::collections::HashMap;
 

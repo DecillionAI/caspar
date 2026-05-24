@@ -1116,7 +1116,7 @@ impl Vmm {
         }
         let data = check_str(input, "data", "");
         // Build the SignalInput action call.
-        use crate::shell::api::inputs::stores::SignalInput;
+        use crate::shell::api::packets::stores::SignalInput;
         let signal_input = SignalInput {
             typ,
             data,

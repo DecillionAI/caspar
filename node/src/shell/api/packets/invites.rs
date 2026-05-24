@@ -1,4 +1,4 @@
-//! Translation of `shell/api/inputs/invites`.
+//! Request and response payloads for the `invites` action namespace.
 
 use serde::{Deserialize, Serialize};
 

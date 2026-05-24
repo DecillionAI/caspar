@@ -1,5 +1,4 @@
-//! Translation of `shell/api/inputs/creatures` — request payloads for the
-//! creature lifecycle actions.
+//! Request and response payloads for the `creatures` action namespace.
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;

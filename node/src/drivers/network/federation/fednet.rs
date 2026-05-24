@@ -26,8 +26,7 @@ use crate::abstractions::ports::storage::IStorage;
 use crate::abstractions::models::core::ICore;
 use crate::abstractions::models::packet::{build_error_json, OriginPacket};
 use crate::abstractions::models::trx::ITrx;
-use crate::shell::api::inputs::{invites as inv_in, stores as stores_in};
-use crate::shell::api::outputs::stores as stores_out;
+use crate::shell::api::packets::{invites, stores};
 use crate::shell::api::updates::stores as updates_stores;
 use crate::shell::utils::crypto::secure_unique_string;
 use crate::util::GoError;
@@ -188,12 +187,12 @@ impl FedNet {
         match cb.key.as_str() {
             "/invites/accept" | "/stores/join" => {
                 let store_id = if cb.key == "/invites/accept" {
-                    serde_json::from_slice::<inv_in::AcceptInput>(&cb.request)
+                    serde_json::from_slice::<invites::AcceptInput>(&cb.request)
                         .ok()
                         .map(|m| m.store_id)
                         .unwrap_or_default()
                 } else {
-                    serde_json::from_slice::<stores_in::JoinInput>(&cb.request)
+                    serde_json::from_slice::<stores::JoinInput>(&cb.request)
                         .ok()
                         .map(|m| m.store_id)
                         .unwrap_or_default()
@@ -222,7 +221,7 @@ impl FedNet {
             }
             "/stores/create" => {
                 if let Ok(out) =
-                    serde_json::from_slice::<stores_out::CreateOutput>(&pack.binary)
+                    serde_json::from_slice::<stores::CreateOutput>(&pack.binary)
                 {
                     let user_id = cb.user_id.clone();
                     let store = out.store.store.clone();
