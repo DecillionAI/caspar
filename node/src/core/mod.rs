@@ -1,3 +1,14 @@
-//! Translation of `kasper/src/core`.
+//! Domain core — the orchestrator and the building blocks it owns:
+//! the actor registry + actor model, the globe validator-set coordinator,
+//! the worker pool, and the in-process logger.
+//!
+//! The core depends only on `crate::abstractions` (ports and shared
+//! models); drivers (`crate::drivers`) sit behind those ports.
 
-pub mod module;
+pub mod actor;
+pub mod core_orchestrator;
+pub mod globe;
+pub mod logger;
+pub mod pool;
+
+pub use core_orchestrator::Core;

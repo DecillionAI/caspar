@@ -23,7 +23,7 @@ use super::round_info::RoundInfo;
 use super::store::Store;
 use crate::drivers::network::chain::common::{self, is_store, StoreErrType, LRU};
 use crate::drivers::network::chain::peers::PeerSet;
-use crate::logrus::Entry;
+use crate::compat::logrus::Entry;
 
 /// Determines how many `FrameEvent`s are included in a Root. It is deliberately
 /// not configurable: peers using different values would produce different
@@ -107,7 +107,7 @@ impl Hashgraph {
     ) -> Hashgraph {
         let logger = logger.unwrap_or_else(|| {
             let entry = Entry::standalone();
-            entry.logger().set_level(crate::logrus::Level::Debug);
+            entry.logger().set_level(crate::compat::logrus::Level::Debug);
             entry
         });
 

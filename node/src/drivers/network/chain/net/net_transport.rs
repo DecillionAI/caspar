@@ -36,7 +36,7 @@ use super::commands::{
 use super::rpc::{Rpc, RpcCommand, RpcResponse, RpcResponseKind};
 use super::stream_layer::{Conn, StreamLayer};
 use super::transport::Transport;
-use crate::logrus::Entry;
+use crate::compat::logrus::Entry;
 
 /// RPC type bytes — identical numeric ordering to the Go original so the
 /// translated and Go transports speak the same enum if ever bridged.

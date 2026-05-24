@@ -9,6 +9,7 @@ mod prelude;
 pub mod bootstrap;
 pub mod bridge;
 pub mod controllers;
+pub mod driver;
 pub mod globals;
 pub mod host;
 pub mod hostcall_entities;
@@ -16,11 +17,10 @@ pub mod hostcall_global;
 pub mod hostcall_logs;
 pub mod models;
 pub mod network;
-pub mod vmm;
 
 use serde_json::Value as JsonValue;
 
-pub use vmm::Vmm;
+pub use driver::Vmm;
 
 pub fn dispatch_packet(packet: &JsonValue) -> String {
     bridge::vm_packet_router::route_vm_packet(packet)

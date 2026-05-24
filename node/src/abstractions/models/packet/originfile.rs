@@ -1,6 +1,6 @@
 //! Translation of `abstract/models/packet/originfile.go`.
 
-use crate::multipart::FileHeader;
+use crate::compat::multipart::FileHeader;
 
 #[derive(Debug, Clone, Default)]
 pub struct OriginFile {

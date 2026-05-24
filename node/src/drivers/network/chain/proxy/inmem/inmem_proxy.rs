@@ -13,7 +13,7 @@ use crossbeam_channel::{unbounded, Receiver, Sender};
 use crate::drivers::network::chain::hashgraph::Block;
 use crate::drivers::network::chain::node::state::State;
 use crate::drivers::network::chain::proxy::{AppProxy, CommitResponse, ProxyHandler};
-use crate::logrus::Entry;
+use crate::compat::logrus::Entry;
 
 /// In-memory `AppProxy` implementation that forwards every callback to a
 /// user-supplied [`ProxyHandler`].

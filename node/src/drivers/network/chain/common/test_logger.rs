@@ -7,7 +7,7 @@
 
 use std::sync::Arc;
 
-use crate::logrus::{Entry, Level, Logger};
+use crate::compat::logrus::{Entry, Level, Logger};
 
 /// The level used in tests by default.
 pub const TEST_LOG_LEVEL: Level = Level::Info;

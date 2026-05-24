@@ -11,6 +11,7 @@
 //! written sync implementation over `std::net::TcpListener` so we avoid
 //! pulling in axum/hyper.
 
+pub mod pprof;
 pub mod server;
 
 pub use server::{start_from_env, Snapshot, TelemetryServer};

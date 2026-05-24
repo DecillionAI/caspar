@@ -1,14 +1,17 @@
-//! Translation of `kasper/src/drivers/network/chain` — the Babble consensus
-//! stack and the Caspar `IChain` driver built on top of it.
+//! Babble hashgraph consensus stack and the Caspar `IChain` driver built on
+//! top of it.
 //!
-//! Phase 2 translation order: `common`, `crypto`/`keys`, `peers` first (the
-//! dependency base), then the hashgraph, transport (`net`), the consensus
-//! `node`, proxy, service and the `babble`/`chain` assembly.
+//! Layering (bottom-up):
+//!   * `common`, `crypto`, `peers` — primitives and validator set.
+//!   * `hashgraph` — Leemon Baird's hashgraph algorithm + event store.
+//!   * `net` — TCP / in-memory transports for the gossip layer.
+//!   * `node` — the consensus node (gossip loop, RPC handlers, state).
+//!   * `proxy`, `dummy` — app-side bridges used in production and tests.
+//!   * `config`, `babble` — assembly of the above into a Babble engine.
+//!   * `blockchain` — the `IChain` driver wrapping the Babble engine.
 
 pub mod babble;
-pub mod chain;
-
-pub use chain::{Blockchain, CliConfig};
+pub mod blockchain;
 pub mod common;
 pub mod config;
 pub mod crypto;
@@ -18,3 +21,5 @@ pub mod net;
 pub mod node;
 pub mod peers;
 pub mod proxy;
+
+pub use blockchain::{Blockchain, CliConfig};

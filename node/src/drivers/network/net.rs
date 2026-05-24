@@ -9,14 +9,14 @@ use std::sync::Arc;
 
 use anyhow::Result;
 
-use crate::abstractions::adapters::network::chain::IChain;
-use crate::abstractions::adapters::network::federation::IFederation;
-use crate::abstractions::adapters::network::network::{INetwork, TlsConfig};
-use crate::abstractions::adapters::network::tcp::ITcp;
-use crate::abstractions::adapters::network::ws::IWs;
-use crate::abstractions::adapters::security::ISecurity;
-use crate::abstractions::adapters::signaler::ISignaler;
-use crate::abstractions::adapters::storage::IStorage;
+use crate::abstractions::ports::network::chain::IChain;
+use crate::abstractions::ports::network::federation::IFederation;
+use crate::abstractions::ports::network::{INetwork, TlsConfig};
+use crate::abstractions::ports::network::tcp::ITcp;
+use crate::abstractions::ports::network::ws::IWs;
+use crate::abstractions::ports::security::ISecurity;
+use crate::abstractions::ports::signaler::ISignaler;
+use crate::abstractions::ports::storage::IStorage;
 use crate::abstractions::models::core::ICore;
 use crate::drivers::network::client::{Tcp as TcpDriver, Ws as WsDriver};
 

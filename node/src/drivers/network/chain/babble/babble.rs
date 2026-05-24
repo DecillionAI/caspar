@@ -22,7 +22,7 @@ use crate::drivers::network::chain::hashgraph::{InmemStore, RocksDbStore, Store}
 use crate::drivers::network::chain::net::{new_tcp_transport, Transport};
 use crate::drivers::network::chain::node::{Node, Validator};
 use crate::drivers::network::chain::peers::{JSONPeerSet, PeerSet};
-use crate::logrus::Entry;
+use crate::compat::logrus::Entry;
 
 /// Encapsulates the components that make up a Babble node.
 pub struct Babble {

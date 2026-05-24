@@ -12,7 +12,7 @@ use crate::abstractions::models::core::{StateClosure, ICore};
 use crate::abstractions::models::info::IInfo;
 use crate::abstractions::models::trx::ITrx;
 use crate::abstractions::state::IState;
-use crate::core::module::actor::model::base::info::Info as BaseInfo;
+use crate::core::actor::model::base::info::Info as BaseInfo;
 use crate::shell::api::model::{Creature, Store};
 
 use super::vmm::{check_bool, check_i64, check_str, normalize_runtime, is_managed_runtime, Vmm};
@@ -1116,7 +1116,7 @@ impl Vmm {
         }
         let data = check_str(input, "data", "");
         // Build the SignalInput action call.
-        use crate::shell::api::inputs::stores::SignalInput;
+        use crate::shell::api::packets::stores::SignalInput;
         let signal_input = SignalInput {
             typ,
             data,

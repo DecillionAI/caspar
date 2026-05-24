@@ -13,13 +13,13 @@ use anyhow::{anyhow, Result};
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 
-use crate::abstractions::models::action::action::{IAction, ISecureAction};
+use crate::abstractions::models::action::{IAction, ISecureAction};
 use crate::abstractions::models::core::ICore;
 use crate::abstractions::models::input::IInput;
 use crate::abstractions::state::IState;
-use crate::core::module::actor::model::base::action::{Action, ActionFn, StateModifierShared};
-use crate::core::module::actor::model::secured::action::{Parse, SecureAction};
-use crate::core::module::actor::model::secured::guard::Guard;
+use crate::core::actor::model::base::action::{Action, ActionFn, StateModifierShared};
+use crate::core::actor::model::secured::action::{Parse, SecureAction};
+use crate::core::actor::model::secured::guard::Guard;
 
 /// Build a [`SecureAction`] from a typed closure + a [`Guard`].
 ///

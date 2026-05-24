@@ -7,9 +7,9 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::abstractions::adapters::tools::ITools;
+use crate::abstractions::ports::tools::ITools;
 use crate::abstractions::models::action::actor::IActor;
-use crate::abstractions::models::action::action::TrxClosure;
+use crate::abstractions::models::action::TrxClosure;
 use crate::abstractions::models::chain::Effects;
 use crate::abstractions::models::globe::IGlobe;
 use crate::abstractions::models::info::IInfo;

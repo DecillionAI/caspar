@@ -1,11 +1,11 @@
-//! Translation of the Go `kasper/src/abstract` package tree.
+//! Hexagonal-architecture boundary layer.
 //!
-//! The Go package was named `abstract`, which is a reserved word in Rust, so
-//! the module is renamed to `abstractions`. Every Go file maps to a Rust file
-//! of the same name; package-level `mod.rs` files re-export their members so
-//! that, e.g., `abstractions::adapters::network::IChain` resolves exactly like
-//! the Go `network.IChain` did.
+//! - `ports` — driver/adapter trait interfaces (what the core needs from the
+//!   outside world: storage, security, signaler, vmm, file, network).
+//! - `models` — shared domain models exchanged across `core`, `ports`, and
+//!   `shell` (actions, packets, transactions, chain/globe state).
+//! - `state` — actor lifecycle state machine.
 
-pub mod adapters;
 pub mod models;
+pub mod ports;
 pub mod state;

@@ -14,7 +14,7 @@ use crate::drivers::network::chain::crypto;
 use crate::drivers::network::chain::hashgraph::{Block, InternalTransactionReceipt};
 use crate::drivers::network::chain::node::state::State as NodeState;
 use crate::drivers::network::chain::proxy::{CommitResponse, ProxyHandler};
-use crate::logrus::Entry;
+use crate::compat::logrus::Entry;
 
 /// Toy application implementing [`ProxyHandler`].
 pub struct State {

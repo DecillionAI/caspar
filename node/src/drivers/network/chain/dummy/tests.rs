@@ -13,7 +13,7 @@ use crate::drivers::network::chain::hashgraph::{
 use crate::drivers::network::chain::node::state::State as NodeState;
 use crate::drivers::network::chain::peers::Peer;
 use crate::drivers::network::chain::proxy::AppProxy;
-use crate::logrus::Entry;
+use crate::compat::logrus::Entry;
 
 use super::InmemDummyClient;
 
