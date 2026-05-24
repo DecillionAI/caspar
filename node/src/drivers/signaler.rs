@@ -10,12 +10,12 @@ use anyhow::Result;
 use dashmap::DashMap;
 use serde_json::Value;
 
-use crate::abstractions::ports::network::federation::IFederation;
-use crate::abstractions::ports::signaler::{
+use crate::models::ports::network::federation::IFederation;
+use crate::models::ports::signaler::{
     GlobalListener, Group, ISignaler, JoinListener, Listener,
 };
-use crate::abstractions::models::core::ICore;
-use crate::abstractions::models::trx::ITrx;
+use crate::models::core::ICore;
+use crate::models::transaction::ITrx;
 
 /// Concrete [`ISignaler`] implementation. Owns per-listener / per-group
 /// `DashMap`s and a coarse-grained `Mutex` matching `Signaler.lock` from Go.

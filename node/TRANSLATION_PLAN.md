@@ -24,7 +24,7 @@
 | Go source | Rust target | Notes |
 |---|---|---|
 | `node/appengine/**` | `node/crates/appengine/**` | moved; nested workspace |
-| `src/abstract/**` | `src/abstractions/**` | renamed (`abstract` is reserved) |
+| `src/abstract/**` | `src/models/**` | renamed (`abstract` is reserved); `trx/` is now `transaction/` |
 | `src/core/module/logger` | `src/core/module/logger.rs` | |
 | `chain/common`, `chain/crypto`(+`keys`), `chain/peers` | same paths under `src/drivers/network/chain/` | + tests |
 | `chain/hashgraph/**` (all 21 prod files) | `chain/hashgraph/*.rs` | consensus engine; **badger_store.go → `rocks_store.rs`** |

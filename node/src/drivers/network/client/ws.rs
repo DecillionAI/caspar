@@ -19,12 +19,12 @@ use serde_json::Value;
 use tungstenite::protocol::Message;
 use tungstenite::{accept as ws_accept, WebSocket};
 
-use crate::abstractions::ports::network::TlsConfig;
-use crate::abstractions::ports::network::ws::IWs;
-use crate::abstractions::ports::signaler::Listener;
-use crate::abstractions::models::core::ICore;
-use crate::abstractions::models::packet::{build_error_json, ResponseSimpleMessage};
-use crate::abstractions::models::trx::ITrx;
+use crate::models::ports::network::TlsConfig;
+use crate::models::ports::network::ws::IWs;
+use crate::models::ports::signaler::Listener;
+use crate::models::core::ICore;
+use crate::models::packet::{build_error_json, ResponseSimpleMessage};
+use crate::models::transaction::ITrx;
 use crate::drivers::network::framing::{
     accept, bind_tls, decode_request_body, encode_client_response_body,
     encode_client_update_body, TlsStream,

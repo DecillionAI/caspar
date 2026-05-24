@@ -2,7 +2,7 @@
 
 use std::sync::Mutex;
 
-use crate::abstractions::models::info::IInfo;
+use crate::models::info::IInfo;
 
 /// Identity context (user / store / god flag) attached to a state-modifying
 /// call. Matches `base.Info` field-for-field; the god flag is mutable so the

@@ -16,16 +16,16 @@ use anyhow::Result;
 use dashmap::DashMap;
 use serde_json::Value;
 
-use crate::abstractions::ports::file::IFile;
-use crate::abstractions::ports::network::federation::{
+use crate::models::ports::file::IFile;
+use crate::models::ports::network::federation::{
     FedRequestCallback, IFederation,
 };
-use crate::abstractions::ports::network::TlsConfig;
-use crate::abstractions::ports::signaler::ISignaler;
-use crate::abstractions::ports::storage::IStorage;
-use crate::abstractions::models::core::ICore;
-use crate::abstractions::models::packet::{build_error_json, OriginPacket};
-use crate::abstractions::models::trx::ITrx;
+use crate::models::ports::network::TlsConfig;
+use crate::models::ports::signaler::ISignaler;
+use crate::models::ports::storage::IStorage;
+use crate::models::core::ICore;
+use crate::models::packet::{build_error_json, OriginPacket};
+use crate::models::transaction::ITrx;
 use crate::shell::api::packets::{invites, stores};
 use crate::shell::utils::crypto::secure_unique_string;
 use crate::util::GoError;
@@ -169,7 +169,7 @@ impl FedNet {
         let mut slot = cb.callback.lock().unwrap();
         if let Some(callback) = slot.take() {
             if pack.res_code != 0 {
-                let err_obj: crate::abstractions::models::packet::Error =
+                let err_obj: crate::models::packet::Error =
                     serde_json::from_slice(&pack.binary).unwrap_or_default();
                 callback(Vec::new(), 1, Some(anyhow::anyhow!(err_obj.message)));
             } else {

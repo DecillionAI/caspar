@@ -10,9 +10,9 @@ use std::thread;
 use anyhow::Result;
 use dashmap::DashMap;
 
-use crate::abstractions::ports::network::TlsConfig;
-use crate::abstractions::models::core::ICore;
-use crate::abstractions::models::packet::OriginPacket;
+use crate::models::ports::network::TlsConfig;
+use crate::models::core::ICore;
+use crate::models::packet::OriginPacket;
 use crate::drivers::network::framing::{
     accept, bind_tls, decode_request_body, decode_response_body, decode_update_body, dial,
     encode_fed_response_body, encode_fed_update_body, encode_request_body,

@@ -26,24 +26,24 @@ use rsa::signature::{RandomizedSigner, SignatureEncoding};
 use rsa::RsaPrivateKey;
 use serde_json::{json, Value};
 
-use crate::abstractions::ports::file::IFile;
-use crate::abstractions::ports::network::INetwork;
-use crate::abstractions::ports::security::ISecurity;
-use crate::abstractions::ports::signaler::ISignaler;
-use crate::abstractions::ports::storage::IStorage;
-use crate::abstractions::ports::tools::ITools;
-use crate::abstractions::ports::vmm::IVmm;
-use crate::abstractions::models::action::TrxClosure;
-use crate::abstractions::models::action::actor::IActor;
-use crate::abstractions::models::chain::{
+use crate::models::ports::file::IFile;
+use crate::models::ports::network::INetwork;
+use crate::models::ports::security::ISecurity;
+use crate::models::ports::signaler::ISignaler;
+use crate::models::ports::storage::IStorage;
+use crate::models::ports::tools::ITools;
+use crate::models::ports::vmm::IVmm;
+use crate::models::action::TrxClosure;
+use crate::models::action::actor::IActor;
+use crate::models::chain::{
     ChainBaseRequest, ChainCallback, ChainElectionPacket, ChainMessage, ChainPayPacket,
     ChainResponse, ChainStakePacket, MessageCallback,
 };
-use crate::abstractions::models::core::{ICore, StateClosure};
-use crate::abstractions::models::globe::IGlobe;
-use crate::abstractions::models::info::IInfo;
-use crate::abstractions::models::trx::ITrx;
-use crate::abstractions::models::worker::Trx as WorkerTrx;
+use crate::models::core::{ICore, StateClosure};
+use crate::models::globe::IGlobe;
+use crate::models::info::IInfo;
+use crate::models::transaction::ITrx;
+use crate::models::worker::Trx as WorkerTrx;
 use crate::core::actor::{Actor, Info as BaseInfo, State as ActorState};
 use crate::core::actor::model::trx::TrxWrapper;
 use crate::core::globe::{ChainPacketOp, Globe};
@@ -121,7 +121,7 @@ pub struct Core {
     gods: Mutex<Vec<String>>,
     free_nodes: Mutex<HashMap<String, bool>>,
     app_pending_trxs: Mutex<Vec<WorkerTrx>>,
-    elections: Mutex<Vec<crate::abstractions::models::chain::Election>>,
+    elections: Mutex<Vec<crate::models::chain::Election>>,
     cost: Mutex<CostConfig>,
     priv_key: Mutex<Option<Arc<RsaPrivateKey>>>,
 }
@@ -291,7 +291,7 @@ impl Core {
         let sign = self.sign_packet_as_owner(&inp);
         let (tx, rx) = std::sync::mpsc::channel::<bool>();
         let owner = self.owner_id.clone();
-        let cb: crate::abstractions::models::globe::BaseResponseCallback =
+        let cb: crate::models::globe::BaseResponseCallback =
             Box::new(move |_data: Vec<u8>, status: i64, err: Option<GoError>| {
                 let ok = err.is_none() && status < 400;
                 let _ = tx.send(ok);
@@ -634,7 +634,7 @@ impl ICore for Core {
         };
         let core_clone: Arc<dyn ICore> = self.weak_self();
         let trx = TrxWrapper::new(core_clone, tools.storage(), readonly);
-        let state: Arc<dyn crate::abstractions::state::IState> =
+        let state: Arc<dyn crate::models::state::IState> =
             Arc::new(ActorState::new(Some(info), Some(trx.clone()), src));
         let res = fn_(state);
         if res.is_ok() {
@@ -744,7 +744,7 @@ impl Core {
             signaler.clone(),
         );
         let file: Arc<dyn IFile> = Arc::new(FileDriver::new(storage_root));
-        let chain: Arc<dyn crate::abstractions::ports::network::chain::IChain> =
+        let chain: Arc<dyn crate::models::ports::network::chain::IChain> =
             Blockchain::new(self.clone(), storage_root);
         let network: Arc<dyn INetwork> = NetworkDriver::new(
             self.clone(),
@@ -869,7 +869,7 @@ impl Core {
         // Wire the chain pipeline so committed blocks flow through
         // `handle_chain_packet`.
         let trans = self.clone();
-        let pipeline: crate::abstractions::ports::network::chain::PipelineFn =
+        let pipeline: crate::models::ports::network::chain::PipelineFn =
             Box::new(move |txs: Vec<Vec<u8>>, insider_cb: Box<dyn Fn(Vec<u8>) + Send + Sync>| {
                 let mut machine_ids: Vec<String> = Vec::new();
                 for tx in txs {
@@ -1046,7 +1046,7 @@ impl ICore for WeakCoreView {
             inner: CoreWeakHandles { ..clone_handles(&self.inner) },
         });
         let trx = TrxWrapper::new(core_for_trx, tools.storage(), readonly);
-        let state: Arc<dyn crate::abstractions::state::IState> =
+        let state: Arc<dyn crate::models::state::IState> =
             Arc::new(ActorState::new(Some(info), Some(trx.clone()), src));
         let res = fn_(state);
         if res.is_ok() {

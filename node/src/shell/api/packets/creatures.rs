@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::abstractions::models::input::IInput;
+use crate::models::input::IInput;
 use crate::shell::api::model::{Session, User};
 
 macro_rules! input_impls {

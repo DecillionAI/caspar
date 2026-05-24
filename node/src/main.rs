@@ -1,13 +1,4 @@
 // Caspar node — Rust translation of the Caspar (kasper) Go node.
-//
-// Translation phase summary:
-//   Phase 0  — workspace restructuring
-//   Phase 1  — foundation: `abstractions` (models + adapter traits), logger
-//   Phase 2  — Babble hashgraph + chain node consensus engine
-//   Phase 3  — core modules (core, globe, actor, pool)
-//   Phase 4  — drivers (file, security, signaler, storage, vmm, network)
-//   Phase 5  — shell API + utils + app wiring
-//   Phase 6  — top-level binary, telemetry, tooling
 
 #![allow(dead_code)]
 #![allow(unused_imports)]
@@ -17,10 +8,10 @@
 #[macro_use]
 mod compat;
 
-mod abstractions;
 mod bots;
 mod core;
 mod drivers;
+mod models;
 mod shell;
 mod telemetry;
 mod util;
@@ -31,8 +22,8 @@ use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
-use crate::abstractions::models::action::ExtendedField;
-use crate::abstractions::models::core::ICore;
+use crate::models::action::ExtendedField;
+use crate::models::core::ICore;
 use crate::shell::api::main_api::plug_all;
 use crate::shell::kasper::new_app;
 
@@ -130,7 +121,7 @@ fn main() {
     model_extender.insert("user".to_string(), user_extender);
     model_extender.insert("store".to_string(), store_extender);
 
-    let app_for_plug: Arc<dyn crate::abstractions::models::core::ICore> = app.clone();
+    let app_for_plug: Arc<dyn crate::models::core::ICore> = app.clone();
     plug_all(app_for_plug, &model_extender);
 
     app.run();

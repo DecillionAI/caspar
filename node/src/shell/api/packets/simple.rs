@@ -3,7 +3,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::abstractions::models::input::IInput;
+use crate::models::input::IInput;
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct EmptyInput {}

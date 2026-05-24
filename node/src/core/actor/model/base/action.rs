@@ -5,9 +5,9 @@ use std::sync::Arc;
 use anyhow::Result;
 use serde_json::Value;
 
-use crate::abstractions::models::action::{IAction, StateModifierFn, TrxClosure};
-use crate::abstractions::models::input::IInput;
-use crate::abstractions::state::IState;
+use crate::models::action::{IAction, StateModifierFn, TrxClosure};
+use crate::models::input::IInput;
+use crate::models::state::IState;
 
 /// Concrete callback signature the base [`Action`] dispatches into:
 /// `func(state.IState, input.IInput) (any, error)`.

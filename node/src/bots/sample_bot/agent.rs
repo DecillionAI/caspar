@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 
 use serde_json::Value;
 
-use crate::abstractions::models::core::ICore;
+use crate::models::core::ICore;
 use crate::shell::api::packets::stores::SignalInput;
 use crate::shell::utils::crypto::secure_unique_string;
 
@@ -63,7 +63,7 @@ impl BotAgent {
         };
         let packet_binary = serde_json::to_vec(&packet).unwrap_or_default();
         if let Some(secure) = core.actor().fetch_secure_action("/stores/signal") {
-            let packet_arc: Arc<dyn crate::abstractions::models::input::IInput> =
+            let packet_arc: Arc<dyn crate::models::input::IInput> =
                 Arc::new(packet.clone());
             let _ = secure.securely_act(
                 &bot_user_id,

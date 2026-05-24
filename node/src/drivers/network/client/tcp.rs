@@ -13,12 +13,12 @@ use std::time::Duration;
 use dashmap::DashMap;
 use serde_json::Value;
 
-use crate::abstractions::ports::network::TlsConfig;
-use crate::abstractions::ports::network::tcp::ITcp;
-use crate::abstractions::ports::signaler::Listener;
-use crate::abstractions::models::core::ICore;
-use crate::abstractions::models::packet::{build_error_json, ResponseSimpleMessage};
-use crate::abstractions::models::trx::ITrx;
+use crate::models::ports::network::TlsConfig;
+use crate::models::ports::network::tcp::ITcp;
+use crate::models::ports::signaler::Listener;
+use crate::models::core::ICore;
+use crate::models::packet::{build_error_json, ResponseSimpleMessage};
+use crate::models::transaction::ITrx;
 use crate::drivers::network::framing::{
     accept, bind_tls, decode_request_body, encode_client_response_body, encode_client_update_body,
     read_length_prefixed_frame, write_length_prefixed_frame, TlsStream,

@@ -12,15 +12,15 @@ use chrono::{DateTime, Datelike, TimeZone, Timelike, Utc};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
-use crate::abstractions::models::chain::{
+use crate::models::chain::{
     ChainBaseRequest, ChainCallback, ChainElectionPacket, ChainMessage, ChainPayPacket,
     ChainResponse, ChainStakePacket, Effects, ElectionRound, MessageCallback,
     StakingNodeState, ValidatorSetRecord,
 };
-use crate::abstractions::models::globe::{
+use crate::models::globe::{
     BaseResponseCallback, IGlobe, TypedMessageCallback,
 };
-use crate::abstractions::models::update::Update;
+use crate::models::update::Update;
 use crate::shell::utils::crypto::secure_unique_string;
 use crate::util::AnyVal;
 

@@ -2,7 +2,7 @@
 
 use serde_json::Value;
 
-use super::vmm::{check_i64, check_str, Vmm};
+use super::driver::{check_i64, check_str, Vmm};
 
 impl Vmm {
     /// Entry point: parse a host-call message coming from the appengine over
