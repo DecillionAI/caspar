@@ -12,7 +12,7 @@ use std::path::PathBuf;
 
 use anyhow::{anyhow, Result};
 use k256::ecdsa::SigningKey;
-use k256::elliptic_curve::{rand_core::OsRng, sec1::ToEncodedPoint};
+use k256::elliptic_curve::rand_core::OsRng;
 
 fn main() {
     if let Err(e) = generate() {
