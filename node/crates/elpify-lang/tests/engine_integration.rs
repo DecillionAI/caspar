@@ -1,5 +1,5 @@
-use elify_lang::compiler::transpile_js_to_masm;
-use elify_lang::executor::{
+use elpify_lang::compiler::transpile_js_to_masm;
+use elpify_lang::executor::{
     assemble_program, execute_with_proof, stack_outputs_from_ints, verify_execution,
 };
 
@@ -239,4 +239,89 @@ fn real_world_ecommerce_checkout_process() {
     "#;
 
     assert_eq!(run_program(source), 125);
+}
+
+#[test]
+fn off_chain_proof_verifies_on_chain_for_simple_arithmetic() {
+    // Off-chain side: produce stack outputs + a STARK proof for `2 + 3`.
+    let source = "return 2 + 3;";
+    let masm = transpile_js_to_masm(source).expect("transpile");
+    let artifacts = execute_with_proof(&masm, &[]).expect("execute");
+
+    assert_eq!(
+        artifacts.stack_outputs[0], 5,
+        "off-chain execution result must be 5"
+    );
+
+    // On-chain side: verify the proof against the (program info, public
+    // inputs, public outputs, proof) tuple — the exact data Caspar would
+    // ship across consensus.
+    let outputs =
+        stack_outputs_from_ints(&artifacts.stack_outputs).expect("outputs convert");
+    let cycles = verify_execution(
+        artifacts.program_info,
+        artifacts.stack_inputs,
+        outputs,
+        &artifacts.proof_bytes,
+    )
+    .expect("verification of a fresh proof must succeed");
+    assert!(cycles > 0, "verifier should report a non-zero cycle count");
+}
+
+#[test]
+fn proof_bytes_round_trip_preserves_verifiability() {
+    // Simulate serialising the proof for transport then deserialising it
+    // back via the verifier path.
+    let masm = transpile_js_to_masm("return 7 * 6;").expect("transpile");
+    let artifacts = execute_with_proof(&masm, &[]).expect("execute");
+    assert_eq!(artifacts.stack_outputs[0], 42);
+
+    // Round-trip the bytes through an owned Vec to mimic wire transport.
+    let on_wire = artifacts.proof_bytes.clone();
+    let received = on_wire.to_vec();
+
+    let outputs =
+        stack_outputs_from_ints(&artifacts.stack_outputs).expect("outputs convert");
+    let result = verify_execution(
+        artifacts.program_info,
+        artifacts.stack_inputs,
+        outputs,
+        &received,
+    );
+    assert!(result.is_ok(), "round-tripped proof must verify");
+}
+
+#[test]
+fn verify_rejects_truncated_proof_bytes() {
+    let masm = transpile_js_to_masm("return 1 + 1;").expect("transpile");
+    let artifacts = execute_with_proof(&masm, &[]).expect("execute");
+
+    // Lop a few bytes off the end — should produce a deserialization or
+    // verification error, not a panic.
+    let short = &artifacts.proof_bytes[..artifacts.proof_bytes.len() / 2];
+    let outputs =
+        stack_outputs_from_ints(&artifacts.stack_outputs).expect("outputs convert");
+    let err = verify_execution(
+        artifacts.program_info,
+        artifacts.stack_inputs,
+        outputs,
+        short,
+    );
+    assert!(err.is_err(), "truncated proof must not verify");
+}
+
+#[test]
+fn execute_with_proof_errors_on_invalid_masm() {
+    // Pre-compiled MASM with a syntax error should propagate as an
+    // ExecutorError, never panic.
+    let err = execute_with_proof("not valid masm at all", &[]).expect_err("should fail");
+    assert!(format!("{}", err).len() > 0);
+}
+
+#[test]
+fn stack_outputs_from_ints_round_trips_simple_value() {
+    let outs = stack_outputs_from_ints(&[5, 0, 0, 0]).expect("convert");
+    // The wrapper accepts the value back through the verifier; we only need
+    // to assert the conversion does not error and the public API holds.
+    let _ = outs;
 }

@@ -813,6 +813,76 @@ mod tests {
         assert_eq!(tw2.get_string("temp"), "");
     }
 
+    #[test]
+    fn read_after_delete_returns_empty_within_same_trx() {
+        let (_s, tw) = fresh_trx(false);
+        tw.put_string("k", "v");
+        assert_eq!(tw.get_string("k"), "v");
+        tw.del_key("k");
+        // Tombstone is visible to subsequent reads in the same transaction.
+        assert_eq!(tw.get_string("k"), "");
+        // Bytes path also sees the tombstone.
+        assert!(tw.get_bytes("k").is_empty());
+    }
+
+    #[test]
+    fn updates_capture_overlay_writes_and_deletes() {
+        let (_s, tw) = fresh_trx(false);
+        tw.put_string("k1", "v1");
+        tw.put_bytes("k2", b"raw".to_vec());
+        tw.del_key("k1");
+        let updates = tw.updates();
+        // Three changes captured in order.
+        assert_eq!(updates.len(), 3);
+    }
+
+    #[test]
+    fn put_link_round_trips_through_overlay() {
+        let (_s, tw) = fresh_trx(false);
+        tw.put_link("alpha", "beta");
+        assert_eq!(tw.get_link("alpha"), "beta");
+    }
+
+    #[test]
+    fn link_value_indexing_round_trips() {
+        let (_s, tw) = fresh_trx(false);
+        tw.put_index("User", "id", "email", "1", b"a@b".to_vec());
+        assert!(tw.has_index("User", "id", "email", "1"));
+        assert_eq!(tw.get_index("User", "id", "email", "1"), "a@b");
+        tw.del_index("User", "id", "email", "1");
+        assert!(!tw.has_index("User", "id", "email", "1"));
+    }
+
+    #[test]
+    fn second_commit_is_noop() {
+        let (storage, tw) = fresh_trx(false);
+        tw.put_string("x", "1");
+        tw.commit();
+        // A second commit on the same wrapper must not double-apply nor panic.
+        tw.commit();
+        let tw2 = TrxWrapper::new(
+            Arc::new(StubCore { storage: storage.clone() }),
+            storage,
+            true,
+        );
+        assert_eq!(tw2.get_string("x"), "1");
+    }
+
+    #[test]
+    fn json_merge_preserves_unrelated_paths() {
+        let (_s, tw) = fresh_trx(false);
+        let initial = serde_json::json!({"a": 1, "b": {"c": "x", "d": "y"}});
+        tw.put_json("k", "p", &initial, false).unwrap();
+        // Merge a new leaf inside `b`; existing `c` should remain.
+        let patch = serde_json::json!({"b": {"e": "z"}});
+        tw.put_json("k", "p", &patch, true).unwrap();
+        let merged = tw.get_json("k", "p").unwrap();
+        let b = merged.get("b").unwrap().as_object().unwrap();
+        assert_eq!(b.get("c"), Some(&Value::String("x".into())));
+        assert_eq!(b.get("d"), Some(&Value::String("y".into())));
+        assert_eq!(b.get("e"), Some(&Value::String("z".into())));
+    }
+
     // Suppress unused-import warnings on driver traits referenced by the
     // stub `ICore` impl path.
     #[allow(dead_code)]

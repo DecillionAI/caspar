@@ -524,3 +524,137 @@ fn write_lp_str(out: &mut Vec<u8>, s: &str) {
     out.extend_from_slice(&(s.len() as u32).to_be_bytes());
     out.extend_from_slice(s.as_bytes());
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Cursor;
+
+    #[test]
+    fn request_body_round_trip() {
+        let payload = b"hello payload";
+        let bytes = encode_request_body("sig", "user", "/path", "pkt-1", payload);
+        // First byte is the request-frame tag.
+        assert_eq!(bytes[0], 0x03);
+        let parsed = decode_request_body(&bytes[1..]).expect("decode");
+        assert_eq!(parsed.signature, "sig");
+        assert_eq!(parsed.user_id, "user");
+        assert_eq!(parsed.path, "/path");
+        assert_eq!(parsed.packet_id, "pkt-1");
+        assert_eq!(parsed.payload, payload);
+    }
+
+    #[test]
+    fn client_response_body_round_trip() {
+        let bytes = encode_client_response_body("pkt-7", 404, b"not-found");
+        assert_eq!(bytes[0], 0x02);
+        let parsed = decode_response_body(&bytes[1..], false).expect("decode");
+        assert_eq!(parsed.packet_id, "pkt-7");
+        assert_eq!(parsed.res_code, 404);
+        assert!(parsed.signature.is_empty());
+        assert_eq!(parsed.payload, b"not-found");
+    }
+
+    #[test]
+    fn fed_response_body_carries_signature_round_trip() {
+        let bytes = encode_fed_response_body("pkt-9", 200, "sig", b"body");
+        let parsed = decode_response_body(&bytes[1..], true).expect("decode");
+        assert_eq!(parsed.packet_id, "pkt-9");
+        assert_eq!(parsed.res_code, 200);
+        assert_eq!(parsed.signature, "sig");
+        assert_eq!(parsed.payload, b"body");
+    }
+
+    #[test]
+    fn client_update_body_round_trip() {
+        let bytes = encode_client_update_body("topic:x", b"data");
+        assert_eq!(bytes[0], 0x01);
+        let parsed = decode_update_body(&bytes[1..], false).expect("decode");
+        assert!(parsed.signature.is_empty());
+        assert!(parsed.target_id.is_empty());
+        assert!(parsed.exceptions.is_empty());
+        assert_eq!(parsed.key, "topic:x");
+        assert_eq!(parsed.payload, b"data");
+    }
+
+    #[test]
+    fn fed_update_body_carries_metadata_round_trip() {
+        let excs = vec!["a".to_string(), "b".to_string()];
+        let bytes = encode_fed_update_body("sig", "target", &excs, "k", b"p");
+        let parsed = decode_update_body(&bytes[1..], true).expect("decode");
+        assert_eq!(parsed.signature, "sig");
+        assert_eq!(parsed.target_id, "target");
+        assert_eq!(parsed.exceptions, excs);
+        assert_eq!(parsed.key, "k");
+        assert_eq!(parsed.payload, b"p");
+    }
+
+    #[test]
+    fn fed_update_body_with_empty_exceptions_decodes_to_empty_vec() {
+        let bytes = encode_fed_update_body("sig", "tgt", &[], "k", b"p");
+        let parsed = decode_update_body(&bytes[1..], true).expect("decode");
+        assert!(parsed.exceptions.is_empty());
+    }
+
+    #[test]
+    fn decode_request_body_rejects_truncated_length_prefix() {
+        // Only one byte where a 4-byte length is needed.
+        let res = decode_request_body(&[0x00]);
+        let err = res.err().expect("should fail");
+        assert!(format!("{}", err).contains("truncated"));
+    }
+
+    #[test]
+    fn decode_request_body_rejects_truncated_body() {
+        // Length says 8 bytes follow, but only 4 are present.
+        let body = [0u8, 0, 0, 8, 1, 2, 3, 4];
+        let err = decode_request_body(&body).err().expect("should fail");
+        assert!(format!("{}", err).contains("truncated"));
+    }
+
+    #[test]
+    fn decode_response_body_rejects_truncated_rescode() {
+        // Just a packet id + 1 byte where 4 are needed for resCode.
+        let mut body = Vec::new();
+        body.extend_from_slice(&0u32.to_be_bytes()); // empty packet_id
+        body.push(0); // start of (truncated) res_code
+        let err = decode_response_body(&body, false).err().expect("should fail");
+        assert!(format!("{}", err).contains("truncated"));
+    }
+
+    #[test]
+    fn length_prefixed_round_trip_through_cursor() {
+        let payload = b"hello-world".to_vec();
+        let mut buf: Vec<u8> = Vec::new();
+        write_length_prefixed_frame(&mut buf, &payload).expect("write");
+
+        let mut cur = Cursor::new(buf);
+        let read = read_length_prefixed_frame(&mut cur).expect("read");
+        assert_eq!(read.as_deref(), Some(payload.as_slice()));
+    }
+
+    #[test]
+    fn read_length_prefixed_returns_none_on_clean_eof() {
+        let mut cur = Cursor::new(Vec::<u8>::new());
+        let read = read_length_prefixed_frame(&mut cur).expect("clean eof");
+        assert!(read.is_none());
+    }
+
+    #[test]
+    fn write_length_prefixed_rejects_over_max_size() {
+        // Allocate a vec just over MAX_FRAME_LEN to exercise the cap.
+        let body = vec![0u8; (MAX_FRAME_LEN as usize) + 1];
+        let mut buf: Vec<u8> = Vec::new();
+        let err = write_length_prefixed_frame(&mut buf, &body).expect_err("too large");
+        assert!(format!("{}", err).contains("too large"));
+    }
+
+    #[test]
+    fn read_length_prefixed_rejects_over_max_size() {
+        let mut buf = Vec::new();
+        buf.extend_from_slice(&(MAX_FRAME_LEN + 1).to_be_bytes());
+        let mut cur = Cursor::new(buf);
+        let err = read_length_prefixed_frame(&mut cur).expect_err("too large");
+        assert!(format!("{}", err).contains("too large"));
+    }
+}

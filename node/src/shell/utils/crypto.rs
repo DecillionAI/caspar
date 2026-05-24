@@ -87,4 +87,64 @@ mod tests {
         let id = secure_unique_id("acme");
         assert!(id.ends_with("@acme"));
     }
+
+    #[test]
+    fn unique_string_has_two_uuid_segments() {
+        let s = secure_unique_string();
+        // Each UUID contains 4 dashes (8-4-4-4-12). Two UUIDs joined by `-`
+        // gives 4 + 1 + 4 = 9 dashes total.
+        assert_eq!(s.matches('-').count(), 9);
+        // The 5th dash (index 4) is the separator between the two UUIDs.
+        let sep = s.match_indices('-').nth(4).expect("separator").0;
+        let (a, b) = (&s[..sep], &s[sep + 1..]);
+        Uuid::parse_str(a).expect("first half should be a UUID");
+        Uuid::parse_str(b).expect("second half should be a UUID");
+    }
+
+    #[test]
+    fn key_pairs_round_trip_through_pem_helpers() {
+        let (priv_pem, pub_pem) = secure_key_pairs("").expect("generate keypair");
+        assert!(std::str::from_utf8(&priv_pem)
+            .unwrap()
+            .contains("-----BEGIN PRIVATE KEY-----"));
+        assert!(std::str::from_utf8(&pub_pem)
+            .unwrap()
+            .contains("-----BEGIN PUBLIC KEY-----"));
+
+        let parsed_priv = parse_private_key(&priv_pem).expect("parse private");
+        let parsed_pub = parse_public_key(&pub_pem).expect("parse public");
+        // The public key derived from the parsed private must match the
+        // separately-parsed public PEM.
+        let derived_pub = rsa::RsaPublicKey::from(&parsed_priv);
+        assert_eq!(derived_pub, parsed_pub);
+    }
+
+    #[test]
+    fn key_pairs_persist_to_save_path() {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir = std::env::temp_dir()
+            .join(format!("caspar-keypair-{}-{}", std::process::id(), nanos));
+        let path = dir.to_string_lossy().into_owned();
+
+        let (priv_pem, pub_pem) = secure_key_pairs(&path).expect("generate keypair");
+        assert_eq!(std::fs::read(dir.join("private.pem")).unwrap(), priv_pem);
+        assert_eq!(std::fs::read(dir.join("public.pem")).unwrap(), pub_pem);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn parse_private_key_rejects_invalid_pem() {
+        assert!(parse_private_key(b"not a pem").is_err());
+        assert!(parse_private_key(b"").is_err());
+    }
+
+    #[test]
+    fn parse_public_key_rejects_invalid_pem() {
+        assert!(parse_public_key(b"not a pem").is_err());
+        assert!(parse_public_key(b"").is_err());
+    }
 }

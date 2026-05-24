@@ -60,4 +60,55 @@ mod tests {
         let h = async_once(|| panic!("boom"));
         h.join().unwrap();
     }
+
+    #[test]
+    fn async_non_retriable_runs_once() {
+        let n = Arc::new(AtomicUsize::new(0));
+        let n_clone = n.clone();
+        let h = r#async(
+            move || {
+                n_clone.fetch_add(1, Ordering::SeqCst);
+            },
+            false,
+        );
+        h.join().unwrap();
+        assert_eq!(n.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn async_retriable_restarts_on_panic_until_observable_progress() {
+        // The closure panics until it has been entered N times, then sleeps
+        // forever on a parking lot to prove the loop survived the panics.
+        let n = Arc::new(AtomicUsize::new(0));
+        let target: usize = 4;
+        let n_clone = n.clone();
+
+        let _handle = r#async(
+            move || {
+                let count = n_clone.fetch_add(1, Ordering::SeqCst) + 1;
+                if count < target {
+                    panic!("intentional panic #{}", count);
+                }
+                // Stop work by sleeping so subsequent iterations don't spin
+                // the CPU. The test only cares that we reached `target`.
+                std::thread::sleep(std::time::Duration::from_secs(60));
+            },
+            true,
+        );
+
+        // Wait up to ~2s for the counter to reach the target.
+        for _ in 0..200 {
+            if n.load(Ordering::SeqCst) >= target {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert!(
+            n.load(Ordering::SeqCst) >= target,
+            "retriable loop did not survive panics (n={})",
+            n.load(Ordering::SeqCst)
+        );
+        // The detached thread continues sleeping until the test process exits;
+        // intentional, since the JoinHandle for an infinite loop never returns.
+    }
 }

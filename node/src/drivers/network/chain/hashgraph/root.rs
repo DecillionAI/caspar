@@ -48,3 +48,59 @@ impl Root {
         Ok(common::encode_to_string(&hash))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::drivers::network::chain::hashgraph::event::FrameEvent;
+
+    #[test]
+    fn new_root_is_empty() {
+        let r = Root::new();
+        assert!(r.events.is_empty());
+    }
+
+    #[test]
+    fn insert_appends_events_in_order() {
+        let mut r = Root::new();
+        r.insert(FrameEvent::default());
+        r.insert(FrameEvent::default());
+        assert_eq!(r.events.len(), 2);
+    }
+
+    #[test]
+    fn marshal_appends_trailing_newline() {
+        let r = Root::new();
+        let bytes = r.marshal().expect("marshal");
+        assert_eq!(*bytes.last().unwrap(), b'\n');
+    }
+
+    #[test]
+    fn marshal_unmarshal_round_trip() {
+        let mut original = Root::new();
+        original.insert(FrameEvent::default());
+        let bytes = original.marshal().unwrap();
+
+        let mut restored = Root::default();
+        restored.unmarshal(&bytes).expect("unmarshal");
+        assert_eq!(restored, original);
+    }
+
+    #[test]
+    fn hash_is_hex_encoded_with_0x_prefix_and_deterministic() {
+        let r = Root::new();
+        let h = r.hash().unwrap();
+        assert!(h.starts_with("0X"));
+        // 32-byte SHA-256 -> "0X" + 64 hex chars.
+        assert_eq!(h.len(), 2 + 64);
+        assert_eq!(h, r.hash().unwrap());
+    }
+
+    #[test]
+    fn hash_differs_after_insertion() {
+        let empty = Root::new().hash().unwrap();
+        let mut r = Root::new();
+        r.insert(FrameEvent::default());
+        assert_ne!(empty, r.hash().unwrap());
+    }
+}

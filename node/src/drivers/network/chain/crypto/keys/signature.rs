@@ -90,4 +90,46 @@ mod tests {
         // The signature must verify against the matching public key.
         assert!(verify(priv_key.verifying_key(), &msg_hash_bytes, &r, &s));
     }
+
+    #[test]
+    fn verify_rejects_wrong_message() {
+        let priv_key = generate_ecdsa_key().unwrap();
+        let h_a = sha256(b"alpha");
+        let h_b = sha256(b"beta");
+        let (r, s) = sign(&priv_key, &h_a).unwrap();
+        assert!(!verify(priv_key.verifying_key(), &h_b, &r, &s));
+    }
+
+    #[test]
+    fn verify_rejects_wrong_key() {
+        let priv_a = generate_ecdsa_key().unwrap();
+        let priv_b = generate_ecdsa_key().unwrap();
+        let h = sha256(b"payload");
+        let (r, s) = sign(&priv_a, &h).unwrap();
+        assert!(!verify(priv_b.verifying_key(), &h, &r, &s));
+    }
+
+    #[test]
+    fn decode_signature_requires_pipe_separator() {
+        assert!(decode_signature("nopipehere").is_err());
+        assert!(decode_signature("a|b|c").is_err());
+    }
+
+    #[test]
+    fn decode_signature_rejects_invalid_base36() {
+        assert!(decode_signature("zzz!|abc").is_err());
+        assert!(decode_signature("abc|zzz!").is_err());
+    }
+
+    #[test]
+    fn encode_signature_uses_base36_with_pipe() {
+        // 35 in base 36 is "z"; the round-trip should preserve both parts.
+        let r = num_bigint::BigUint::from(35u32);
+        let s = num_bigint::BigUint::from(36u32);
+        let encoded = encode_signature(&r, &s);
+        assert_eq!(encoded, "z|10");
+        let (dr, ds) = decode_signature(&encoded).unwrap();
+        assert_eq!(dr, r);
+        assert_eq!(ds, s);
+    }
 }

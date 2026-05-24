@@ -95,3 +95,67 @@ impl<T: Clone> RollingIndexMap<T> {
         known
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::drivers::network::chain::common::store_errors::{is_store, StoreErrType};
+
+    #[test]
+    fn add_key_rejects_duplicates() {
+        let mut m: RollingIndexMap<i64> = RollingIndexMap::new("m", 4);
+        m.add_key(1).expect("first add");
+        let err = m.add_key(1).expect_err("duplicate add should fail");
+        assert!(
+            is_store(&err, StoreErrType::KeyAlreadyExists),
+            "expected KeyAlreadyExists, got {:?}",
+            err
+        );
+    }
+
+    #[test]
+    fn get_for_unknown_key_returns_keynotfound() {
+        let m: RollingIndexMap<i64> = RollingIndexMap::new("m", 4);
+        let err = m.get(99, -1).expect_err("missing");
+        assert!(is_store(&err, StoreErrType::KeyNotFound));
+        let err = m.get_item(99, 0).expect_err("missing");
+        assert!(is_store(&err, StoreErrType::KeyNotFound));
+        let err = m.get_last(99).expect_err("missing");
+        assert!(is_store(&err, StoreErrType::KeyNotFound));
+    }
+
+    #[test]
+    fn set_auto_creates_rolling_index_and_known_tracks_last() {
+        let mut m: RollingIndexMap<String> = RollingIndexMap::new("m", 4);
+        m.set(1, "a".to_string(), 0).unwrap();
+        m.set(1, "b".to_string(), 1).unwrap();
+        m.set(2, "x".to_string(), 0).unwrap();
+
+        let known = m.known();
+        assert_eq!(known.get(&1), Some(&1));
+        assert_eq!(known.get(&2), Some(&0));
+
+        assert_eq!(m.get_item(1, 0).unwrap(), "a");
+        assert_eq!(m.get_item(1, 1).unwrap(), "b");
+        assert_eq!(m.get_last(1).unwrap(), "b");
+        assert_eq!(m.get_last(2).unwrap(), "x");
+    }
+
+    #[test]
+    fn get_last_on_empty_index_returns_empty() {
+        let mut m: RollingIndexMap<i64> = RollingIndexMap::new("m", 4);
+        m.add_key(1).unwrap();
+        let err = m.get_last(1).expect_err("empty");
+        assert!(is_store(&err, StoreErrType::Empty));
+    }
+
+    #[test]
+    fn get_returns_items_after_skip_index() {
+        let mut m: RollingIndexMap<i64> = RollingIndexMap::new("m", 8);
+        for i in 0..5 {
+            m.set(7, i, i).unwrap();
+        }
+        let items = m.get(7, 1).unwrap();
+        assert_eq!(items, vec![2, 3, 4]);
+    }
+}

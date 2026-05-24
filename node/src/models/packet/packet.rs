@@ -63,4 +63,79 @@ mod tests {
         let cmd = Command { value: "ping".to_string(), data: "x".to_string() };
         assert!(cmd.value == "ping" && cmd.data == "x", "command fields mismatch");
     }
+
+    #[test]
+    fn packet_round_trips_through_json() {
+        let p = Packet { origin: "fed".to_string(), data: "d".to_string() };
+        let raw = serde_json::to_vec(&p).unwrap();
+        let parsed: Packet = serde_json::from_slice(&raw).unwrap();
+        assert_eq!(parsed.origin, p.origin);
+        assert_eq!(parsed.data, p.data);
+    }
+
+    #[test]
+    fn log_packet_serializes_with_camel_case_keys() {
+        let p = LogPacket {
+            id: "1".to_string(),
+            store_id: "store-7".to_string(),
+            user_id: "u".to_string(),
+            data: "msg".to_string(),
+            time: 17,
+            edited: true,
+        };
+        let s = serde_json::to_string(&p).unwrap();
+        // Field names follow the explicit serde rename.
+        assert!(s.contains(r#""storeId":"store-7""#), "{}", s);
+        assert!(s.contains(r#""userId":"u""#), "{}", s);
+        assert!(s.contains(r#""edited":true"#), "{}", s);
+        // Round trip is lossless.
+        let parsed: LogPacket = serde_json::from_str(&s).unwrap();
+        assert_eq!(parsed.store_id, p.store_id);
+        assert_eq!(parsed.time, p.time);
+        assert_eq!(parsed.edited, p.edited);
+    }
+
+    #[test]
+    fn build_packet_omits_empty_optional_fields() {
+        let p = BuildPacket {
+            id: "id".to_string(),
+            build_id: "b".to_string(),
+            creature_id: "c".to_string(),
+            // vm_id and log_type are left empty; they should be skipped on serialize.
+            vm_id: String::new(),
+            log_type: String::new(),
+            time: 0,
+            data: "x".to_string(),
+        };
+        let s = serde_json::to_string(&p).unwrap();
+        assert!(!s.contains("vmId"), "vmId should be skipped when empty: {}", s);
+        assert!(!s.contains("logType"), "logType should be skipped when empty: {}", s);
+        assert!(s.contains(r#""buildId":"b""#));
+        assert!(s.contains(r#""creatureId":"c""#));
+    }
+
+    #[test]
+    fn build_packet_includes_optional_fields_when_set() {
+        let p = BuildPacket {
+            id: "id".to_string(),
+            build_id: "b".to_string(),
+            creature_id: "c".to_string(),
+            vm_id: "vm".to_string(),
+            log_type: "stdout".to_string(),
+            time: 1,
+            data: String::new(),
+        };
+        let s = serde_json::to_string(&p).unwrap();
+        assert!(s.contains(r#""vmId":"vm""#), "{}", s);
+        assert!(s.contains(r#""logType":"stdout""#), "{}", s);
+    }
+
+    #[test]
+    fn build_error_json_round_trip() {
+        let e = build_error_json("oops");
+        let s = serde_json::to_string(&e).unwrap();
+        assert_eq!(s, r#"{"message":"oops"}"#);
+        let parsed: crate::models::packet::error::Error = serde_json::from_str(&s).unwrap();
+        assert_eq!(parsed.message, "oops");
+    }
 }

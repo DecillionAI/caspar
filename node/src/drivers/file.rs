@@ -207,4 +207,91 @@ mod tests {
         assert!(!f.check_file_from_global_storage(&root, "key.txt"));
         let _ = fs::remove_dir_all(&root);
     }
+
+    #[test]
+    fn save_data_to_storage_appends_without_overwrite_flag() {
+        let root = tmp_root();
+        let f = File::new(&root);
+        f.save_data_to_storage(&root, b"part1", "topic", "k", &[])
+            .unwrap();
+        f.save_data_to_storage(&root, b"part2", "topic", "k", &[false])
+            .unwrap();
+        let v = f.read_file_from_storage(&root, "topic", "k").unwrap();
+        assert_eq!(v, b"part1part2");
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn save_data_to_storage_truncates_with_overwrite_flag() {
+        let root = tmp_root();
+        let f = File::new(&root);
+        f.save_data_to_storage(&root, b"first", "topic", "k", &[true])
+            .unwrap();
+        f.save_data_to_storage(&root, b"second", "topic", "k", &[true])
+            .unwrap();
+        let v = f.read_file_from_storage(&root, "topic", "k").unwrap();
+        assert_eq!(v, b"second");
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn check_file_returns_false_for_missing_paths() {
+        let root = tmp_root();
+        let f = File::new(&root);
+        assert!(!f.check_file_from_storage(&root, "nope", "missing"));
+        assert!(!f.check_file_from_global_storage(&root, "absent"));
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn save_file_to_storage_persists_file_header_content() {
+        let root = tmp_root();
+        let f = File::new(&root);
+        let fh = FileHeader {
+            filename: "x".to_string(),
+            content: b"hello-file".to_vec(),
+            size: 10,
+            header: Default::default(),
+        };
+        f.save_file_to_storage(&root, &fh, "topic", "k").unwrap();
+        assert!(f.check_file_from_storage(&root, "topic", "k"));
+        let v = f.read_file_from_storage(&root, "topic", "k").unwrap();
+        assert_eq!(v, b"hello-file");
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn save_tar_file_item_streams_content_via_reader() {
+        let root = tmp_root();
+        let f = File::new(&root);
+        let mut reader: &[u8] = b"streamed-payload";
+        f.save_tar_file_item_to_storage(&root, &mut reader, "topic", "k")
+            .unwrap();
+        let v = f.read_file_from_storage(&root, "topic", "k").unwrap();
+        assert_eq!(v, b"streamed-payload");
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn read_file_by_path_returns_bytes_or_errors() {
+        let root = tmp_root();
+        let f = File::new(&root);
+        let path = format!("{}/raw.bin", root);
+        std::fs::write(&path, [1u8, 2, 3]).unwrap();
+        let bytes = f.read_file_by_path(&path).unwrap();
+        assert_eq!(bytes, vec![1, 2, 3]);
+
+        let err = f.read_file_by_path(&format!("{}/does-not-exist", root));
+        assert!(err.is_err());
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn read_file_from_global_storage_errors_for_missing_key() {
+        let root = tmp_root();
+        let f = File::new(&root);
+        let err = f.read_file_from_global_storage(&root, "missing");
+        assert!(err.is_err());
+        let _ = fs::remove_dir_all(&root);
+    }
 }
