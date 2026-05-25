@@ -12,7 +12,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use anyhow::Result;
-use crossbeam_channel::{select, unbounded, Receiver, Sender};
+use crossbeam_channel::{bounded, select, unbounded, Receiver, Sender};
 
 use super::control_timer::ControlTimer;
 use super::core::Core;
@@ -20,7 +20,7 @@ use super::state::{Manager, State};
 use super::validator::Validator;
 use crate::drivers::network::chain::config::Config;
 use crate::drivers::network::chain::hashgraph::{self as hg, Block, Store, WireEvent};
-use crate::drivers::network::chain::net::{Rpc, Transport};
+use crate::drivers::network::chain::net::{Rpc, RpcCommand, Transport};
 use crate::drivers::network::chain::peers::{Peer, PeerSet};
 use crate::drivers::network::chain::proxy::AppProxy;
 use crate::compat::logrus::Entry;
@@ -56,6 +56,12 @@ pub struct Node {
 
     /// Periodically signals the gossip routines.
     pub control_timer: Arc<ControlTimer>,
+
+    /// Event-driven gossip trigger. Senders use `try_send`; the bounded
+    /// capacity of 1 coalesces bursts into a single pending wake-up so the
+    /// babble loop never queues more than one gossip cycle ahead.
+    gossip_trigger_tx: Sender<()>,
+    gossip_trigger_rx: Receiver<()>,
 
     start: Instant,
     sync_requests: AtomicI64,
@@ -99,6 +105,7 @@ impl Node {
 
         let (shutdown_tx, shutdown_rx) = unbounded();
         let (suspend_tx, suspend_rx) = unbounded();
+        let (gossip_trigger_tx, gossip_trigger_rx) = bounded(1);
 
         Arc::new(Node {
             manager: Manager::new(),
@@ -117,6 +124,8 @@ impl Node {
             suspend_tx: Mutex::new(Some(suspend_tx)),
             suspend_rx,
             control_timer: Arc::new(ControlTimer::new_random()),
+            gossip_trigger_tx,
+            gossip_trigger_rx,
             start: Instant::now(),
             sync_requests: AtomicI64::new(0),
             sync_errors: AtomicI64::new(0),
@@ -331,9 +340,21 @@ impl Node {
                 recv(self.net_ch) -> rpc => {
                     match rpc {
                         Ok(rpc) => {
+                            // RPCs that ingest new events (`EagerSync`) or
+                            // queue a new internal-transaction (`Join`) leave
+                            // us with fresh content other peers haven't seen.
+                            // `Sync` and `FastForward` are read-only on our
+                            // side, so they don't warrant a wake-up.
+                            let kind_triggers_gossip = matches!(
+                                &rpc.command,
+                                RpcCommand::EagerSync(_) | RpcCommand::Join(_)
+                            );
                             let n = self.clone();
                             self.manager.go_func(Box::new(move || {
                                 n.process_rpc(rpc);
+                                if kind_triggers_gossip {
+                                    n.trigger_gossip();
+                                }
                                 n.reset_timer();
                             }));
                         }
@@ -345,6 +366,7 @@ impl Node {
                         Ok(t) => {
                             self.logger.debug("Adding Transaction");
                             self.add_transaction(t);
+                            self.trigger_gossip();
                             self.reset_timer();
                         }
                         Err(_) => return,
@@ -394,23 +416,46 @@ impl Node {
 
     // ----- Babbling -----
 
-    /// Periodically initiates gossip or monologue, triggered by the timer.
+    /// Signals the babble loop to perform a gossip cycle as soon as possible.
+    /// Coalescing: if a wake-up is already pending, this is a no-op.
+    pub fn trigger_gossip(&self) {
+        let _ = self.gossip_trigger_tx.try_send(());
+    }
+
+    /// Dispatches a single gossip cycle (or monologue when alone).
+    fn dispatch_gossip(self: &Arc<Self>) {
+        let peer = self.core.lock().unwrap().peer_selector.next();
+        match peer {
+            Some(peer) => {
+                let n = self.clone();
+                self.manager
+                    .go_func(Box::new(move || n.gossip(peer)));
+            }
+            None => {
+                let _ = self.monologue();
+            }
+        }
+    }
+
+    /// Initiates gossip or monologue. The heartbeat timer provides a slow
+    /// fallback so the node still makes progress when idle; `gossip_trigger`
+    /// is fired by callers that produce new events (incoming pushes, locally
+    /// submitted transactions, fresh pulls) so propagation happens in real
+    /// time instead of waiting for the next tick.
     fn babble(self: &Arc<Self>, gossip: bool) {
         self.logger.info("BABBLING");
         loop {
             select! {
                 recv(self.control_timer.tick_rx) -> _ => {
                     if gossip {
-                        let peer = self.core.lock().unwrap().peer_selector.next();
-                        match peer {
-                            Some(peer) => {
-                                let n = self.clone();
-                                self.manager.go_func(Box::new(move || n.gossip(peer)));
-                            }
-                            None => {
-                                let _ = self.monologue();
-                            }
-                        }
+                        self.dispatch_gossip();
+                    }
+                    self.reset_timer();
+                    self.check_suspend();
+                }
+                recv(self.gossip_trigger_rx) -> _ => {
+                    if gossip {
+                        self.dispatch_gossip();
                     }
                     self.reset_timer();
                     self.check_suspend();
@@ -481,9 +526,16 @@ impl Node {
             .with_field("events", resp.events.len())
             .debug("SyncResponse");
 
+        let received = resp.events.len();
         {
             let mut core = self.core.lock().unwrap();
             self.sync_with_core(&mut core, peer.id(), resp.events)?;
+        }
+        // New events from this peer likely aren't known to the rest of the
+        // network yet — wake the babble loop so they propagate immediately
+        // instead of waiting for the next heartbeat.
+        if received > 0 {
+            self.trigger_gossip();
         }
         Ok(resp.known)
     }
