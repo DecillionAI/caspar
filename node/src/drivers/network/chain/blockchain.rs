@@ -59,17 +59,24 @@ pub struct Blockchain {
     pipeline: Mutex<Option<PipelineFn>>,
     trans: Mutex<Option<Arc<dyn Transport>>>,
     storage_root: String,
+    // Weak handle back to the original Arc<Blockchain>. WorkChains downgrade
+    // from this rather than from the short-lived shim Arc produced by
+    // self_clone(), which would otherwise be dropped immediately and leave
+    // WorkChain.blockchain.upgrade() returning None during commit_handler.
+    weak_self: std::sync::Weak<Blockchain>,
 }
 
 impl Blockchain {
     /// `NewChain(core, storageRoot)`.
     pub fn new(app: Arc<dyn ICore>, storage_root: &str) -> Arc<Blockchain> {
-        Arc::new(Blockchain {
+        let storage_root = storage_root.to_string();
+        Arc::new_cyclic(|weak| Blockchain {
             app,
             chains: Arc::new(DashMap::new()),
             pipeline: Mutex::new(None),
             trans: Mutex::new(None),
-            storage_root: storage_root.to_string(),
+            storage_root,
+            weak_self: weak.clone(),
         })
     }
 
@@ -92,7 +99,7 @@ impl Blockchain {
         let wchain = Arc::new(WorkChain {
             id: chain_id.to_string(),
             store_id: store_id.to_string(),
-            blockchain: Arc::downgrade(self),
+            blockchain: self.weak_self.clone(),
             main_ledger: Mutex::new(None),
             main_proxy: Mutex::new(None),
             shard_chains: DashMap::new(),
@@ -447,12 +454,19 @@ impl IChain for Blockchain {
 /// handles gives a parallel view of the same state; we never persist this
 /// shim beyond the immediate call.
 fn self_clone(b: &Blockchain) -> Arc<Blockchain> {
+    // Prefer the real Arc<Blockchain> if it's still alive — otherwise the
+    // WorkChains we create here would downgrade against a throwaway Arc
+    // and their Weak<Blockchain> would be dead on arrival.
+    if let Some(strong) = b.weak_self.upgrade() {
+        return strong;
+    }
     Arc::new(Blockchain {
         app: b.app.clone(),
         chains: Arc::clone(&b.chains),
         pipeline: Mutex::new(None),
         trans: Mutex::new(b.trans.lock().unwrap().clone()),
         storage_root: b.storage_root.clone(),
+        weak_self: b.weak_self.clone(),
     })
 }
 
