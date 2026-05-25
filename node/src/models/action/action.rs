@@ -30,6 +30,10 @@ pub trait IAction: Send + Sync {
 /// An action that performs its own authentication/authorization.
 pub trait ISecureAction: Send + Sync {
     fn key(&self) -> String;
+    /// Return the inner [`IAction`] so callers inside the same process can
+    /// invoke the handler directly (without re-entering the secured path and
+    /// deadlocking the state processor).
+    fn inner_action(&self) -> Arc<dyn IAction>;
     fn has_global_parser(&self) -> bool;
     fn parse_input(&self, protocol: &str, raw: Value) -> Result<Arc<dyn IInput>>;
     #[allow(clippy::too_many_arguments)]

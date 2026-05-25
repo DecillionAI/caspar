@@ -49,7 +49,14 @@ impl IActor for Actor {
     }
 
     fn fetch_action(&self, key: &str) -> Option<Arc<dyn IAction>> {
-        self.actions.get(key).map(|a| a.clone())
+        if let Some(a) = self.actions.get(key) {
+            return Some(a.clone());
+        }
+        // Fall back to the inner action of a secure action. This lets
+        // handlers that need to call another action directly (e.g.
+        // /creatures/login calling /creatures/create) find it even though it
+        // was only registered via inject_secure_action.
+        self.secure_actions.get(key).map(|a| a.inner_action())
     }
 
     fn inject_secure_action(&self, action: Arc<dyn ISecureAction>) {

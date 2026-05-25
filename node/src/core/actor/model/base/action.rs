@@ -19,9 +19,9 @@ pub type ActionFn =
 /// trying (and failing) to clone the inner closure.
 pub type StateModifierShared = Arc<dyn Fn(bool, TrxClosure) + Send + Sync>;
 
-/// Plain non-secured action: returns `(1, value)` on success and propagates
-/// errors as `Err(...)` (Go used `(0, nil, err)`; the Rust `Result` shape
-/// captures the same information).
+/// Plain non-secured action: returns `(0, value)` on success and propagates
+/// errors as `Err(...)` (matches Go's `(0, value, nil)` convention; non-zero
+/// codes are reserved for error conditions).
 pub struct Action {
     modifier: StateModifierShared,
     key: String,
@@ -56,6 +56,6 @@ impl IAction for Action {
         input: Arc<dyn IInput>,
     ) -> Result<(i64, Value)> {
         let result = (self.func)(state, input)?;
-        Ok((1, result))
+        Ok((0, result))
     }
 }

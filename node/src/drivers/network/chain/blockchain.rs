@@ -182,11 +182,13 @@ impl Blockchain {
             .arg(peers_list_mode)
             .status();
 
+        let blockchain_port = env::var("BLOCKCHAIN_API_PORT").unwrap_or_else(|_| "1337".to_string());
         let mut config = Config::new_default_config(&format!(
             "{}:{}",
             env::var("IPADDR").unwrap_or_default(),
-            env::var("BLOCKCHAIN_API_PORT").unwrap_or_default()
+            blockchain_port
         ));
+        config.bind_addr = format!("0.0.0.0:{}", blockchain_port);
         config.data_dir = data_dir.clone();
         config.proxy = Some(proxy.clone());
         // Load the validator key so Babble can sign events.
