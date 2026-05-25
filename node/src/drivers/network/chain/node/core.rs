@@ -246,7 +246,14 @@ impl Core {
             self.heads.insert(from_id, other_head);
         }
 
-        if self.busy() || self.seq < 0 {
+        // Process heads when we actually have a new event from a peer to
+        // acknowledge, or when there's pending work, or at bootstrap. Without
+        // this, on an idle network the hashgraph never advances rounds and
+        // consensus stalls. We check for Some-valued heads (we already
+        // inserted a None placeholder for from_id above) so empty syncs
+        // don't trigger spurious self-events.
+        let has_real_head = self.heads.values().any(|v| v.is_some());
+        if has_real_head || self.busy() || self.seq < 0 {
             return self.record_heads();
         }
         Ok(())
@@ -266,6 +273,17 @@ impl Core {
             };
             self.add_self_event(&op)?;
             self.heads.remove(&id);
+        }
+
+        // If there are pending transactions but no heads to consume, still
+        // create a solo self-event so the transaction can be gossiped and
+        // committed. Without this, transactions submitted on a fully-synced
+        // network would never make it into the hashgraph.
+        if !self.transaction_pool.is_empty()
+            || !self.internal_transaction_pool.is_empty()
+            || !self.self_block_signatures.is_empty()
+        {
+            self.add_self_event("")?;
         }
         Ok(())
     }

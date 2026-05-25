@@ -26,6 +26,7 @@ use rsa::signature::{RandomizedSigner, SignatureEncoding};
 use rsa::RsaPrivateKey;
 use serde_json::{json, Value};
 
+use crate::drivers::network::framing::tls_config_from_files;
 use crate::models::ports::file::IFile;
 use crate::models::ports::network::INetwork;
 use crate::models::ports::security::ISecurity;
@@ -746,6 +747,18 @@ impl Core {
         let file: Arc<dyn IFile> = Arc::new(FileDriver::new(storage_root));
         let chain: Arc<dyn crate::models::ports::network::chain::IChain> =
             Blockchain::new(self.clone(), storage_root);
+        let tls_cfg = match (env::var("TLS_CERT_PATH"), env::var("TLS_KEY_PATH")) {
+            (Ok(cert), Ok(key)) if !cert.is_empty() && !key.is_empty() => {
+                match tls_config_from_files(&cert, &key) {
+                    Ok(cfg) => Some(cfg),
+                    Err(e) => {
+                        eprintln!("TLS config load failed: {}; running without TLS", e);
+                        None
+                    }
+                }
+            }
+            _ => None,
+        };
         let network: Arc<dyn INetwork> = NetworkDriver::new(
             self.clone(),
             storage.clone(),
@@ -753,7 +766,7 @@ impl Core {
             signaler.clone(),
             fed.clone(),
             chain.clone(),
-            None,
+            tls_cfg,
         );
         let vmm: Arc<dyn IVmm> = Vmm::new(
             self.clone(),

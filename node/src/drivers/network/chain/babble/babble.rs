@@ -319,11 +319,36 @@ pub fn load_key_for_config(config: &mut Config) -> Result<()> {
     if config.key.is_some() {
         return Ok(());
     }
-    let keyfile = SimpleKeyfile::new(&config.keyfile());
+    let keyfile_path = config.keyfile();
+    let keyfile = SimpleKeyfile::new(&keyfile_path);
+
+    if !std::path::Path::new(&keyfile_path).exists() {
+        // Auto-generate on first boot so the node can start without manual key pre-provisioning.
+        let new_key = crate::drivers::network::chain::crypto::keys::generate_ecdsa_key()
+            .map_err(|e| anyhow!("generate key: {}", e))?;
+        keyfile.write_key(&new_key)
+            .map_err(|e| anyhow!("write generated key to {}: {}", keyfile_path, e))?;
+
+        // Mirror the key to BABBLE_DATA_DIR so shardchain.sh can copy it on
+        // subsequent shard bootstraps.
+        if let Ok(babble_dir) = std::env::var("BABBLE_DATA_DIR") {
+            if !babble_dir.is_empty() {
+                let _ = fs::create_dir_all(&babble_dir);
+                let mirror = SimpleKeyfile::new(
+                    &format!("{}/priv_key", babble_dir),
+                );
+                let _ = mirror.write_key(&new_key);
+            }
+        }
+
+        config.key = Some(new_key);
+        return Ok(());
+    }
+
     let key = keyfile.read_key().map_err(|e| {
         anyhow!(
             "Error reading private key from file {}: {}",
-            config.keyfile(),
+            keyfile_path,
             e
         )
     })?;

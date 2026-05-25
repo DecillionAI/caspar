@@ -162,23 +162,45 @@ fn parse_owner_key(pem: &str) -> Option<rsa::RsaPrivateKey> {
 
 fn load_dotenv(path: &str) -> std::io::Result<()> {
     let content = std::fs::read_to_string(path)?;
-    for line in content.lines() {
+    let mut lines = content.lines().peekable();
+    while let Some(line) = lines.next() {
         let line = line.trim();
         if line.is_empty() || line.starts_with('#') {
             continue;
         }
         if let Some((k, v)) = line.split_once('=') {
             let k = k.trim();
-            let v = v
-                .trim()
-                .trim_start_matches('"')
-                .trim_end_matches('"')
-                .trim_start_matches('\'')
-                .trim_end_matches('\'');
+            let v = v.trim();
+            // Handle multi-line double-quoted values (e.g. PEM keys).
+            let final_val: String = if v.starts_with('"') && !v[1..].contains('"') {
+                // Opening quote but no closing quote on this line — accumulate
+                // continuation lines until we find one that ends with '"'.
+                let mut val = v[1..].to_string();
+                loop {
+                    match lines.next() {
+                        Some(next) => {
+                            val.push('\n');
+                            val.push_str(next);
+                            if next.ends_with('"') {
+                                val.truncate(val.len() - 1);
+                                break;
+                            }
+                        }
+                        None => break,
+                    }
+                }
+                val
+            } else {
+                v.trim_start_matches('"')
+                    .trim_end_matches('"')
+                    .trim_start_matches('\'')
+                    .trim_end_matches('\'')
+                    .to_string()
+            };
             // SAFETY: setenv is unsafe in multi-threaded contexts but this
             // runs before any other thread is spawned.
             unsafe {
-                env::set_var(k, v);
+                env::set_var(k, &final_val);
             }
         }
     }

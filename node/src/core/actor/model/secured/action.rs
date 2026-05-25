@@ -62,6 +62,10 @@ impl ISecureAction for SecureAction {
         self.action.key()
     }
 
+    fn inner_action(&self) -> Arc<dyn IAction> {
+        self.action.clone()
+    }
+
     fn has_global_parser(&self) -> bool {
         self.parsers.contains_key("*")
     }

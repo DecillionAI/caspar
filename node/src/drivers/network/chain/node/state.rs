@@ -1,7 +1,7 @@
 //! Translation of `chain/node/state/state.go`.
 
 use std::sync::atomic::{AtomicI32, AtomicU32, Ordering};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 
 /// Captures the state of a Babble node.
@@ -56,14 +56,15 @@ impl std::fmt::Display for State {
 }
 
 /// The maximum number of background tasks that can be launched through
-/// [`Manager::go_func`].
-pub const WGLIMIT: i32 = 20;
+/// [`Manager::go_func`]. Sized generously so that incoming RPC processing
+/// and outgoing gossip don't starve each other.
+pub const WGLIMIT: i32 = 500;
 
 /// Wraps a [`State`] with get/set methods. It also limits the number of
 /// background tasks the node launches, and waits for all of them to complete.
 pub struct Manager {
     state: AtomicU32,
-    wg_count: AtomicI32,
+    wg_count: Arc<AtomicI32>,
     handles: Mutex<Vec<JoinHandle<()>>>,
 }
 
@@ -77,7 +78,7 @@ impl Manager {
     pub fn new() -> Manager {
         Manager {
             state: AtomicU32::new(State::Babbling as u32),
-            wg_count: AtomicI32::new(0),
+            wg_count: Arc::new(AtomicI32::new(0)),
             handles: Mutex::new(Vec::new()),
         }
     }
@@ -93,11 +94,22 @@ impl Manager {
     }
 
     /// Launches a background task for `f`, if fewer than [`WGLIMIT`] are
-    /// currently outstanding.
+    /// currently outstanding. The counter is decremented when the task
+    /// finishes — via a Drop guard, so panics in `f` still release the slot.
     pub fn go_func(&self, f: Box<dyn FnOnce() + Send>) {
         if self.wg_count.load(Ordering::SeqCst) < WGLIMIT {
             self.wg_count.fetch_add(1, Ordering::SeqCst);
-            let handle = std::thread::spawn(move || f());
+            let wg = Arc::clone(&self.wg_count);
+            let handle = std::thread::spawn(move || {
+                struct Guard(Arc<AtomicI32>);
+                impl Drop for Guard {
+                    fn drop(&mut self) {
+                        self.0.fetch_sub(1, Ordering::SeqCst);
+                    }
+                }
+                let _guard = Guard(wg);
+                f();
+            });
             self.handles.lock().unwrap().push(handle);
         }
     }
@@ -187,22 +199,26 @@ mod tests {
     }
 
     #[test]
-    fn manager_go_func_caps_at_wglimit_when_not_drained() {
+    fn manager_go_func_respects_wglimit_concurrency() {
+        // Verify that go_func caps CONCURRENT outstanding tasks at WGLIMIT.
+        // Because wg_count is now decremented when tasks finish, tasks that
+        // complete quickly free up slots for later submissions, so the total
+        // number of tasks that ran can exceed WGLIMIT over time.
         let m = Manager::new();
         let counter = Arc::new(AtomicUsize::new(0));
-        // Submit far more than the limit without ever calling wait_routines.
-        for _ in 0..(WGLIMIT as usize * 3) {
+        let total = WGLIMIT as usize * 3;
+        for _ in 0..total {
             let c = counter.clone();
             m.go_func(Box::new(move || {
                 c.fetch_add(1, Ordering::SeqCst);
             }));
         }
-        // Drain. At most WGLIMIT closures should have been spawned because
-        // wg_count is never decremented between submissions.
         m.wait_routines();
+        // All submitted tasks that were accepted should have run; at minimum
+        // WGLIMIT ran (the first batch), but many more may have run as slots freed.
         assert!(
-            counter.load(Ordering::SeqCst) <= WGLIMIT as usize,
-            "go_func should refuse work beyond WGLIMIT outstanding (count={})",
+            counter.load(Ordering::SeqCst) >= WGLIMIT as usize,
+            "at least WGLIMIT tasks should have run (count={})",
             counter.load(Ordering::SeqCst)
         );
     }

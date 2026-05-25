@@ -54,7 +54,8 @@ struct ShardChain {
 /// Top-level blockchain driver.
 pub struct Blockchain {
     app: Arc<dyn ICore>,
-    chains: DashMap<String, Arc<WorkChain>>,
+    /// Wrapped in Arc so self_clone() shares the same map (DashMap::clone is a deep copy).
+    chains: Arc<DashMap<String, Arc<WorkChain>>>,
     pipeline: Mutex<Option<PipelineFn>>,
     trans: Mutex<Option<Arc<dyn Transport>>>,
     storage_root: String,
@@ -65,7 +66,7 @@ impl Blockchain {
     pub fn new(app: Arc<dyn ICore>, storage_root: &str) -> Arc<Blockchain> {
         Arc::new(Blockchain {
             app,
-            chains: DashMap::new(),
+            chains: Arc::new(DashMap::new()),
             pipeline: Mutex::new(None),
             trans: Mutex::new(None),
             storage_root: storage_root.to_string(),
@@ -182,12 +183,17 @@ impl Blockchain {
             .arg(peers_list_mode)
             .status();
 
+        let blockchain_port = env::var("BLOCKCHAIN_API_PORT").unwrap_or_else(|_| "1337".to_string());
         let mut config = Config::new_default_config(&format!(
             "{}:{}",
             env::var("IPADDR").unwrap_or_default(),
-            env::var("BLOCKCHAIN_API_PORT").unwrap_or_default()
+            blockchain_port
         ));
-        config.data_dir = data_dir.clone();
+        config.bind_addr = format!("0.0.0.0:{}", blockchain_port);
+        // set_data_dir() also relocates database_dir off the default
+        // (/root/.babble) so multiple nodes on one host don't clobber each
+        // other's RocksDB.
+        config.set_data_dir(&data_dir);
         config.proxy = Some(proxy.clone());
         // Load the validator key so Babble can sign events.
         if let Err(e) = load_key_for_config(&mut config) {
@@ -443,7 +449,7 @@ impl IChain for Blockchain {
 fn self_clone(b: &Blockchain) -> Arc<Blockchain> {
     Arc::new(Blockchain {
         app: b.app.clone(),
-        chains: b.chains.clone(),
+        chains: Arc::clone(&b.chains),
         pipeline: Mutex::new(None),
         trans: Mutex::new(b.trans.lock().unwrap().clone()),
         storage_root: b.storage_root.clone(),
