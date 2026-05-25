@@ -278,6 +278,8 @@ pub(crate) fn handle_unified_host_call(packet: &JsonValue) -> String {
         "deleteCreature" | "removeCreature" | "deleteOwnedCreature" | "removeOwnedCreature" => {
             host_fn_delete_creature(&input)
         }
+        "signalUser" => host_fn_signal_user(&input),
+        "signalGroup" => host_fn_signal_group(&input),
         _ => {
             let packet = json!({
                 "key": op,
@@ -285,6 +287,63 @@ pub(crate) fn handle_unified_host_call(packet: &JsonValue) -> String {
             });
             wasm_send(packet)
         }
+    }
+}
+
+/// Deliver a `signalUser` request from a wasm host-call to the in-process
+/// signaler so the target user (typically the requesting CLI client) receives
+/// the creature's response packet.
+pub(crate) fn host_fn_signal_user(input: &JsonValue) -> String {
+    let key = input["key"].as_str().unwrap_or("");
+    let user_id = input["userId"].as_str().unwrap_or("");
+    if key.is_empty() || user_id.is_empty() {
+        return json!({
+            "ok": false,
+            "error": "signalUser requires key and userId"
+        })
+        .to_string();
+    }
+    let packet_str = input["packet"].as_str().unwrap_or("{}");
+    let value = serde_json::from_str::<JsonValue>(packet_str).unwrap_or(JsonValue::Null);
+    let delivered = crate::drivers::vmm::globals::with_global_app(|app| {
+        app.tools().signaler().signal_user(key, user_id, value, true);
+    });
+    match delivered {
+        Some(()) => json!({"ok": true}).to_string(),
+        None => json!({"ok": false, "error": "global app not initialised"}).to_string(),
+    }
+}
+
+/// Deliver a `signalGroup` request from a wasm host-call.
+pub(crate) fn host_fn_signal_group(input: &JsonValue) -> String {
+    let key = input["key"].as_str().unwrap_or("");
+    let group_id = input["groupId"].as_str().unwrap_or("");
+    if key.is_empty() || group_id.is_empty() {
+        return json!({
+            "ok": false,
+            "error": "signalGroup requires key and groupId"
+        })
+        .to_string();
+    }
+    let packet_str = input["packet"].as_str().unwrap_or("{}");
+    let value = serde_json::from_str::<JsonValue>(packet_str).unwrap_or(JsonValue::Null);
+    let except: Vec<String> = input
+        .get("except")
+        .and_then(JsonValue::as_array)
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(str::to_string))
+                .collect()
+        })
+        .unwrap_or_default();
+    let delivered = crate::drivers::vmm::globals::with_global_app(|app| {
+        app.tools()
+            .signaler()
+            .signal_group(key, group_id, value, true, except);
+    });
+    match delivered {
+        Some(()) => json!({"ok": true}).to_string(),
+        None => json!({"ok": false, "error": "global app not initialised"}).to_string(),
     }
 }
 

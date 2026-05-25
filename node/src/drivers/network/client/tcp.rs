@@ -157,7 +157,7 @@ impl Tcp {
                 }
                 return;
             }
-            "authenticate" => {
+            "authenticate" | "/creatures/authenticate" => {
                 let (ok, _, _) = self
                     .app
                     .tools()

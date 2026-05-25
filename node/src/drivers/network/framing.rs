@@ -63,6 +63,20 @@ impl TlsStream {
         };
         let _ = stream.shutdown(std::net::Shutdown::Both);
     }
+
+    /// Set a read timeout on the underlying TCP stream so a `read()` call
+    /// periodically returns `WouldBlock`/`TimedOut` instead of blocking
+    /// forever. Used by the client WS read loop to release its inner mutex
+    /// regularly, letting concurrent writers push update frames out while
+    /// the client is otherwise idle waiting for an async creature response.
+    pub fn set_read_timeout(&self, dur: Option<std::time::Duration>) -> std::io::Result<()> {
+        let stream = match self {
+            TlsStream::Plain(s) => s,
+            TlsStream::Server(s) => &s.sock,
+            TlsStream::Client(s) => &s.sock,
+        };
+        stream.set_read_timeout(dur)
+    }
 }
 
 impl Read for TlsStream {

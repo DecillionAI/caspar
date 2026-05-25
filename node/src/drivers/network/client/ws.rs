@@ -160,7 +160,7 @@ impl Ws {
                 socket.write_response(&parsed.packet_id, 0, &serde_json::to_vec(&build_error_json(msg)).unwrap_or_default());
                 return;
             }
-            "authenticate" => {
+            "authenticate" | "/creatures/authenticate" => {
                 let (ok, _, _) = self
                     .app
                     .tools()
@@ -284,6 +284,13 @@ impl Ws {
                 return;
             }
         };
+        // Install a short read timeout on the underlying TCP socket so the
+        // read loop wakes periodically. Without this, `ws.read()` blocks
+        // forever while holding `inner.lock`, which starves writers (e.g.
+        // creature signal results pushed asynchronously from a wasm thread).
+        // On WouldBlock/TimedOut we just release the lock and try again.
+        let _ = ws.get_ref().set_read_timeout(Some(Duration::from_millis(20)));
+
         let socket = Socket::new(ws, peer.clone());
         if let Some((ip, _)) = peer.rsplit_once(':') {
             self.sockets.insert(ip.to_string(), socket.clone());
@@ -297,9 +304,22 @@ impl Ws {
                     None => break,
                 };
                 match ws.read() {
-                    Ok(m) => m,
+                    Ok(m) => Some(m),
+                    Err(tungstenite::error::Error::Io(io_err))
+                        if io_err.kind() == std::io::ErrorKind::WouldBlock
+                            || io_err.kind() == std::io::ErrorKind::TimedOut =>
+                    {
+                        // Soft tick: lock guard drops at the end of this
+                        // block, giving writers a chance to push frames out
+                        // before we re-enter `read()`.
+                        None
+                    }
                     Err(_) => break,
                 }
+            };
+            let msg = match msg {
+                Some(m) => m,
+                None => continue,
             };
             match msg {
                 Message::Binary(bytes) => {

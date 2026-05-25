@@ -1,4 +1,19 @@
 use crate::drivers::vmm::prelude::*;
+use crate::models::core::ICore;
+
+/// Shared core handle published by `Vmm::new` so stateless host-call
+/// handlers (e.g. `handle_unified_host_call`) can reach the signaler and
+/// other tools without being threaded through every wasmedge callback.
+pub(crate) static GLOBAL_APP: Lazy<Mutex<Option<Arc<dyn ICore>>>> =
+    Lazy::new(|| Mutex::new(None));
+
+pub(crate) fn set_global_app(app: Arc<dyn ICore>) {
+    *GLOBAL_APP.lock().unwrap() = Some(app);
+}
+
+pub(crate) fn with_global_app<R, F: FnOnce(&Arc<dyn ICore>) -> R>(f: F) -> Option<R> {
+    GLOBAL_APP.lock().unwrap().as_ref().map(f)
+}
 
 pub(crate) static GLOBAL_VM_CONTEXT: Lazy<Arc<Mutex<HashMap<String, (String, String)>>>> =
     Lazy::new(|| Arc::new(Mutex::new(HashMap::new())));

@@ -47,6 +47,9 @@ impl Vmm {
         file: Arc<dyn IFile>,
     ) -> Arc<Vmm> {
         let _ = fs::create_dir_all(kv_db_path);
+        // Publish the core handle so stateless VM host-call handlers can
+        // reach the signaler / storage tools without a Vmm reference.
+        crate::drivers::vmm::globals::set_global_app(app.clone());
         let vmm = Arc::new(Vmm {
             app,
             storage_root: storage_root.to_string(),
