@@ -267,6 +267,9 @@ pub(crate) fn handle_unified_host_call(packet: &JsonValue) -> String {
         "deleteStore" | "removeStore" | "deleteOwnedStore" | "removeOwnedStore" => {
             host_fn_delete_store(&input)
         }
+        "getStore" => host_fn_get_store(&input),
+        "listStores" => host_fn_list_stores(&input),
+        "updateStore" => host_fn_update_store(&input),
         "createCreature" | "createOwnedCreature" => host_fn_create_creature(&input),
         "validateSign" => host_fn_validate_sign(&input),
         "transfer" => host_fn_transfer(&input),

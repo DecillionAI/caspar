@@ -56,6 +56,9 @@ impl Vmm {
             storage,
             file,
         });
+        // Publish the live Vmm so host functions can dispatch to its CRUD
+        // handlers (handle_store_crud, handle_creature_crud, …).
+        crate::drivers::vmm::globals::set_global_vmm(vmm.clone());
         vmm
     }
 
