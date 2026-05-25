@@ -153,3 +153,132 @@ impl PeerSet {
         self.super_majority = OnceLock::new();
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::drivers::network::chain::crypto::keys::{
+        generate_ecdsa_key, public_key_hex,
+    };
+
+    fn make_peer(addr: &str, moniker: &str) -> Peer {
+        let key = generate_ecdsa_key().unwrap();
+        Peer::new(&public_key_hex(key.verifying_key()), addr, moniker)
+    }
+
+    fn make_peers(n: usize) -> Vec<Peer> {
+        (0..n).map(|i| make_peer(&format!("a{}", i), &format!("m{}", i))).collect()
+    }
+
+    #[test]
+    fn new_initialises_lookup_maps() {
+        let peers = make_peers(3);
+        let ps = PeerSet::new(peers.clone());
+        assert_eq!(ps.len(), 3);
+        for p in &peers {
+            assert!(ps.by_pub_key.contains_key(&p.pub_key_string()));
+            assert!(ps.by_id.contains_key(&p.id()));
+        }
+    }
+
+    #[test]
+    fn with_new_peer_adds_and_with_removed_peer_removes() {
+        let peers = make_peers(3);
+        let ps = PeerSet::new(peers.clone());
+        let extra = make_peer("a3", "m3");
+
+        let added = ps.with_new_peer(&extra);
+        assert_eq!(added.len(), 4);
+        assert!(added.by_id.contains_key(&extra.id()));
+
+        let removed = added.with_removed_peer(&extra);
+        assert_eq!(removed.len(), 3);
+        assert!(!removed.by_id.contains_key(&extra.id()));
+    }
+
+    #[test]
+    fn with_new_peer_ignores_duplicate() {
+        let peers = make_peers(2);
+        let ps = PeerSet::new(peers.clone());
+        let dup = ps.with_new_peer(&peers[0]);
+        assert_eq!(dup.len(), 2, "duplicate add should be a no-op");
+    }
+
+    #[test]
+    fn empty_peer_set_is_empty() {
+        let ps = PeerSet::new(Vec::new());
+        assert!(ps.is_empty());
+        assert_eq!(ps.len(), 0);
+    }
+
+    #[test]
+    fn hash_is_cached_and_deterministic_independent_of_order_via_caches() {
+        let peers = make_peers(4);
+        let ps = PeerSet::new(peers.clone());
+        let h1 = ps.hash();
+        let h2 = ps.hash();
+        assert_eq!(h1, h2);
+        // hex should be the hex-encoded form of the same hash.
+        assert_eq!(ps.hex(), common::encode_to_string(&h1));
+    }
+
+    #[test]
+    fn hash_changes_with_membership() {
+        let peers = make_peers(3);
+        let ps = PeerSet::new(peers.clone());
+        let extra = make_peer("addr_extra", "extra");
+        let bigger = ps.with_new_peer(&extra);
+        assert_ne!(ps.hash(), bigger.hash());
+    }
+
+    #[test]
+    fn super_majority_and_trust_count() {
+        // 1 peer: super_majority = 2*1/3 + 1 = 1; trust_count = 0 (single-node guard)
+        let ps1 = PeerSet::new(make_peers(1));
+        assert_eq!(ps1.super_majority(), 1);
+        assert_eq!(ps1.trust_count(), 0);
+
+        // 4 peers: super_majority = 2*4/3 + 1 = 3; trust_count = ceil(4/3) = 2
+        let ps4 = PeerSet::new(make_peers(4));
+        assert_eq!(ps4.super_majority(), 3);
+        assert_eq!(ps4.trust_count(), 2);
+
+        // 7 peers: super_majority = 2*7/3 + 1 = 5; trust_count = ceil(7/3) = 3
+        let ps7 = PeerSet::new(make_peers(7));
+        assert_eq!(ps7.super_majority(), 5);
+        assert_eq!(ps7.trust_count(), 3);
+    }
+
+    #[test]
+    fn pub_keys_and_ids_mirror_inserted_order() {
+        let peers = make_peers(3);
+        let ps = PeerSet::new(peers.clone());
+        let keys: Vec<String> = peers.iter().map(|p| p.pub_key_string()).collect();
+        let ids: Vec<u32> = peers.iter().map(|p| p.id()).collect();
+        assert_eq!(ps.pub_keys(), keys);
+        assert_eq!(ps.ids(), ids);
+    }
+
+    #[test]
+    fn marshal_unmarshal_round_trip() {
+        let ps = PeerSet::new(make_peers(3));
+        let bytes = ps.marshal().expect("marshal");
+        assert_eq!(*bytes.last().unwrap(), b'\n');
+        let restored = PeerSet::unmarshal(&bytes).expect("unmarshal");
+        assert_eq!(restored.len(), ps.len());
+        // Restored peer set has the same membership hash.
+        assert_eq!(restored.hash(), ps.hash());
+    }
+
+    #[test]
+    fn clear_cache_resets_hash_but_not_trust_count() {
+        let mut ps = PeerSet::new(make_peers(4));
+        let original_hash = ps.hash();
+        let original_trust = ps.trust_count();
+        ps.clear_cache();
+        // Recomputed hash must still match (input is unchanged).
+        assert_eq!(ps.hash(), original_hash);
+        // trust_count cache is intentionally retained.
+        assert_eq!(ps.trust_count(), original_trust);
+    }
+}

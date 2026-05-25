@@ -67,3 +67,52 @@ pub fn is_store(err: &anyhow::Error, t: StoreErrType) -> bool {
         .map(|store_err| store_err.err_type == t)
         .unwrap_or(false)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn display_format_matches_data_key_message() {
+        let err = new_store_err("Event", StoreErrType::KeyNotFound, "abc");
+        assert_eq!(format!("{}", err), "Event, abc, Not Found");
+
+        let err = new_store_err("Round", StoreErrType::TooLate, "9");
+        assert_eq!(format!("{}", err), "Round, 9, Too Late");
+
+        let err = new_store_err("Event", StoreErrType::SkippedIndex, "42");
+        assert_eq!(format!("{}", err), "Event, 42, Skipped Index");
+
+        let err = new_store_err("Peer", StoreErrType::UnknownParticipant, "p1");
+        assert_eq!(format!("{}", err), "Peer, p1, Unknown Participant");
+
+        let err = new_store_err("Cache", StoreErrType::Empty, "");
+        assert_eq!(format!("{}", err), "Cache, , Empty");
+
+        let err = new_store_err("Map", StoreErrType::KeyAlreadyExists, "k");
+        assert_eq!(format!("{}", err), "Map, k, Key Already Exists");
+    }
+
+    #[test]
+    fn is_store_matches_only_same_type() {
+        let raw = new_store_err("Event", StoreErrType::TooLate, "9");
+        let err: anyhow::Error = raw.into();
+        assert!(is_store(&err, StoreErrType::TooLate));
+        assert!(!is_store(&err, StoreErrType::KeyNotFound));
+    }
+
+    #[test]
+    fn is_store_returns_false_for_unrelated_error() {
+        let err: anyhow::Error = anyhow::anyhow!("some other error");
+        assert!(!is_store(&err, StoreErrType::TooLate));
+    }
+
+    #[test]
+    fn store_err_is_clonable_and_carries_fields() {
+        let err = StoreErr::new("D", StoreErrType::Empty, "K");
+        let cloned = err.clone();
+        assert_eq!(cloned.data_type, "D");
+        assert_eq!(cloned.key, "K");
+        assert_eq!(cloned.err_type, StoreErrType::Empty);
+    }
+}

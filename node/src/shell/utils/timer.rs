@@ -55,3 +55,68 @@ where
 fn _start_instant() -> Instant {
     Instant::now()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crossbeam_channel::unbounded;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+
+    #[test]
+    fn schedule_returns_when_cancel_is_closed_before_first_tick() {
+        // Long period — first firing would be ~1s away.
+        let (tx, rx) = unbounded::<()>();
+        let counter = Arc::new(AtomicUsize::new(0));
+        let counter_clone = counter.clone();
+
+        let handle = std::thread::spawn(move || {
+            schedule(
+                Duration::from_secs(1),
+                Duration::ZERO,
+                move |_| {
+                    counter_clone.fetch_add(1, Ordering::SeqCst);
+                },
+                rx,
+            );
+        });
+
+        // Drop the sender immediately; schedule must return when cancel
+        // disconnects (no firings expected).
+        drop(tx);
+
+        handle
+            .join()
+            .expect("scheduler thread should exit cleanly on cancel");
+        assert_eq!(counter.load(Ordering::SeqCst), 0);
+    }
+
+    #[test]
+    fn schedule_fires_at_least_once_then_cancels() {
+        // Very short period so the first firing happens almost immediately.
+        let (tx, rx) = unbounded::<()>();
+        let counter = Arc::new(AtomicUsize::new(0));
+        let counter_clone = counter.clone();
+
+        let handle = std::thread::spawn(move || {
+            schedule(
+                Duration::from_millis(20),
+                Duration::ZERO,
+                move |_| {
+                    counter_clone.fetch_add(1, Ordering::SeqCst);
+                },
+                rx,
+            );
+        });
+
+        // Allow several firings to happen.
+        std::thread::sleep(Duration::from_millis(120));
+        drop(tx);
+        handle.join().expect("clean exit");
+
+        assert!(
+            counter.load(Ordering::SeqCst) >= 1,
+            "scheduler should have fired at least once"
+        );
+    }
+}

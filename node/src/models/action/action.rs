@@ -76,3 +76,43 @@ pub struct ExtendedField {
     pub get_value:
         Option<Arc<dyn Fn(Arc<dyn IState>, Map<String, Value>) -> Result<Value> + Send + Sync>>,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn extended_field_default_is_empty_and_inactive() {
+        let f = ExtendedField::default();
+        assert!(f.name.is_empty());
+        assert!(f.path.is_empty());
+        assert!(f.typ.is_empty());
+        assert!(matches!(f.default, Value::Null));
+        assert!(!f.required);
+        assert!(!f.searchable);
+        assert!(!f.primary_prop);
+        assert!(f.get_value.is_none());
+    }
+
+    #[test]
+    fn extended_field_clones_preserve_flags_and_callbacks() {
+        let f = ExtendedField {
+            name: "n".to_string(),
+            path: "p".to_string(),
+            typ: "string".to_string(),
+            default: Value::String("d".to_string()),
+            required: true,
+            searchable: true,
+            primary_prop: true,
+            get_value: Some(Arc::new(|_state, _meta| Ok(Value::from(7)))),
+        };
+        let c = f.clone();
+        assert_eq!(c.name, "n");
+        assert_eq!(c.path, "p");
+        assert_eq!(c.typ, "string");
+        assert!(c.required && c.searchable && c.primary_prop);
+        // The Arc<Fn ...> is cloned by reference, so both fields point at
+        // the same callable.
+        assert!(c.get_value.is_some());
+    }
+}

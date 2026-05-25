@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use std::thread;
 
-use elify_lang::executor::{EngineEvent, EventKind, ExecutionEngine, TaskInput};
+use elpify_lang::executor::{EngineEvent, EventKind, ExecutionEngine, TaskInput};
 
 #[test]
 fn deploy_and_run_single_task_with_events() {

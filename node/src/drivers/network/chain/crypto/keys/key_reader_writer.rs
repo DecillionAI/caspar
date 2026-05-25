@@ -100,4 +100,52 @@ mod tests {
 
         let _ = fs::remove_dir_all(&dir);
     }
+
+    #[test]
+    fn write_key_creates_intermediate_directories() {
+        let dir = temp_dir();
+        // Two levels of nested directories that don't exist yet.
+        let nested = dir.join("a").join("b").join("priv_key");
+        let keyfile = SimpleKeyfile::new(nested.to_str().unwrap());
+        let key = generate_ecdsa_key().unwrap();
+        keyfile.write_key(&key).expect("write should mkdir -p");
+        assert!(nested.exists(), "keyfile must exist on disk");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn read_key_rejects_non_hex_contents() {
+        let dir = temp_dir();
+        let path = dir.join("bogus_priv_key");
+        std::fs::write(&path, b"not hex content at all").unwrap();
+        let keyfile = SimpleKeyfile::new(path.to_str().unwrap());
+        assert!(keyfile.read_key().is_err());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn read_key_rejects_hex_of_wrong_length() {
+        let dir = temp_dir();
+        let path = dir.join("short_priv_key");
+        // 16 hex chars = 8 bytes, but a secp256k1 D value needs 32 bytes.
+        std::fs::write(&path, b"abcdef0123456789").unwrap();
+        let keyfile = SimpleKeyfile::new(path.to_str().unwrap());
+        assert!(keyfile.read_key().is_err());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn write_then_read_round_trip_preserves_d_value_after_trimming() {
+        // Files written by `write_key` contain no trailing newline, but
+        // `read_key` should tolerate one if a user appended one manually.
+        let dir = temp_dir();
+        let path = dir.join("trim_priv_key");
+        let key = generate_ecdsa_key().unwrap();
+        let raw = format!("{}\n  \n", hex::encode(dump_private_key(&key)));
+        std::fs::write(&path, raw).unwrap();
+        let keyfile = SimpleKeyfile::new(path.to_str().unwrap());
+        let loaded = keyfile.read_key().expect("read should trim");
+        assert_eq!(dump_private_key(&loaded), dump_private_key(&key));
+        let _ = fs::remove_dir_all(&dir);
+    }
 }

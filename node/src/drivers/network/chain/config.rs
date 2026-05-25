@@ -231,3 +231,103 @@ pub fn default_ice_servers() -> Vec<IceServer> {
         ..IceServer::default()
     }]
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn new_default_config_uses_documented_defaults() {
+        let c = Config::new_default_config("10.0.0.1:9000");
+        assert_eq!(c.advertise_addr, "10.0.0.1:9000");
+        assert_eq!(c.log_level, DEFAULT_LOG_LEVEL);
+        assert_eq!(c.bind_addr, DEFAULT_BIND_ADDR);
+        assert_eq!(c.service_addr, DEFAULT_SERVICE_ADDR);
+        assert_eq!(c.cache_size, DEFAULT_CACHE_SIZE);
+        assert_eq!(c.sync_limit, DEFAULT_SYNC_LIMIT);
+        assert_eq!(c.max_pool, DEFAULT_MAX_POOL);
+        assert_eq!(c.store, DEFAULT_STORE);
+        assert_eq!(c.maintenance_mode, DEFAULT_MAINTENANCE_MODE);
+        assert_eq!(c.suspend_limit, DEFAULT_SUSPEND_LIMIT);
+        assert_eq!(c.webrtc, DEFAULT_WEBRTC);
+        assert_eq!(c.signal_addr, DEFAULT_SIGNAL_ADDR);
+        assert_eq!(c.signal_realm, DEFAULT_SIGNAL_REALM);
+        assert_eq!(c.signal_skip_verify, DEFAULT_SIGNAL_SKIP_VERIFY);
+        assert_eq!(c.ice_address, DEFAULT_ICE_ADDRESS);
+        assert!(!c.no_service);
+        assert!(!c.enable_fast_sync);
+        assert!(!c.bootstrap);
+        assert!(c.proxy.is_none());
+        assert!(c.key.is_none());
+    }
+
+    #[test]
+    fn set_data_dir_updates_default_database_dir() {
+        let mut c = Config::new_default_config("a");
+        // Pristine config has database_dir == default_database_dir().
+        c.set_data_dir("/tmp/caspar-test");
+        assert_eq!(c.data_dir, "/tmp/caspar-test");
+        let expected = PathBuf::from("/tmp/caspar-test")
+            .join(DEFAULT_DB_FILE)
+            .to_string_lossy()
+            .into_owned();
+        assert_eq!(c.database_dir, expected);
+    }
+
+    #[test]
+    fn set_data_dir_preserves_custom_database_dir() {
+        let mut c = Config::new_default_config("a");
+        c.database_dir = "/custom/db".to_string();
+        c.set_data_dir("/tmp/something");
+        // Custom database_dir is preserved.
+        assert_eq!(c.database_dir, "/custom/db");
+    }
+
+    #[test]
+    fn keyfile_and_certfile_are_under_data_dir() {
+        let mut c = Config::new_default_config("a");
+        c.data_dir = "/d".to_string();
+        assert_eq!(c.keyfile(), "/d/priv_key");
+        assert_eq!(c.cert_file(), "/d/cert.pem");
+    }
+
+    #[test]
+    fn ice_servers_uses_credentials_from_config() {
+        let mut c = Config::new_default_config("a");
+        c.ice_address = "stun:host:3478".to_string();
+        c.ice_username = "user".to_string();
+        c.ice_password = "pass".to_string();
+        let servers = c.ice_servers();
+        assert_eq!(servers.len(), 1);
+        assert_eq!(servers[0].urls, vec!["stun:host:3478".to_string()]);
+        assert_eq!(servers[0].username, "user");
+        assert_eq!(servers[0].credential, "pass");
+        assert_eq!(servers[0].credential_type, "password");
+    }
+
+    #[test]
+    fn default_ice_servers_contains_google_stun() {
+        let servers = default_ice_servers();
+        assert_eq!(servers.len(), 1);
+        assert!(servers[0].urls.contains(&DEFAULT_ICE_ADDRESS.to_string()));
+        assert!(servers[0].username.is_empty());
+        assert!(servers[0].credential.is_empty());
+    }
+
+    #[test]
+    fn log_level_maps_known_strings() {
+        assert_eq!(log_level("debug"), Level::Debug);
+        assert_eq!(log_level("info"), Level::Info);
+        assert_eq!(log_level("warn"), Level::Warn);
+        assert_eq!(log_level("error"), Level::Error);
+        assert_eq!(log_level("fatal"), Level::Fatal);
+        assert_eq!(log_level("panic"), Level::Panic);
+    }
+
+    #[test]
+    fn log_level_defaults_to_debug_for_unknown() {
+        assert_eq!(log_level(""), Level::Debug);
+        assert_eq!(log_level("nope"), Level::Debug);
+        assert_eq!(log_level("TRACE"), Level::Debug);
+    }
+}

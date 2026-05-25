@@ -21,3 +21,49 @@ impl FileHeader {
         Ok(Cursor::new(self.content.clone()))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Read;
+
+    #[test]
+    fn open_returns_a_cursor_that_yields_the_full_content() {
+        let fh = FileHeader {
+            filename: "f".to_string(),
+            content: b"hello world".to_vec(),
+            size: 11,
+            header: HashMap::new(),
+        };
+        let mut cur = fh.open().expect("open");
+        let mut buf = Vec::new();
+        cur.read_to_end(&mut buf).unwrap();
+        assert_eq!(buf, b"hello world");
+    }
+
+    #[test]
+    fn open_clones_content_so_repeated_reads_are_independent() {
+        let fh = FileHeader {
+            filename: "f".to_string(),
+            content: b"abc".to_vec(),
+            ..FileHeader::default()
+        };
+        let mut a = fh.open().unwrap();
+        let mut b = fh.open().unwrap();
+        let mut buf_a = Vec::new();
+        let mut buf_b = Vec::new();
+        a.read_to_end(&mut buf_a).unwrap();
+        b.read_to_end(&mut buf_b).unwrap();
+        assert_eq!(buf_a, buf_b);
+        assert_eq!(buf_a, b"abc");
+    }
+
+    #[test]
+    fn default_is_empty() {
+        let fh = FileHeader::default();
+        assert!(fh.filename.is_empty());
+        assert!(fh.content.is_empty());
+        assert_eq!(fh.size, 0);
+        assert!(fh.header.is_empty());
+    }
+}

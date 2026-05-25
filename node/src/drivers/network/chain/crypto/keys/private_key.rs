@@ -44,3 +44,53 @@ pub fn parse_private_key(d: &[u8]) -> Result<SigningKey> {
 pub fn private_key_hex(key: &SigningKey) -> String {
     hex::encode(dump_private_key(key))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn generate_returns_keys_of_expected_layout() {
+        let k = generate_ecdsa_key().expect("generate");
+        let d = dump_private_key(&k);
+        assert_eq!(d.len(), 32, "secp256k1 D value is 32 bytes");
+    }
+
+    #[test]
+    fn generate_yields_distinct_keys() {
+        let a = generate_ecdsa_key().unwrap();
+        let b = generate_ecdsa_key().unwrap();
+        assert_ne!(dump_private_key(&a), dump_private_key(&b));
+    }
+
+    #[test]
+    fn dump_and_parse_round_trip() {
+        let original = generate_ecdsa_key().unwrap();
+        let bytes = dump_private_key(&original);
+        let parsed = parse_private_key(&bytes).expect("parse");
+        assert_eq!(dump_private_key(&parsed), bytes);
+    }
+
+    #[test]
+    fn parse_rejects_wrong_length() {
+        let err = parse_private_key(&[0u8; 16]).expect_err("too short");
+        assert!(format!("{}", err).contains("256 bits"));
+        let err = parse_private_key(&[0u8; 64]).expect_err("too long");
+        assert!(format!("{}", err).contains("256 bits"));
+    }
+
+    #[test]
+    fn parse_rejects_zero_scalar() {
+        // Zero is an invalid scalar for ECDSA.
+        let err = parse_private_key(&[0u8; 32]).expect_err("zero scalar");
+        assert!(format!("{}", err).contains("invalid private key"));
+    }
+
+    #[test]
+    fn private_key_hex_is_64_hex_chars() {
+        let k = generate_ecdsa_key().unwrap();
+        let h = private_key_hex(&k);
+        assert_eq!(h.len(), 64);
+        assert!(h.chars().all(|c| c.is_ascii_hexdigit()));
+    }
+}

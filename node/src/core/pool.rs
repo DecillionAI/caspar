@@ -70,4 +70,31 @@ mod tests {
         let buf = get_buffer(0);
         assert!(buf.capacity() <= cap);
     }
+
+    #[test]
+    fn get_buffer_zero_size_returns_some_buffer() {
+        let buf = get_buffer(0);
+        assert!(buf.is_empty());
+        drop(buf);
+    }
+
+    #[test]
+    fn put_buffer_returned_to_pool_keeps_capacity_clear() {
+        // A buffer round-tripped through the pool should come back empty even
+        // after it was filled.
+        let mut buf = get_buffer(256);
+        buf.extend(std::iter::repeat(0xFFu8).take(256));
+        assert_eq!(buf.len(), 256);
+        put_buffer(buf);
+        let buf2 = get_buffer(8);
+        assert!(buf2.is_empty(), "recycled buffer should be empty");
+    }
+
+    #[test]
+    fn get_buffer_grows_when_request_exceeds_default_capacity() {
+        // A request well beyond DEFAULT_CAPACITY must allocate enough.
+        let big = get_buffer(DEFAULT_CAPACITY * 8);
+        assert!(big.capacity() >= DEFAULT_CAPACITY * 8);
+        assert!(big.is_empty());
+    }
 }

@@ -1502,3 +1502,235 @@ fn curl_get(url: &str, timeout: Duration) -> Result<Vec<u8>> {
     }
     Ok(out.stdout)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ─── parse_duration ──────────────────────────────────────────────────
+
+    #[test]
+    fn parse_duration_milliseconds() {
+        let d = parse_duration("250ms").unwrap();
+        assert_eq!(d, Duration::from_micros(250_000));
+    }
+
+    #[test]
+    fn parse_duration_seconds() {
+        let d = parse_duration("2s").unwrap();
+        assert_eq!(d, Duration::from_micros(2_000_000));
+    }
+
+    #[test]
+    fn parse_duration_fractional_seconds() {
+        let d = parse_duration("0.5s").unwrap();
+        assert_eq!(d, Duration::from_micros(500_000));
+    }
+
+    #[test]
+    fn parse_duration_minutes_and_hours() {
+        assert_eq!(parse_duration("2m").unwrap(), Duration::from_secs(120));
+        assert_eq!(parse_duration("1h").unwrap(), Duration::from_secs(3600));
+    }
+
+    #[test]
+    fn parse_duration_bare_number_is_seconds() {
+        let d = parse_duration("3").unwrap();
+        assert_eq!(d, Duration::from_secs(3));
+    }
+
+    #[test]
+    fn parse_duration_rejects_garbage() {
+        assert!(parse_duration("abc").is_err());
+        assert!(parse_duration("12x").is_err());
+    }
+
+    // ─── parse_percent ──────────────────────────────────────────────────
+
+    #[test]
+    fn parse_percent_handles_trailing_pct() {
+        assert_eq!(parse_percent("42.5%"), Some(42.5));
+        // Outer whitespace is trimmed before parsing.
+        assert_eq!(parse_percent(" 17%"), Some(17.0));
+        assert_eq!(parse_percent("100%"), Some(100.0));
+        // No percent sign is fine; the function just parses the number.
+        assert_eq!(parse_percent("3.5"), Some(3.5));
+    }
+
+    #[test]
+    fn parse_percent_rejects_empty_and_garbage() {
+        assert_eq!(parse_percent(""), None);
+        assert_eq!(parse_percent("%"), None);
+        assert_eq!(parse_percent("not a number"), None);
+    }
+
+    // ─── format_duration ─────────────────────────────────────────────────
+
+    #[test]
+    fn format_duration_uses_seconds_for_one_second_and_above() {
+        assert_eq!(format_duration(Duration::from_secs(1)), "1.0s");
+        assert_eq!(format_duration(Duration::from_millis(2500)), "2.5s");
+    }
+
+    #[test]
+    fn format_duration_uses_milliseconds_below_one_second() {
+        assert_eq!(format_duration(Duration::from_millis(500)), "500ms");
+        assert_eq!(format_duration(Duration::from_millis(0)), "0ms");
+    }
+
+    // ─── rune_count / trim_runes ─────────────────────────────────────────
+
+    #[test]
+    fn rune_count_counts_unicode_codepoints() {
+        assert_eq!(rune_count(""), 0);
+        assert_eq!(rune_count("abc"), 3);
+        // Each multibyte char counts as 1 rune.
+        assert_eq!(rune_count("héllo"), 5);
+        assert_eq!(rune_count("日本語"), 3);
+    }
+
+    #[test]
+    fn trim_runes_leaves_short_strings_alone() {
+        assert_eq!(trim_runes("abc", 5), "abc");
+    }
+
+    #[test]
+    fn trim_runes_truncates_and_adds_ellipsis() {
+        // n > 1 -> last char is replaced by '…'.
+        assert_eq!(trim_runes("abcdef", 4), "abc…");
+    }
+
+    #[test]
+    fn trim_runes_at_one_returns_single_char_without_ellipsis() {
+        let s = trim_runes("abc", 1);
+        assert_eq!(s.chars().count(), 1);
+    }
+
+    // ─── render_sparkline ────────────────────────────────────────────────
+
+    #[test]
+    fn render_sparkline_warms_up_on_empty() {
+        assert_eq!(render_sparkline(&[]), "(warming up)");
+    }
+
+    #[test]
+    fn render_sparkline_handles_all_zero_values() {
+        // All-zero input yields the lowest bar repeated.
+        let s = render_sparkline(&[0.0, 0.0, 0.0]);
+        assert_eq!(s.chars().count(), 3);
+        assert!(s.chars().all(|c| c == '▁'));
+    }
+
+    #[test]
+    fn render_sparkline_uses_full_bar_for_max_value() {
+        let s = render_sparkline(&[1.0, 5.0, 10.0]);
+        assert_eq!(s.chars().count(), 3);
+        // The last char is the maximum bar.
+        assert_eq!(s.chars().last(), Some('█'));
+    }
+
+    // ─── validate_docker_name ────────────────────────────────────────────
+
+    #[test]
+    fn validate_docker_name_accepts_typical_names() {
+        validate_docker_name("caspar-node").unwrap();
+        validate_docker_name("caspar_node-1").unwrap();
+        validate_docker_name("a.b.c").unwrap();
+        validate_docker_name("ABC123").unwrap();
+    }
+
+    #[test]
+    fn validate_docker_name_rejects_empty() {
+        let err = validate_docker_name("   ").unwrap_err();
+        assert!(format!("{}", err).contains("not be empty"));
+    }
+
+    #[test]
+    fn validate_docker_name_rejects_special_characters() {
+        assert!(validate_docker_name("bad name").is_err());
+        assert!(validate_docker_name("bad/name").is_err());
+        assert!(validate_docker_name("bad:name").is_err());
+        assert!(validate_docker_name("bad$name").is_err());
+    }
+
+    // ─── short_time ──────────────────────────────────────────────────────
+
+    #[test]
+    fn short_time_returns_na_for_empty_or_zero_time() {
+        assert_eq!(short_time(""), "n/a");
+        assert_eq!(short_time("0001-01-01T00:00:00Z"), "n/a");
+    }
+
+    #[test]
+    fn short_time_passes_through_unparseable_input() {
+        assert_eq!(short_time("not a timestamp"), "not a timestamp");
+    }
+
+    #[test]
+    fn short_time_formats_valid_rfc3339_to_local() {
+        let s = short_time("2024-06-01T12:00:00Z");
+        // Format includes timezone abbreviation; we just check the date part
+        // and that it isn't the unparseable passthrough.
+        assert!(s.contains("2024-"));
+        assert_ne!(s, "2024-06-01T12:00:00Z");
+    }
+
+    // ─── saved-name / saved-image round trip ──────────────────────────────
+
+    fn tmp_project_dir(label: &str) -> std::path::PathBuf {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir = std::env::temp_dir()
+            .join(format!("casparctl-{}-{}-{}", label, std::process::id(), nanos));
+        std::fs::create_dir_all(&dir).unwrap();
+        // Drop a Dockerfile so validate_node_project_dir accepts the dir.
+        std::fs::write(dir.join("Dockerfile"), "FROM scratch\n").unwrap();
+        dir
+    }
+
+    #[test]
+    fn validate_node_project_dir_requires_dockerfile() {
+        let dir = tmp_project_dir("validate-ok");
+        validate_node_project_dir(&dir).expect("dockerfile present");
+        std::fs::remove_file(dir.join("Dockerfile")).unwrap();
+        let err = validate_node_project_dir(&dir).expect_err("missing dockerfile");
+        assert!(format!("{}", err).contains("Dockerfile not found"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn write_then_load_saved_name_round_trip() {
+        let dir = tmp_project_dir("name-rt");
+        write_saved_name(&dir, "caspar-node").expect("write");
+        let name = load_saved_name(&dir).expect("load");
+        assert_eq!(name, "caspar-node");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn write_saved_name_validates_input() {
+        let dir = tmp_project_dir("name-validate");
+        let err = write_saved_name(&dir, "bad name").expect_err("invalid name");
+        assert!(format!("{}", err).contains("allowed characters"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn load_saved_name_errors_when_missing() {
+        let dir = tmp_project_dir("name-missing");
+        let err = load_saved_name(&dir).expect_err("file missing");
+        assert!(format!("{}", err).contains("could not read"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn write_then_load_saved_image_round_trip() {
+        let dir = tmp_project_dir("image-rt");
+        write_saved_image(&dir, "caspar-image-1").expect("write");
+        let img = load_saved_image(&dir).expect("load");
+        assert_eq!(img, "caspar-image-1");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}

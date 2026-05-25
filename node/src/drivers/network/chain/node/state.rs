@@ -112,3 +112,98 @@ impl Manager {
         self.wg_count.store(0, Ordering::SeqCst);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::AtomicUsize;
+    use std::sync::Arc;
+
+    #[test]
+    fn state_default_is_babbling() {
+        assert_eq!(State::default(), State::Babbling);
+    }
+
+    #[test]
+    fn state_display_matches_go_names() {
+        assert_eq!(State::Babbling.to_string(), "Babbling");
+        assert_eq!(State::CatchingUp.to_string(), "CatchingUp");
+        assert_eq!(State::Joining.to_string(), "Joining");
+        assert_eq!(State::Leaving.to_string(), "Leaving");
+        assert_eq!(State::Shutdown.to_string(), "Shutdown");
+        assert_eq!(State::Suspended.to_string(), "Suspended");
+    }
+
+    #[test]
+    fn state_from_u32_round_trips_all_variants() {
+        for s in [
+            State::Babbling,
+            State::CatchingUp,
+            State::Joining,
+            State::Leaving,
+            State::Shutdown,
+            State::Suspended,
+        ] {
+            assert_eq!(State::from_u32(s as u32), s);
+        }
+    }
+
+    #[test]
+    fn state_from_u32_unknown_defaults_to_babbling() {
+        assert_eq!(State::from_u32(99), State::Babbling);
+        assert_eq!(State::from_u32(u32::MAX), State::Babbling);
+    }
+
+    #[test]
+    fn manager_get_set_state_round_trip() {
+        let m = Manager::new();
+        assert_eq!(m.get_state(), State::Babbling);
+        m.set_state(State::Suspended);
+        assert_eq!(m.get_state(), State::Suspended);
+        m.set_state(State::Shutdown);
+        assert_eq!(m.get_state(), State::Shutdown);
+    }
+
+    #[test]
+    fn manager_go_func_runs_and_wait_routines_joins() {
+        let m = Manager::new();
+        let counter = Arc::new(AtomicUsize::new(0));
+        for _ in 0..5 {
+            let c = counter.clone();
+            m.go_func(Box::new(move || {
+                c.fetch_add(1, Ordering::SeqCst);
+            }));
+        }
+        m.wait_routines();
+        assert_eq!(counter.load(Ordering::SeqCst), 5);
+        // After wait_routines, the wg counter should be reset to 0 so new
+        // submissions can proceed.
+        let c = counter.clone();
+        m.go_func(Box::new(move || {
+            c.fetch_add(1, Ordering::SeqCst);
+        }));
+        m.wait_routines();
+        assert_eq!(counter.load(Ordering::SeqCst), 6);
+    }
+
+    #[test]
+    fn manager_go_func_caps_at_wglimit_when_not_drained() {
+        let m = Manager::new();
+        let counter = Arc::new(AtomicUsize::new(0));
+        // Submit far more than the limit without ever calling wait_routines.
+        for _ in 0..(WGLIMIT as usize * 3) {
+            let c = counter.clone();
+            m.go_func(Box::new(move || {
+                c.fetch_add(1, Ordering::SeqCst);
+            }));
+        }
+        // Drain. At most WGLIMIT closures should have been spawned because
+        // wg_count is never decremented between submissions.
+        m.wait_routines();
+        assert!(
+            counter.load(Ordering::SeqCst) <= WGLIMIT as usize,
+            "go_func should refuse work beyond WGLIMIT outstanding (count={})",
+            counter.load(Ordering::SeqCst)
+        );
+    }
+}
