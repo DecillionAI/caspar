@@ -271,6 +271,9 @@ pub(crate) fn handle_unified_host_call(packet: &JsonValue) -> String {
         "listStores" => host_fn_list_stores(&input),
         "updateStore" => host_fn_update_store(&input),
         "createCreature" | "createOwnedCreature" => host_fn_create_creature(&input),
+        "getCreature" => host_fn_get_creature(&input),
+        "listCreatures" => host_fn_list_creatures(&input),
+        "updateCreature" => host_fn_update_creature(&input),
         "validateSign" => host_fn_validate_sign(&input),
         "transfer" => host_fn_transfer(&input),
         "consumeLock" => host_fn_consume_lock(&input),
@@ -283,6 +286,19 @@ pub(crate) fn handle_unified_host_call(packet: &JsonValue) -> String {
         }
         "signalUser" => host_fn_signal_user(&input),
         "signalGroup" => host_fn_signal_group(&input),
+        // Micro ops backed by `Vmm::handle_micro_host_action` (the real DB /
+        // signaler / access-control implementations).
+        "genId" | "getLink" | "delKey" | "getJson" | "putJson" | "getByPrefix"
+        | "hasAccessToStore" | "joinGroup" => host_fn_micro(op, &input),
+        // Resource (vm-scoped) store CRUD.
+        "createResourceStore" | "createVmOwnedStore" => host_fn_resource_store(&"create".to_string(), &input),
+        "updateResourceStore" | "updateVmOwnedStore" => host_fn_resource_store(&"update".to_string(), &input),
+        "deleteResourceStore" | "deleteVmOwnedStore" => host_fn_resource_store(&"delete".to_string(), &input),
+        "getResourceStore"    | "getVmOwnedStore"    => host_fn_resource_store(&"get".to_string(), &input),
+        "listResourceStores"  | "listVmOwnedStores"  => host_fn_resource_store(&"list".to_string(), &input),
+        // Resource entities (file blobs etc.).
+        "createResourceEntity" => host_fn_resource_entity_create(&input),
+        "deleteResourceEntity" => host_fn_resource_entity_delete(&input),
         _ => {
             let packet = json!({
                 "key": op,
@@ -290,6 +306,46 @@ pub(crate) fn handle_unified_host_call(packet: &JsonValue) -> String {
             });
             wasm_send(packet)
         }
+    }
+}
+
+/// Generic dispatch into `Vmm::handle_micro_host_action`.
+pub(crate) fn host_fn_micro(op: &str, input: &JsonValue) -> String {
+    match crate::drivers::vmm::globals::with_global_vmm(|vmm| {
+        vmm.handle_micro_host_action(op, input, 0).0
+    }) {
+        Some(out) => out,
+        None => json!({"ok": false, "error": "vmm not initialised"}).to_string(),
+    }
+}
+
+/// Dispatch into `Vmm::handle_resource_store_crud`.
+pub(crate) fn host_fn_resource_store(op: &str, input: &JsonValue) -> String {
+    match crate::drivers::vmm::globals::with_global_vmm(|vmm| {
+        vmm.handle_resource_store_crud(op, input, 0).0
+    }) {
+        Some(out) => out,
+        None => json!({"ok": false, "error": "vmm not initialised"}).to_string(),
+    }
+}
+
+/// Dispatch into `Vmm::handle_resource_entity_create`.
+pub(crate) fn host_fn_resource_entity_create(input: &JsonValue) -> String {
+    match crate::drivers::vmm::globals::with_global_vmm(|vmm| {
+        vmm.handle_resource_entity_create(input, 0).0
+    }) {
+        Some(out) => out,
+        None => json!({"ok": false, "error": "vmm not initialised"}).to_string(),
+    }
+}
+
+/// Dispatch into `Vmm::handle_resource_entity_delete`.
+pub(crate) fn host_fn_resource_entity_delete(input: &JsonValue) -> String {
+    match crate::drivers::vmm::globals::with_global_vmm(|vmm| {
+        vmm.handle_resource_entity_delete(input, 0).0
+    }) {
+        Some(out) => out,
+        None => json!({"ok": false, "error": "vmm not initialised"}).to_string(),
     }
 }
 
