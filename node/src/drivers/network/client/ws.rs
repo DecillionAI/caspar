@@ -9,7 +9,34 @@
 //! a 4-byte length and then the body. The Rust translation collapses that
 //! into a single Binary message whose payload is `u32be(len) || body` so the
 //! shape matches what the existing Go clients expect on the wire.
+//!
+//! ## Concurrency model
+//!
+//! `tungstenite::WebSocket` is a single owned object that backs both `read()`
+//! and `send()` with the same underlying TCP stream. Sharing it across the
+//! reader and arbitrary writer threads requires a mutex, but holding that
+//! mutex across the blocking `read()` call starves writers (creature signal
+//! results from a wasm thread, federation pushes, etc.) which is exactly the
+//! symptom we used to see: the inbound side never let go of the WS while a
+//! client was idle waiting for an async response.
+//!
+//! The driver therefore pins each connection's `WebSocket<TlsStream>` to a
+//! single dedicated I/O thread. External writers push outbound frames onto a
+//! per-socket `mpsc::Sender`, never touching the WS directly. The I/O thread
+//! runs a tight loop that:
+//!
+//! 1. drains the outbound channel into a local FIFO,
+//! 2. pushes the next frame onto the wire if the prior frame has been ACKed,
+//! 3. performs a short-timeout `ws.read()` to interleave new inbound packets
+//!    (ACK / request / control) without ever starving the writer side.
+//!
+//! Shutdown is cooperative: anyone can call `socket.shutdown()` to flip the
+//! disconnected flag and queue a `Shutdown` token; the I/O thread drains its
+//! pending sends, closes the underlying WS, and exits.
 
+use std::collections::VecDeque;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::{self, Sender, TryRecvError};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
@@ -19,88 +46,104 @@ use serde_json::Value;
 use tungstenite::protocol::Message;
 use tungstenite::{accept as ws_accept, WebSocket};
 
-use crate::models::ports::network::TlsConfig;
-use crate::models::ports::network::ws::IWs;
-use crate::models::ports::signaler::Listener;
-use crate::models::core::ICore;
-use crate::models::packet::{build_error_json, ResponseSimpleMessage};
-use crate::models::transaction::ITrx;
 use crate::drivers::network::framing::{
     accept, bind_tls, decode_request_body, encode_client_response_body,
     encode_client_update_body, TlsStream,
 };
+use crate::models::core::ICore;
+use crate::models::packet::{build_error_json, ResponseSimpleMessage};
+use crate::models::ports::network::ws::IWs;
+use crate::models::ports::network::TlsConfig;
+use crate::models::ports::signaler::Listener;
+use crate::models::transaction::ITrx;
 use crate::shell::utils::crypto::secure_unique_string;
 
-/// Per-WS-connection state.
-pub struct Socket {
-    pub id: String,
-    inner: Mutex<SocketInner>,
+/// Items the I/O thread accepts from external writers.
+enum OutboundFrame {
+    /// Already-encoded frame body (no length prefix yet).
+    Body(Vec<u8>),
+    /// Cooperative shutdown signal.
+    Shutdown,
 }
 
-struct SocketInner {
-    ws: Option<WebSocket<TlsStream>>,
-    buffer: Vec<Vec<u8>>,
-    ack: bool,
-    disconnected: bool,
-    user_id: String,
+/// Per-WS-connection state visible to the rest of the node.
+///
+/// The actual `WebSocket` handle lives inside a dedicated I/O thread (see
+/// [`Ws::handle_connection`]); writers reach it only through `outbound`.
+pub struct Socket {
+    pub id: String,
     peer: String,
+    user_id: Mutex<String>,
+    disconnected: AtomicBool,
+    /// Single producer / single consumer in steady state, but we use a
+    /// standard `mpsc` so any number of writer threads can enqueue without
+    /// taking a lock on the WS itself. `None` once the socket has shut down.
+    outbound: Mutex<Option<Sender<OutboundFrame>>>,
 }
 
 impl Socket {
-    fn new(ws: WebSocket<TlsStream>, peer: String) -> Arc<Socket> {
+    fn new(peer: String, outbound: Sender<OutboundFrame>) -> Arc<Socket> {
         Arc::new(Socket {
             id: secure_unique_string(),
-            inner: Mutex::new(SocketInner {
-                ws: Some(ws),
-                buffer: Vec::new(),
-                ack: true,
-                disconnected: false,
-                user_id: String::new(),
-                peer,
-            }),
+            peer,
+            user_id: Mutex::new(String::new()),
+            disconnected: AtomicBool::new(false),
+            outbound: Mutex::new(Some(outbound)),
         })
     }
 
     fn peer_ip(&self) -> String {
-        let inner = self.inner.lock().unwrap();
-        inner
-            .peer
+        self.peer
             .rsplit_once(':')
             .map(|(a, _)| a.to_string())
-            .unwrap_or(inner.peer.clone())
+            .unwrap_or_else(|| self.peer.clone())
     }
 
-    fn push_buffer(&self, inner: &mut SocketInner) {
-        if !inner.ack {
+    fn user_id(&self) -> String {
+        self.user_id.lock().unwrap().clone()
+    }
+
+    fn set_user_id(&self, id: &str) {
+        *self.user_id.lock().unwrap() = id.to_string();
+    }
+
+    fn is_disconnected(&self) -> bool {
+        self.disconnected.load(Ordering::Acquire)
+    }
+
+    /// Queue a frame for the I/O thread to send. Drops silently if the
+    /// socket has already shut down — callers (signaler listeners, async
+    /// action handlers) should treat send as best-effort, since the same
+    /// connection may close at any time.
+    fn enqueue(&self, frame: Vec<u8>) {
+        if self.is_disconnected() {
             return;
         }
-        let Some(ws) = inner.ws.as_mut() else {
-            return;
-        };
-        let Some(frame) = inner.buffer.first().cloned() else {
-            return;
-        };
-        inner.ack = false;
-        let mut msg = Vec::with_capacity(4 + frame.len());
-        msg.extend_from_slice(&(frame.len() as u32).to_be_bytes());
-        msg.extend_from_slice(&frame);
-        if ws.send(Message::Binary(msg.into())).is_err() {
-            inner.ack = true;
+        let guard = self.outbound.lock().unwrap();
+        if let Some(tx) = guard.as_ref() {
+            let _ = tx.send(OutboundFrame::Body(frame));
         }
     }
 
     fn write_update(&self, key: &str, payload: &[u8]) {
         let frame = encode_client_update_body(key, payload);
-        let mut inner = self.inner.lock().unwrap();
-        inner.buffer.push(frame);
-        self.push_buffer(&mut inner);
+        self.enqueue(frame);
     }
 
     fn write_response(&self, packet_id: &str, res_code: i64, payload: &[u8]) {
         let frame = encode_client_response_body(packet_id, res_code, payload);
-        let mut inner = self.inner.lock().unwrap();
-        inner.buffer.push(frame);
-        self.push_buffer(&mut inner);
+        self.enqueue(frame);
+    }
+
+    /// Idempotent cooperative shutdown.
+    fn shutdown(&self) {
+        if self.disconnected.swap(true, Ordering::AcqRel) {
+            return;
+        }
+        let mut guard = self.outbound.lock().unwrap();
+        if let Some(tx) = guard.take() {
+            let _ = tx.send(OutboundFrame::Shutdown);
+        }
     }
 }
 
@@ -120,20 +163,10 @@ impl Ws {
     }
 
     fn process_inbound(self: &Arc<Self>, socket: &Arc<Socket>, body: Vec<u8>) {
-        // Strip Go's outer 4-byte length prefix (the gws client sends it as
-        // part of the same Binary message).
-        let body = if body.len() >= 4 { body[4..].to_vec() } else { body };
-
-        if body.len() == 1 && body[0] == 0x01 {
-            let mut inner = socket.inner.lock().unwrap();
-            inner.ack = true;
-            if !inner.buffer.is_empty() {
-                inner.buffer.remove(0);
-                socket.push_buffer(&mut inner);
-            }
-            return;
-        }
-
+        // The 4-byte length prefix that the legacy Go (gws) client wraps
+        // every message in is already stripped by the I/O loop before this
+        // is called. ACK detection also happens upstream, so any body that
+        // reaches here is a real request body.
         let parsed = match decode_request_body(&body) {
             Ok(p) => p,
             Err(_) => return,
@@ -157,7 +190,11 @@ impl Ws {
                 } else {
                     "logout_failed"
                 };
-                socket.write_response(&parsed.packet_id, 0, &serde_json::to_vec(&build_error_json(msg)).unwrap_or_default());
+                socket.write_response(
+                    &parsed.packet_id,
+                    0,
+                    &serde_json::to_vec(&build_error_json(msg)).unwrap_or_default(),
+                );
                 return;
             }
             "authenticate" | "/creatures/authenticate" => {
@@ -171,7 +208,8 @@ impl Ws {
                     socket.write_response(
                         &parsed.packet_id,
                         0,
-                        &serde_json::to_vec(&build_error_json("authenticated")).unwrap_or_default(),
+                        &serde_json::to_vec(&build_error_json("authenticated"))
+                            .unwrap_or_default(),
                     );
                     let msg = serde_json::to_vec(&ResponseSimpleMessage {
                         message: "old_queue_end".to_string(),
@@ -182,7 +220,8 @@ impl Ws {
                     socket.write_response(
                         &parsed.packet_id,
                         4,
-                        &serde_json::to_vec(&build_error_json("authentication failed")).unwrap_or_default(),
+                        &serde_json::to_vec(&build_error_json("authentication failed"))
+                            .unwrap_or_default(),
                     );
                 }
                 return;
@@ -196,7 +235,8 @@ impl Ws {
                 socket.write_response(
                     &parsed.packet_id,
                     1,
-                    &serde_json::to_vec(&build_error_json("action not found")).unwrap_or_default(),
+                    &serde_json::to_vec(&build_error_json("action not found"))
+                        .unwrap_or_default(),
                 );
                 return;
             }
@@ -209,7 +249,8 @@ impl Ws {
                 socket.write_response(
                     &parsed.packet_id,
                     2,
-                    &serde_json::to_vec(&build_error_json(&format!("{}", e))).unwrap_or_default(),
+                    &serde_json::to_vec(&build_error_json(&format!("{}", e)))
+                        .unwrap_or_default(),
                 );
                 return;
             }
@@ -231,7 +272,8 @@ impl Ws {
                 socket.write_response(
                     &parsed.packet_id,
                     3,
-                    &serde_json::to_vec(&build_error_json(&format!("{}", e))).unwrap_or_default(),
+                    &serde_json::to_vec(&build_error_json(&format!("{}", e)))
+                        .unwrap_or_default(),
                 );
             }
         }
@@ -245,14 +287,13 @@ impl Ws {
             dis_time: 0,
             signal: Arc::new(move |key, value| {
                 let bytes = serde_json::to_vec(&value).unwrap_or_default();
+                // Pushes onto the I/O thread's outbound channel; never
+                // contends with the read loop.
                 socket_clone.write_update(&key, &bytes);
             }),
         });
         self.sockets.insert(user_id.to_string(), socket.clone());
-        {
-            let mut inner = socket.inner.lock().unwrap();
-            inner.user_id = user_id.to_string();
-        }
+        socket.set_user_id(user_id);
         self.app.tools().signaler().listen_to_single(listener);
 
         let prefix = format!("hasaccess::{}::", user_id);
@@ -277,74 +318,113 @@ impl Ws {
 
     fn handle_connection(self: Arc<Self>, stream: TlsStream) {
         let peer = stream.peer_addr();
-        let ws = match ws_accept(stream) {
+        let mut ws = match ws_accept(stream) {
             Ok(ws) => ws,
             Err(e) => {
                 eprintln!("ws handshake from {}: {}", peer, e);
                 return;
             }
         };
-        // Install a short read timeout on the underlying TCP socket so the
-        // read loop wakes periodically. Without this, `ws.read()` blocks
-        // forever while holding `inner.lock`, which starves writers (e.g.
-        // creature signal results pushed asynchronously from a wasm thread).
-        // On WouldBlock/TimedOut we just release the lock and try again.
+        // Short read timeout so `ws.read()` returns `WouldBlock` periodically
+        // and the I/O loop can interleave outbound sends. The lock-free
+        // architecture means writers never block on this; the timeout just
+        // bounds how long the loop sleeps between outbound flushes.
         let _ = ws.get_ref().set_read_timeout(Some(Duration::from_millis(20)));
 
-        let socket = Socket::new(ws, peer.clone());
+        let (tx, rx) = mpsc::channel::<OutboundFrame>();
+        let socket = Socket::new(peer.clone(), tx);
         if let Some((ip, _)) = peer.rsplit_once(':') {
             self.sockets.insert(ip.to_string(), socket.clone());
         }
 
-        loop {
-            let msg = {
-                let mut inner = socket.inner.lock().unwrap();
-                let ws = match inner.ws.as_mut() {
-                    Some(ws) => ws,
-                    None => break,
-                };
-                match ws.read() {
-                    Ok(m) => Some(m),
-                    Err(tungstenite::error::Error::Io(io_err))
-                        if io_err.kind() == std::io::ErrorKind::WouldBlock
-                            || io_err.kind() == std::io::ErrorKind::TimedOut =>
-                    {
-                        // Soft tick: lock guard drops at the end of this
-                        // block, giving writers a chance to push frames out
-                        // before we re-enter `read()`.
-                        None
+        // Local frame queue + back-pressure flag. The protocol requires that
+        // we wait for the client's ACK byte (`0x01`) before sending the next
+        // frame, otherwise old clients drop frames silently.
+        let mut buffered: VecDeque<Vec<u8>> = VecDeque::new();
+        let mut ack_ready = true;
+        let mut shutting_down = false;
+        let mut shutdown_requested = false;
+
+        'io: loop {
+            // 1) Pull any newly queued outbound frames onto the local FIFO.
+            loop {
+                match rx.try_recv() {
+                    Ok(OutboundFrame::Body(b)) => buffered.push_back(b),
+                    Ok(OutboundFrame::Shutdown) => {
+                        shutdown_requested = true;
                     }
-                    Err(_) => break,
-                }
-            };
-            let msg = match msg {
-                Some(m) => m,
-                None => continue,
-            };
-            match msg {
-                Message::Binary(bytes) => {
-                    self.process_inbound(&socket, bytes.to_vec());
-                }
-                Message::Ping(payload) => {
-                    let mut inner = socket.inner.lock().unwrap();
-                    if let Some(ws) = inner.ws.as_mut() {
-                        let _ = ws.send(Message::Pong(payload));
+                    Err(TryRecvError::Empty) => break,
+                    Err(TryRecvError::Disconnected) => {
+                        shutdown_requested = true;
+                        break;
                     }
                 }
-                Message::Close(_) => break,
-                _ => {}
+            }
+
+            // Flush the queue first before honouring a shutdown request — the
+            // creature's final response should still reach the client.
+            if shutdown_requested && buffered.is_empty() {
+                shutting_down = true;
+            }
+
+            // 2) Push the next frame if we're allowed to.
+            if ack_ready {
+                if let Some(frame) = buffered.front() {
+                    let mut msg = Vec::with_capacity(4 + frame.len());
+                    msg.extend_from_slice(&(frame.len() as u32).to_be_bytes());
+                    msg.extend_from_slice(frame);
+                    match ws.send(Message::Binary(msg.into())) {
+                        Ok(()) => {
+                            ack_ready = false;
+                        }
+                        Err(_) => break 'io,
+                    }
+                }
+            }
+
+            if shutting_down {
+                break 'io;
+            }
+
+            // 3) Read whatever the client sent (with timeout).
+            match ws.read() {
+                Ok(Message::Binary(bytes)) => {
+                    let body = bytes.to_vec();
+                    // The Go (gws) client wraps every payload in its own
+                    // 4-byte length prefix, mirroring the TCP framing. Strip
+                    // it here so downstream handlers see a clean body.
+                    let body = if body.len() >= 4 { body[4..].to_vec() } else { body };
+                    if body.len() == 1 && body[0] == 0x01 {
+                        // Client ACK: previous frame delivered; advance.
+                        ack_ready = true;
+                        if !buffered.is_empty() {
+                            buffered.pop_front();
+                        }
+                    } else {
+                        self.process_inbound(&socket, body);
+                    }
+                }
+                Ok(Message::Ping(payload)) => {
+                    let _ = ws.send(Message::Pong(payload));
+                }
+                Ok(Message::Close(_)) => break 'io,
+                Ok(_) => {}
+                Err(tungstenite::error::Error::Io(io_err))
+                    if io_err.kind() == std::io::ErrorKind::WouldBlock
+                        || io_err.kind() == std::io::ErrorKind::TimedOut =>
+                {
+                    // Idle tick; loop back to outbound drain.
+                }
+                Err(_) => break 'io,
             }
         }
 
-        let user_id;
-        {
-            let mut inner = socket.inner.lock().unwrap();
-            inner.disconnected = true;
-            user_id = inner.user_id.clone();
-            if let Some(mut ws) = inner.ws.take() {
-                let _ = ws.close(None);
-            }
-        }
+        // Cleanup: try a polite close, mark the socket disconnected, and
+        // schedule the 60s deferred removal so a quick reconnect by the
+        // same user doesn't lose its still-registered listener.
+        let _ = ws.close(None);
+        socket.shutdown();
+        let user_id = socket.user_id();
         if user_id.is_empty() {
             return;
         }
@@ -352,8 +432,7 @@ impl Ws {
         let socket_clone = socket.clone();
         thread::spawn(move || {
             thread::sleep(Duration::from_secs(60));
-            let still_disconnected = socket_clone.inner.lock().unwrap().disconnected;
-            if !still_disconnected {
+            if !socket_clone.is_disconnected() {
                 return;
             }
             if let Some(current) = trans.sockets.get(&user_id) {
@@ -401,3 +480,8 @@ impl Ws {
         }
     }
 }
+
+// Suppress unused warning in some build configs where `WebSocket` is only
+// used inside `handle_connection`.
+#[allow(dead_code)]
+type _PhantomWebSocket<S> = WebSocket<S>;
