@@ -11,26 +11,70 @@ use crate::drivers::vmm::models::vm_runtime::{
 };
 use crate::drivers::vmm::host::vm_host_functions::{handle_unified_host_call, with_docker_controller, with_fire_controller};
 
+/// Extract a human-readable message from a `catch_unwind` payload.
+pub(crate) fn panic_message(payload: &Box<dyn std::any::Any + Send>) -> String {
+    if let Some(s) = payload.downcast_ref::<&'static str>() {
+        return (*s).to_string();
+    }
+    if let Some(s) = payload.downcast_ref::<String>() {
+        return s.clone();
+    }
+    "<non-string panic payload>".to_string()
+}
+
+/// Publish a uniform error packet for any VM runtime failure so the host
+/// observer sees the failure instead of a silent drop.
+pub(crate) fn emit_vm_error(machine_id: &str, vm_id: &str, runtime: &str, err: &str) {
+    let payload = json!({
+        "key": "vmOutput",
+        "input": {
+            "text": err,
+            "data": err,
+            "vmId": vm_id,
+            "machineId": machine_id,
+            "logType": "error",
+            "runtime": runtime,
+        }
+    });
+    wasm_send(payload);
+}
+
 pub fn route_vm_packet(packet: &JsonValue) -> String {
-    let env = VmPacketContext::from_packet(packet);
-    match env.packet_type {
-        VmPacketKind::RunVm => dispatch_run_vm_packet(packet, &env),
-        VmPacketKind::TerminateVm => dispatch_terminate_vm_packet(packet, &env),
-        VmPacketKind::ExecVm => dispatch_exec_vm_packet(packet, &env),
-        VmPacketKind::CopyToVm => dispatch_copy_to_vm_packet(packet, &env),
-        VmPacketKind::BuildVmImage => dispatch_build_vm_image_packet(packet, &env),
-        VmPacketKind::HostCall => handle_unified_host_call(packet),
-        VmPacketKind::VerifyProgramExecution => dispatch_verify_program_packet(packet),
-        VmPacketKind::ApiResponse => json!({"ok": true, "skipped": "in-process mode"}).to_string(),
-        VmPacketKind::BridgeApi => match handle_gateway_control_api(packet) {
-            Ok(payload) => payload.to_string(),
-            Err(err) => json!({"ok": false, "error": err}).to_string(),
-        },
-        VmPacketKind::Unknown => json!({
-            "ok": false,
-            "error": format!("unsupported packet type: {}", packet["type"].as_str().unwrap_or(""))
-        })
-        .to_string(),
+    let owned = packet.clone();
+    let dispatch = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let env = VmPacketContext::from_packet(&owned);
+        match env.packet_type {
+            VmPacketKind::RunVm => dispatch_run_vm_packet(&owned, &env),
+            VmPacketKind::TerminateVm => dispatch_terminate_vm_packet(&owned, &env),
+            VmPacketKind::ExecVm => dispatch_exec_vm_packet(&owned, &env),
+            VmPacketKind::CopyToVm => dispatch_copy_to_vm_packet(&owned, &env),
+            VmPacketKind::BuildVmImage => dispatch_build_vm_image_packet(&owned, &env),
+            VmPacketKind::HostCall => handle_unified_host_call(&owned),
+            VmPacketKind::VerifyProgramExecution => dispatch_verify_program_packet(&owned),
+            VmPacketKind::ApiResponse => {
+                json!({"ok": true, "skipped": "in-process mode"}).to_string()
+            }
+            VmPacketKind::BridgeApi => match handle_gateway_control_api(&owned) {
+                Ok(payload) => payload.to_string(),
+                Err(err) => json!({"ok": false, "error": err}).to_string(),
+            },
+            VmPacketKind::Unknown => json!({
+                "ok": false,
+                "error": format!(
+                    "unsupported packet type: {}",
+                    owned["type"].as_str().unwrap_or("")
+                )
+            })
+            .to_string(),
+        }
+    }));
+    match dispatch {
+        Ok(s) => s,
+        Err(payload) => {
+            let msg = panic_message(&payload);
+            log(format!("vmm dispatcher panic contained: {}", msg));
+            json!({"ok": false, "error": format!("vmm panic: {}", msg)}).to_string()
+        }
     }
 }
 
@@ -77,9 +121,36 @@ fn dispatch_run_vm_packet(packet: &JsonValue, env: &VmPacketContext) -> String {
 
     if runtime == VmRuntime::Elpian {
         let limits = parse_vm_resource_limits(packet);
-        return match execute_elpian_task(&machine_id, vm_id, ast_path, input, limits) {
-            Ok(()) => json!({"ok": true, "runtime": "elpian", "machineId": machine_id}).to_string(),
-            Err(e) => json!({"ok": false, "error": format!("elpian task failed for machine {}: {}", machine_id, e)}).to_string(),
+        let machine_for_task = machine_id.clone();
+        let vm_for_task = vm_id.clone();
+        let ast_for_task = ast_path.clone();
+        let input_for_task = input.clone();
+        let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            execute_elpian_task(
+                &machine_for_task,
+                vm_for_task,
+                ast_for_task,
+                input_for_task,
+                limits.clone(),
+            )
+        }));
+        return match res {
+            Ok(Ok(())) => {
+                json!({"ok": true, "runtime": "elpian", "machineId": machine_id}).to_string()
+            }
+            Ok(Err(e)) => {
+                emit_vm_error(&machine_id, &vm_id, "elpian", &e);
+                json!({
+                    "ok": false,
+                    "error": format!("elpian task failed for machine {}: {}", machine_id, e)
+                })
+                .to_string()
+            }
+            Err(payload) => {
+                let msg = panic_message(&payload);
+                emit_vm_error(&machine_id, &vm_id, "elpian", &format!("panic: {}", msg));
+                json!({"ok": false, "error": format!("elpian panic: {}", msg)}).to_string()
+            }
         };
     }
 
@@ -95,52 +166,87 @@ fn dispatch_run_vm_packet(packet: &JsonValue, env: &VmPacketContext) -> String {
         };
     }
 
+    let spawn_machine = machine_id.clone();
+    let spawn_vm = vm_id.clone();
     thread::spawn(move || {
-        set_log_vm_context(&vm_id);
-        let inp1 = input.clone();
-        let input_json: JsonValue = serde_json::from_str(&inp1).unwrap_or_else(|_| json!({}));
-        let store_id = input_json
-            .get("store")
-            .and_then(|x| x.get("id"))
-            .and_then(|x| x.as_str())
-            .unwrap_or("")
-            .to_string();
+        // Contain every panic and every wasmedge failure inside this thread.
+        // A panic here used to either crash the node (when bubbled through a
+        // C++ frame as SIGABRT) or leave the VM map containing a half-running
+        // entry. Capture the panic, surface it as a vmOutput error packet,
+        // and always release the VM slot at the end.
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            set_log_vm_context(&vm_id);
+            let inp1 = input.clone();
+            let input_json: JsonValue = serde_json::from_str(&inp1).unwrap_or_else(|_| json!({}));
+            let store_id = input_json
+                .get("store")
+                .and_then(|x| x.get("id"))
+                .and_then(|x| x.as_str())
+                .unwrap_or("")
+                .to_string();
 
-        let mut rt = WasmMac::new_vm(
-            machine_id.clone(),
-            vm_id.clone(),
-            store_id,
-            ast_path.clone(),
-            limits.ram_mb,
-            Box::new(wasm_send),
-        );
-        {
-            let mut map = GLOBAL_MANAGED_VMS.lock().unwrap();
-            map.insert(
+            let mut rt = WasmMac::new_vm(
                 machine_id.clone(),
-                ManagedVmHandle {
-                    stop: Arc::clone(&rt.stop_),
-                    running: Arc::clone(&rt.running_),
-                },
+                vm_id.clone(),
+                store_id,
+                ast_path.clone(),
+                limits.ram_mb,
+                Box::new(wasm_send),
             );
-        }
-        let stop_flag = Arc::clone(&rt.stop_);
-        let timeout_machine = machine_id.clone();
-        let timeout_vm = vm_id.clone();
-        thread::spawn(move || {
-            thread::sleep(Duration::from_secs(limits.max_exec_time_secs));
-            if !stop_flag.load(Ordering::Relaxed) {
-                stop_flag.store(true, Ordering::Relaxed);
-                log(format!(
-                    "wasm vm timeout reached: machine={} vm={} limit={}s",
-                    timeout_machine, timeout_vm, limits.max_exec_time_secs
-                ));
+            {
+                let mut map = GLOBAL_MANAGED_VMS.lock().unwrap();
+                map.insert(
+                    machine_id.clone(),
+                    ManagedVmHandle {
+                        stop: Arc::clone(&rt.stop_),
+                        running: Arc::clone(&rt.running_),
+                    },
+                );
             }
-        });
-        rt.execute_on_update(inp1);
-        rt.finalize();
+            let stop_flag = Arc::clone(&rt.stop_);
+            let timeout_machine = machine_id.clone();
+            let timeout_vm = vm_id.clone();
+            thread::spawn(move || {
+                thread::sleep(Duration::from_secs(limits.max_exec_time_secs));
+                if !stop_flag.load(Ordering::Relaxed) {
+                    stop_flag.store(true, Ordering::Relaxed);
+                    log(format!(
+                        "wasm vm timeout reached: machine={} vm={} limit={}s",
+                        timeout_machine, timeout_vm, limits.max_exec_time_secs
+                    ));
+                }
+            });
+            let exec_res = rt.execute_on_update(inp1);
+            rt.finalize();
+            exec_res
+        }));
+
+        match result {
+            Ok(Ok(())) => {}
+            Ok(Err(err)) => {
+                log(format!(
+                    "wasm vm error: machine={} vm={} err={}",
+                    spawn_machine, spawn_vm, err
+                ));
+                emit_vm_error(&spawn_machine, &spawn_vm, "wasm", &err);
+            }
+            Err(panic_payload) => {
+                let msg = panic_message(&panic_payload);
+                log(format!(
+                    "wasm vm panicked: machine={} vm={} panic={}",
+                    spawn_machine, spawn_vm, msg
+                ));
+                emit_vm_error(
+                    &spawn_machine,
+                    &spawn_vm,
+                    "wasm",
+                    &format!("panic: {}", msg),
+                );
+            }
+        }
+
         let mut map = GLOBAL_MANAGED_VMS.lock().unwrap();
-        map.remove(&machine_id);
+        map.remove(&spawn_machine);
     });
 
     json!({"ok": true, "runtime": "wasm", "machineId": env.machine_id, "vmId": env.vm_id})

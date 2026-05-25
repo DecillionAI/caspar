@@ -156,16 +156,32 @@ pub fn host_call(
             }
         }
         _ => {
-            let key = req["key"].as_str().unwrap_or("");
-            let packet = if key.is_empty() {
-                json!({
-                    "key": op,
-                    "input": req["input"].clone()
-                })
-            } else {
-                req.clone()
-            };
-            (rt.callback)(packet)
+            // Forward unrecognised ops (signalUser, signalGroup, putJson, …)
+            // through the unified host-call dispatcher so they reach handlers
+            // that have access to the global signaler/storage. The previous
+            // `wasm_send({key, input})` shape produced a packet with no
+            // `type` field, which `route_vm_packet` rejected as Unknown —
+            // every signalUser from a wasm creature was silently dropped.
+            let mut input = req["input"].clone();
+            if let Some(obj) = input.as_object_mut() {
+                if !obj.contains_key("programId") && !rt.machine_id.is_empty() {
+                    obj.insert(
+                        "programId".to_string(),
+                        serde_json::Value::String(rt.machine_id.clone()),
+                    );
+                }
+                if !obj.contains_key("machineId") && !rt.machine_id.is_empty() {
+                    obj.insert(
+                        "machineId".to_string(),
+                        serde_json::Value::String(rt.machine_id.clone()),
+                    );
+                }
+            }
+            crate::drivers::vmm::host::vm_host_functions::handle_unified_host_call(&json!({
+                "type": "hostCall",
+                "op": op,
+                "input": input,
+            }))
         }
     };
 

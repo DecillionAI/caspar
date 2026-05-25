@@ -103,19 +103,49 @@ impl ElpifyManagedVm {
                 if stop_clone.load(Ordering::Relaxed) {
                     break;
                 }
-                if let Err(e) = execute_elpify_task(
-                    &machine_clone,
-                    &engine,
-                    &mut deployed_programs,
-                    task.masm_path,
-                    task.input_raw,
-                    task.vm_id,
-                    task.limits,
-                ) {
-                    log(format!(
-                        "elpify task failed for machine {}: {}",
-                        machine_clone, e
-                    ));
+                let machine_for_task = machine_clone.clone();
+                let vm_id_for_err = task.vm_id.clone();
+                let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    execute_elpify_task(
+                        &machine_for_task,
+                        &engine,
+                        &mut deployed_programs,
+                        task.masm_path,
+                        task.input_raw,
+                        task.vm_id,
+                        task.limits,
+                    )
+                }));
+                match res {
+                    Ok(Ok(())) => {}
+                    Ok(Err(e)) => {
+                        log(format!(
+                            "elpify task failed for machine {}: {}",
+                            machine_clone, e
+                        ));
+                        crate::drivers::vmm::bridge::vm_packet_router::emit_vm_error(
+                            &machine_clone,
+                            &vm_id_for_err,
+                            "elpify",
+                            &e,
+                        );
+                    }
+                    Err(payload) => {
+                        let msg = crate::drivers::vmm::bridge::vm_packet_router::panic_message(
+                            &payload,
+                        );
+                        log(format!(
+                            "elpify worker panicked for machine {}: {}",
+                            machine_clone, msg
+                        ));
+                        crate::drivers::vmm::bridge::vm_packet_router::emit_vm_error(
+                            &machine_clone,
+                            &vm_id_for_err,
+                            "elpify",
+                            &format!("panic: {}", msg),
+                        );
+                        // Worker thread continues; the next task is independent.
+                    }
                 }
             }
         });
@@ -188,7 +218,15 @@ impl WasmMac {
         self.trx.ops.clone()
     }
 
-    pub fn execute_on_update(&mut self, input: String) {
+    /// Execute the deployed WASM module against `input`.
+    ///
+    /// Returns a structured error on any wasmedge failure instead of
+    /// panicking. The host-call data (`HostData`) is now bound to a local so
+    /// it lives for the entire wasm execution — the previous version passed a
+    /// `&mut` to a temporary, which left wasmedge holding a dangling pointer
+    /// once the statement ended and caused intermittent segfaults during the
+    /// VM tear-down path.
+    pub fn execute_on_update(&mut self, input: String) -> Result<(), String> {
         self.running_.store(true, Ordering::Relaxed);
         struct RunningGuard(Arc<AtomicBool>);
         impl Drop for RunningGuard {
@@ -198,79 +236,106 @@ impl WasmMac {
         }
         let _running_guard = RunningGuard(Arc::clone(&self.running_));
 
-        let mut config = Config::create().unwrap();
+        // Declare host_data BEFORE the executor / import module so it
+        // outlives every wasmedge handle that holds a raw pointer to it.
+        // Rust drops locals in reverse declaration order, so anything that
+        // wasmedge owns and may inspect during tear-down (extern_mod, exec,
+        // store) will drop before host_data does.
+        let mut host_data = HostData {
+            exec: std::ptr::null_mut(),
+            runtime: self as *mut WasmMac,
+        };
+
+        let mut config = Config::create().map_err(|e| format!("wasm config: {}", e))?;
         config.measure_cost(true);
         let bytes = self.ram_limit_mb.saturating_mul(1024).saturating_mul(1024);
         let pages = ((bytes + 65535) / 65536).max(1);
         config.set_max_memory_pages((pages.min(u32::MAX as u64)) as u32);
-        let stats = Statistics::create().unwrap();
-        let mut store = Store::create().unwrap();
+        let stats = Statistics::create().map_err(|e| format!("wasm stats: {}", e))?;
+        let mut store = Store::create().map_err(|e| format!("wasm store: {}", e))?;
 
-        let wasi_mod = wasmedge_sys::WasiModule::create(None, None, None).unwrap();
+        let wasi_mod = wasmedge_sys::WasiModule::create(None, None, None)
+            .map_err(|e| format!("wasi module: {}", e))?;
+
+        let mut exec = Executor::create(Some(&config), Some(&stats))
+            .map_err(|e| format!("wasm executor: {}", e))?;
+        // Now exec exists, finish wiring host_data.
+        host_data.exec = &mut exec as *mut Executor;
 
         let mut dummy: i32 = 1;
-        let extern_mod = &mut ImportModule::create("env", Box::new(&mut dummy)).unwrap();
+        let mut extern_mod = ImportModule::create("env", Box::new(&mut dummy))
+            .map_err(|e| format!("env import module: {}", e))?;
 
-        let mut exec = Executor::create(Some(&config), Some(&stats)).unwrap();
-        extern_mod.add_func("hostCall", unsafe {
+        let host_func = unsafe {
             Function::create_sync_func(
                 &wasmedge_sys::FuncType::new(vec![ValType::I32, ValType::I32], vec![ValType::I64]),
                 host_call,
-                &mut (HostData {
-                    exec: &mut exec,
-                    runtime: self,
-                }),
+                &mut host_data,
                 1,
             )
-            .unwrap()
-        });
+            .map_err(|e| format!("hostCall create: {}", e))?
+        };
+        extern_mod.add_func("hostCall", host_func);
 
-        exec.register_import_module(&mut store, &wasi_mod).unwrap();
-        exec.register_import_module(&mut store, extern_mod).unwrap();
+        exec.register_import_module(&mut store, &wasi_mod)
+            .map_err(|e| format!("register wasi: {}", e))?;
+        exec.register_import_module(&mut store, &extern_mod)
+            .map_err(|e| format!("register env: {}", e))?;
 
-        let conf = Config::create().unwrap();
-        let loader = Loader::create(Some(&conf)).unwrap();
-        let main_mod_raw = loader.from_file(self.mod_path.clone()).unwrap();
-        let conf2 = Config::create().unwrap();
-        let v = Validator::create(Some(&conf2)).unwrap();
-        v.validate(&main_mod_raw).unwrap();
+        let conf = Config::create().map_err(|e| format!("loader config: {}", e))?;
+        let loader = Loader::create(Some(&conf)).map_err(|e| format!("loader: {}", e))?;
+        let main_mod_raw = loader
+            .from_file(self.mod_path.clone())
+            .map_err(|e| format!("load {}: {}", self.mod_path, e))?;
+        let conf2 = Config::create().map_err(|e| format!("validator config: {}", e))?;
+        let v = Validator::create(Some(&conf2)).map_err(|e| format!("validator: {}", e))?;
+        v.validate(&main_mod_raw)
+            .map_err(|e| format!("validate {}: {}", self.mod_path, e))?;
 
-        let vm_instance_res = exec.register_active_module(&mut store, &main_mod_raw);
-        if vm_instance_res.is_ok() {
-            if self.stop_.load(Ordering::Relaxed) {
-                return;
-            }
-            let mut vm_instance = vm_instance_res.unwrap();
-
-            let mut binding = vm_instance.get_func_mut("_start").unwrap();
-
-            exec.call_func(&mut binding, []).unwrap();
-
-            let val_l = input.len() as i32;
-            let mut malloc_fn = vm_instance.get_func_mut("malloc").unwrap();
-            let res2 = exec
-                .call_func(&mut malloc_fn, [WasmValue::from_i32(val_l)])
-                .unwrap();
-
-            let val_offset = res2[0].to_i32();
-            let raw_arr = input.as_bytes();
-            let arr: Vec<u8> = raw_arr.to_vec();
-            let mem = vm_instance.get_memory_mut("memory");
-            mem.unwrap()
-                .set_data(arr, val_offset.cast_unsigned())
-                .unwrap();
-            let c = ((val_offset as i64) << 32) | (val_l as i64);
-
-            if self.stop_.load(Ordering::Relaxed) {
-                return;
-            }
-
-            let mut run_fn = vm_instance.get_func_mut("run").unwrap();
-            let res = exec.call_func(&mut run_fn, [WasmValue::from_i64(c)]);
-            if res.is_ok() {
-                res.unwrap();
-            }
+        if self.stop_.load(Ordering::Relaxed) {
+            return Ok(());
         }
+        let mut vm_instance = exec
+            .register_active_module(&mut store, &main_mod_raw)
+            .map_err(|e| format!("register active module: {}", e))?;
+
+        let mut binding = vm_instance
+            .get_func_mut("_start")
+            .map_err(|e| format!("missing _start export: {}", e))?;
+        exec.call_func(&mut binding, [])
+            .map_err(|e| format!("_start call: {}", e))?;
+
+        let val_l = input.len() as i32;
+        let mut malloc_fn = vm_instance
+            .get_func_mut("malloc")
+            .map_err(|e| format!("missing malloc export: {}", e))?;
+        let res2 = exec
+            .call_func(&mut malloc_fn, [WasmValue::from_i32(val_l)])
+            .map_err(|e| format!("malloc call: {}", e))?;
+        let val_offset = res2
+            .get(0)
+            .map(|v| v.to_i32())
+            .ok_or_else(|| "malloc returned no value".to_string())?;
+
+        let arr: Vec<u8> = input.as_bytes().to_vec();
+        let mut mem = vm_instance
+            .get_memory_mut("memory")
+            .map_err(|e| format!("get memory: {}", e))?;
+        mem.set_data(arr, val_offset.cast_unsigned())
+            .map_err(|e| format!("set_data: {}", e))?;
+
+        let c = ((val_offset as i64) << 32) | (val_l as i64);
+
+        if self.stop_.load(Ordering::Relaxed) {
+            return Ok(());
+        }
+
+        let mut run_fn = vm_instance
+            .get_func_mut("run")
+            .map_err(|e| format!("missing run export: {}", e))?;
+        exec.call_func(&mut run_fn, [WasmValue::from_i64(c)])
+            .map_err(|e| format!("run call: {}", e))?;
+        Ok(())
     }
 
     pub fn stop(&mut self) {

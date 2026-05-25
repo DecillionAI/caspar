@@ -267,7 +267,13 @@ pub(crate) fn handle_unified_host_call(packet: &JsonValue) -> String {
         "deleteStore" | "removeStore" | "deleteOwnedStore" | "removeOwnedStore" => {
             host_fn_delete_store(&input)
         }
+        "getStore" => host_fn_get_store(&input),
+        "listStores" => host_fn_list_stores(&input),
+        "updateStore" => host_fn_update_store(&input),
         "createCreature" | "createOwnedCreature" => host_fn_create_creature(&input),
+        "getCreature" => host_fn_get_creature(&input),
+        "listCreatures" => host_fn_list_creatures(&input),
+        "updateCreature" => host_fn_update_creature(&input),
         "validateSign" => host_fn_validate_sign(&input),
         "transfer" => host_fn_transfer(&input),
         "consumeLock" => host_fn_consume_lock(&input),
@@ -278,6 +284,21 @@ pub(crate) fn handle_unified_host_call(packet: &JsonValue) -> String {
         "deleteCreature" | "removeCreature" | "deleteOwnedCreature" | "removeOwnedCreature" => {
             host_fn_delete_creature(&input)
         }
+        "signalUser" => host_fn_signal_user(&input),
+        "signalGroup" => host_fn_signal_group(&input),
+        // Micro ops backed by `Vmm::handle_micro_host_action` (the real DB /
+        // signaler / access-control implementations).
+        "genId" | "getLink" | "delKey" | "getJson" | "putJson" | "getByPrefix"
+        | "hasAccessToStore" | "joinGroup" => host_fn_micro(op, &input),
+        // Resource (vm-scoped) store CRUD.
+        "createResourceStore" | "createVmOwnedStore" => host_fn_resource_store(&"create".to_string(), &input),
+        "updateResourceStore" | "updateVmOwnedStore" => host_fn_resource_store(&"update".to_string(), &input),
+        "deleteResourceStore" | "deleteVmOwnedStore" => host_fn_resource_store(&"delete".to_string(), &input),
+        "getResourceStore"    | "getVmOwnedStore"    => host_fn_resource_store(&"get".to_string(), &input),
+        "listResourceStores"  | "listVmOwnedStores"  => host_fn_resource_store(&"list".to_string(), &input),
+        // Resource entities (file blobs etc.).
+        "createResourceEntity" => host_fn_resource_entity_create(&input),
+        "deleteResourceEntity" => host_fn_resource_entity_delete(&input),
         _ => {
             let packet = json!({
                 "key": op,
@@ -285,6 +306,103 @@ pub(crate) fn handle_unified_host_call(packet: &JsonValue) -> String {
             });
             wasm_send(packet)
         }
+    }
+}
+
+/// Generic dispatch into `Vmm::handle_micro_host_action`.
+pub(crate) fn host_fn_micro(op: &str, input: &JsonValue) -> String {
+    match crate::drivers::vmm::globals::with_global_vmm(|vmm| {
+        vmm.handle_micro_host_action(op, input, 0).0
+    }) {
+        Some(out) => out,
+        None => json!({"ok": false, "error": "vmm not initialised"}).to_string(),
+    }
+}
+
+/// Dispatch into `Vmm::handle_resource_store_crud`.
+pub(crate) fn host_fn_resource_store(op: &str, input: &JsonValue) -> String {
+    match crate::drivers::vmm::globals::with_global_vmm(|vmm| {
+        vmm.handle_resource_store_crud(op, input, 0).0
+    }) {
+        Some(out) => out,
+        None => json!({"ok": false, "error": "vmm not initialised"}).to_string(),
+    }
+}
+
+/// Dispatch into `Vmm::handle_resource_entity_create`.
+pub(crate) fn host_fn_resource_entity_create(input: &JsonValue) -> String {
+    match crate::drivers::vmm::globals::with_global_vmm(|vmm| {
+        vmm.handle_resource_entity_create(input, 0).0
+    }) {
+        Some(out) => out,
+        None => json!({"ok": false, "error": "vmm not initialised"}).to_string(),
+    }
+}
+
+/// Dispatch into `Vmm::handle_resource_entity_delete`.
+pub(crate) fn host_fn_resource_entity_delete(input: &JsonValue) -> String {
+    match crate::drivers::vmm::globals::with_global_vmm(|vmm| {
+        vmm.handle_resource_entity_delete(input, 0).0
+    }) {
+        Some(out) => out,
+        None => json!({"ok": false, "error": "vmm not initialised"}).to_string(),
+    }
+}
+
+/// Deliver a `signalUser` request from a wasm host-call to the in-process
+/// signaler so the target user (typically the requesting CLI client) receives
+/// the creature's response packet.
+pub(crate) fn host_fn_signal_user(input: &JsonValue) -> String {
+    let key = input["key"].as_str().unwrap_or("");
+    let user_id = input["userId"].as_str().unwrap_or("");
+    if key.is_empty() || user_id.is_empty() {
+        return json!({
+            "ok": false,
+            "error": "signalUser requires key and userId"
+        })
+        .to_string();
+    }
+    let packet_str = input["packet"].as_str().unwrap_or("{}");
+    let value = serde_json::from_str::<JsonValue>(packet_str).unwrap_or(JsonValue::Null);
+    let delivered = crate::drivers::vmm::globals::with_global_app(|app| {
+        app.tools().signaler().signal_user(key, user_id, value, true);
+    });
+    match delivered {
+        Some(()) => json!({"ok": true}).to_string(),
+        None => json!({"ok": false, "error": "global app not initialised"}).to_string(),
+    }
+}
+
+/// Deliver a `signalGroup` request from a wasm host-call.
+pub(crate) fn host_fn_signal_group(input: &JsonValue) -> String {
+    let key = input["key"].as_str().unwrap_or("");
+    let group_id = input["groupId"].as_str().unwrap_or("");
+    if key.is_empty() || group_id.is_empty() {
+        return json!({
+            "ok": false,
+            "error": "signalGroup requires key and groupId"
+        })
+        .to_string();
+    }
+    let packet_str = input["packet"].as_str().unwrap_or("{}");
+    let value = serde_json::from_str::<JsonValue>(packet_str).unwrap_or(JsonValue::Null);
+    let except: Vec<String> = input
+        .get("except")
+        .and_then(JsonValue::as_array)
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(str::to_string))
+                .collect()
+        })
+        .unwrap_or_default();
+    let delivered = crate::drivers::vmm::globals::with_global_app(|app| {
+        app.tools()
+            .signaler()
+            .signal_group(key, group_id, value, true, except);
+    });
+    match delivered {
+        Some(()) => json!({"ok": true}).to_string(),
+        None => json!({"ok": false, "error": "global app not initialised"}).to_string(),
     }
 }
 

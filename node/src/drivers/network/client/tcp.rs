@@ -5,7 +5,21 @@
 //! buffered and acked one-at-a-time (matching Go's `Buffer` + `Ack` flow
 //! control). The wire format is the framing implemented by
 //! [`crate::drivers::network::framing`].
+//!
+//! ## Concurrency model
+//!
+//! Each connection's `TlsStream` is pinned to a single dedicated I/O thread
+//! that performs both reads and writes. External writers push outbound
+//! frames onto a per-socket `mpsc::Sender`, never touching the stream
+//! directly — this avoids the well-known dead-lock where holding the stream
+//! mutex across a blocking `read()` starves writers (e.g. a creature signal
+//! result emitted from a wasm thread while the client is idle waiting for
+//! it). See `ws.rs` for the same design applied to WebSocket connections.
 
+use std::collections::VecDeque;
+use std::io::ErrorKind;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::{self, Sender, TryRecvError};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
@@ -13,87 +27,93 @@ use std::time::Duration;
 use dashmap::DashMap;
 use serde_json::Value;
 
-use crate::models::ports::network::TlsConfig;
-use crate::models::ports::network::tcp::ITcp;
-use crate::models::ports::signaler::Listener;
-use crate::models::core::ICore;
-use crate::models::packet::{build_error_json, ResponseSimpleMessage};
-use crate::models::transaction::ITrx;
 use crate::drivers::network::framing::{
     accept, bind_tls, decode_request_body, encode_client_response_body, encode_client_update_body,
-    read_length_prefixed_frame, write_length_prefixed_frame, TlsStream,
+    write_length_prefixed_frame, TlsStream,
 };
+use crate::models::core::ICore;
+use crate::models::packet::{build_error_json, ResponseSimpleMessage};
+use crate::models::ports::network::tcp::ITcp;
+use crate::models::ports::network::TlsConfig;
+use crate::models::ports::signaler::Listener;
+use crate::models::transaction::ITrx;
 use crate::shell::utils::crypto::secure_unique_string;
 
-/// Per-connection state shared between the connection handler and the
-/// signaler-backed update push path.
-pub struct Socket {
-    pub id: String,
-    inner: Mutex<SocketInner>,
+/// Items the I/O thread accepts from external writers.
+enum OutboundFrame {
+    Body(Vec<u8>),
+    Shutdown,
 }
 
-struct SocketInner {
-    stream: Option<TlsStream>,
-    buffer: Vec<Vec<u8>>,
-    ack: bool,
-    disconnected: bool,
-    user_id: String,
+/// Per-connection state shared with the rest of the node. The owning TLS
+/// stream lives inside the I/O thread; everything reachable through this
+/// struct is safe to call from arbitrary threads.
+pub struct Socket {
+    pub id: String,
+    peer: String,
+    user_id: Mutex<String>,
+    disconnected: AtomicBool,
+    outbound: Mutex<Option<Sender<OutboundFrame>>>,
 }
 
 impl Socket {
-    fn new(stream: TlsStream) -> Arc<Socket> {
+    fn new(peer: String, outbound: Sender<OutboundFrame>) -> Arc<Socket> {
         Arc::new(Socket {
             id: secure_unique_string(),
-            inner: Mutex::new(SocketInner {
-                stream: Some(stream),
-                buffer: Vec::new(),
-                ack: true,
-                disconnected: false,
-                user_id: String::new(),
-            }),
+            peer,
+            user_id: Mutex::new(String::new()),
+            disconnected: AtomicBool::new(false),
+            outbound: Mutex::new(Some(outbound)),
         })
     }
 
     fn peer_ip(&self) -> String {
-        let inner = self.inner.lock().unwrap();
-        inner
-            .stream
-            .as_ref()
-            .map(|s| {
-                let addr = s.peer_addr();
-                addr.rsplit_once(':').map(|(a, _)| a.to_string()).unwrap_or(addr)
-            })
-            .unwrap_or_default()
+        self.peer
+            .rsplit_once(':')
+            .map(|(a, _)| a.to_string())
+            .unwrap_or_else(|| self.peer.clone())
     }
 
-    fn push_buffer(&self, inner: &mut SocketInner) {
-        if !inner.ack {
+    fn user_id(&self) -> String {
+        self.user_id.lock().unwrap().clone()
+    }
+
+    fn set_user_id(&self, id: &str) {
+        *self.user_id.lock().unwrap() = id.to_string();
+    }
+
+    fn is_disconnected(&self) -> bool {
+        self.disconnected.load(Ordering::Acquire)
+    }
+
+    fn enqueue(&self, frame: Vec<u8>) {
+        if self.is_disconnected() {
             return;
         }
-        let Some(stream) = inner.stream.as_mut() else {
-            return;
-        };
-        let Some(frame) = inner.buffer.first().cloned() else {
-            return;
-        };
-        inner.ack = false;
-        if write_length_prefixed_frame(stream, &frame).is_err() {
-            inner.ack = true;
+        let guard = self.outbound.lock().unwrap();
+        if let Some(tx) = guard.as_ref() {
+            let _ = tx.send(OutboundFrame::Body(frame));
         }
     }
 
     fn write_update(&self, key: &str, payload: &[u8]) {
         let frame = encode_client_update_body(key, payload);
-        let mut inner = self.inner.lock().unwrap();
-        inner.buffer.push(frame);
-        self.push_buffer(&mut inner);
+        self.enqueue(frame);
     }
 
     fn write_response(&self, packet_id: &str, res_code: i64, payload: &[u8]) {
         let frame = encode_client_response_body(packet_id, res_code, payload);
-        let mut inner = self.inner.lock().unwrap();
-        inner.buffer.push(frame);
-        self.push_buffer(&mut inner);
+        self.enqueue(frame);
+    }
+
+    fn shutdown(&self) {
+        if self.disconnected.swap(true, Ordering::AcqRel) {
+            return;
+        }
+        let mut guard = self.outbound.lock().unwrap();
+        if let Some(tx) = guard.take() {
+            let _ = tx.send(OutboundFrame::Shutdown);
+        }
     }
 }
 
@@ -113,17 +133,8 @@ impl Tcp {
     }
 
     fn process_inbound(self: &Arc<Self>, socket: &Arc<Socket>, body: Vec<u8>) {
-        // 0x01 single-byte ack from client.
-        if body.len() == 1 && body[0] == 0x01 {
-            let mut inner = socket.inner.lock().unwrap();
-            inner.ack = true;
-            if !inner.buffer.is_empty() {
-                inner.buffer.remove(0);
-                socket.push_buffer(&mut inner);
-            }
-            return;
-        }
-
+        // ACKs are handled inline by the I/O loop, so anything that reaches
+        // here is a real request body.
         let parsed = match decode_request_body(&body) {
             Ok(p) => p,
             Err(_) => return,
@@ -152,12 +163,13 @@ impl Tcp {
                     socket.write_response(
                         &parsed.packet_id,
                         0,
-                        &serde_json::to_vec(&build_error_json("logout_failed")).unwrap_or_default(),
+                        &serde_json::to_vec(&build_error_json("logout_failed"))
+                            .unwrap_or_default(),
                     );
                 }
                 return;
             }
-            "authenticate" => {
+            "authenticate" | "/creatures/authenticate" => {
                 let (ok, _, _) = self
                     .app
                     .tools()
@@ -168,7 +180,8 @@ impl Tcp {
                     socket.write_response(
                         &parsed.packet_id,
                         0,
-                        &serde_json::to_vec(&build_error_json("authenticated")).unwrap_or_default(),
+                        &serde_json::to_vec(&build_error_json("authenticated"))
+                            .unwrap_or_default(),
                     );
                     let msg = serde_json::to_vec(&ResponseSimpleMessage {
                         message: "old_queue_end".to_string(),
@@ -179,7 +192,8 @@ impl Tcp {
                     socket.write_response(
                         &parsed.packet_id,
                         4,
-                        &serde_json::to_vec(&build_error_json("authentication failed")).unwrap_or_default(),
+                        &serde_json::to_vec(&build_error_json("authentication failed"))
+                            .unwrap_or_default(),
                     );
                 }
                 return;
@@ -193,7 +207,8 @@ impl Tcp {
                 socket.write_response(
                     &parsed.packet_id,
                     1,
-                    &serde_json::to_vec(&build_error_json("action not found")).unwrap_or_default(),
+                    &serde_json::to_vec(&build_error_json("action not found"))
+                        .unwrap_or_default(),
                 );
                 return;
             }
@@ -206,7 +221,8 @@ impl Tcp {
                 socket.write_response(
                     &parsed.packet_id,
                     2,
-                    &serde_json::to_vec(&build_error_json(&format!("{}", e))).unwrap_or_default(),
+                    &serde_json::to_vec(&build_error_json(&format!("{}", e)))
+                        .unwrap_or_default(),
                 );
                 return;
             }
@@ -228,7 +244,8 @@ impl Tcp {
                 socket.write_response(
                     &parsed.packet_id,
                     3,
-                    &serde_json::to_vec(&build_error_json(&format!("{}", e))).unwrap_or_default(),
+                    &serde_json::to_vec(&build_error_json(&format!("{}", e)))
+                        .unwrap_or_default(),
                 );
             }
         }
@@ -246,13 +263,9 @@ impl Tcp {
             }),
         });
         self.sockets.insert(user_id.to_string(), socket.clone());
-        {
-            let mut inner = socket.inner.lock().unwrap();
-            inner.user_id = user_id.to_string();
-        }
+        socket.set_user_id(user_id);
         self.app.tools().signaler().listen_to_single(listener);
 
-        // Join every store the user has access to.
         let prefix = format!("hasaccess::{}::", user_id);
         let store_ids = Arc::new(Mutex::new(Vec::<String>::new()));
         let store_clone = store_ids.clone();
@@ -273,38 +286,115 @@ impl Tcp {
         }
     }
 
-    fn handle_connection(self: Arc<Self>, stream: TlsStream) {
-        let socket = Socket::new(stream);
+    fn handle_connection(self: Arc<Self>, mut stream: TlsStream) {
+        let peer = stream.peer_addr();
+        // Short read timeout so the I/O loop can drain the outbound channel
+        // without ever blocking writers.
+        let _ = stream.set_read_timeout(Some(Duration::from_millis(20)));
+
+        let (tx, rx) = mpsc::channel::<OutboundFrame>();
+        let socket = Socket::new(peer.clone(), tx);
         let peer_key = socket.peer_ip();
         if !peer_key.is_empty() {
             self.sockets.insert(peer_key, socket.clone());
         }
 
-        loop {
-            let frame = {
-                let mut inner = socket.inner.lock().unwrap();
-                let s = match inner.stream.as_mut() {
-                    Some(s) => s,
-                    None => break,
-                };
-                match read_length_prefixed_frame(s) {
-                    Ok(Some(b)) => b,
-                    Ok(None) | Err(_) => break,
-                }
-            };
-            self.process_inbound(&socket, frame);
-        }
+        // Resumable read accumulator. The legacy `read_length_prefixed_frame`
+        // does a blocking `read_exact`, which on a timeout returns an error
+        // and prevents us from getting back to the outbound drain. We do the
+        // length/body read manually here, retaining partial state across
+        // ticks so a timeout in the middle of a frame is harmless.
+        let mut len_buf = [0u8; 4];
+        let mut len_filled = 0usize;
+        let mut body_buf: Vec<u8> = Vec::new();
+        let mut body_filled = 0usize;
+        let mut expected_len: Option<u32> = None;
+        const MAX_FRAME: u32 = 32 * 1024 * 1024;
 
-        // Clean up after disconnect — wait 60 s in case the user reconnects.
-        let user_id;
-        {
-            let mut inner = socket.inner.lock().unwrap();
-            inner.disconnected = true;
-            user_id = inner.user_id.clone();
-            if let Some(stream) = inner.stream.as_mut() {
-                stream.shutdown();
+        let mut buffered: VecDeque<Vec<u8>> = VecDeque::new();
+        let mut ack_ready = true;
+        let mut shutdown_requested = false;
+
+        'io: loop {
+            // 1) Drain outbound channel.
+            loop {
+                match rx.try_recv() {
+                    Ok(OutboundFrame::Body(b)) => buffered.push_back(b),
+                    Ok(OutboundFrame::Shutdown) => shutdown_requested = true,
+                    Err(TryRecvError::Empty) => break,
+                    Err(TryRecvError::Disconnected) => {
+                        shutdown_requested = true;
+                        break;
+                    }
+                }
+            }
+
+            if shutdown_requested && buffered.is_empty() {
+                break 'io;
+            }
+
+            // 2) Send next frame if ACK gate is open.
+            if ack_ready {
+                if let Some(frame) = buffered.front() {
+                    match write_length_prefixed_frame(&mut stream, frame) {
+                        Ok(()) => {
+                            ack_ready = false;
+                        }
+                        Err(_) => break 'io,
+                    }
+                }
+            }
+
+            // 3) Try to read inbound bytes. Partial reads are absorbed into
+            // the accumulator; a complete frame is dispatched.
+            let read_target = if expected_len.is_none() {
+                let target = &mut len_buf[len_filled..];
+                read_into(&mut stream, target)
+            } else {
+                let target = &mut body_buf[body_filled..];
+                read_into(&mut stream, target)
+            };
+
+            match read_target {
+                ReadOutcome::Bytes(n) => {
+                    if expected_len.is_none() {
+                        len_filled += n;
+                        if len_filled == 4 {
+                            let len = u32::from_be_bytes(len_buf);
+                            if len > MAX_FRAME {
+                                break 'io;
+                            }
+                            expected_len = Some(len);
+                            body_buf = vec![0u8; len as usize];
+                            body_filled = 0;
+                            len_filled = 0;
+                            if len == 0 {
+                                // Empty frame — dispatch immediately.
+                                let frame = std::mem::take(&mut body_buf);
+                                expected_len = None;
+                                self.dispatch_frame(&socket, frame, &mut ack_ready, &mut buffered);
+                            }
+                        }
+                    } else {
+                        body_filled += n;
+                        if body_filled == body_buf.len() {
+                            let frame = std::mem::take(&mut body_buf);
+                            expected_len = None;
+                            body_filled = 0;
+                            self.dispatch_frame(&socket, frame, &mut ack_ready, &mut buffered);
+                        }
+                    }
+                }
+                ReadOutcome::Idle => {
+                    // Loop back to outbound drain.
+                }
+                ReadOutcome::Closed | ReadOutcome::Error => break 'io,
             }
         }
+
+        socket.shutdown();
+        stream.shutdown();
+        let user_id = socket.user_id();
         if user_id.is_empty() {
             return;
         }
@@ -312,8 +402,7 @@ impl Tcp {
         let socket_clone = socket.clone();
         thread::spawn(move || {
             thread::sleep(Duration::from_secs(60));
-            let still_disconnected = socket_clone.inner.lock().unwrap().disconnected;
-            if !still_disconnected {
+            if !socket_clone.is_disconnected() {
                 return;
             }
             if let Some(current) = trans.sockets.get(&user_id) {
@@ -323,6 +412,49 @@ impl Tcp {
                 }
             }
         });
+    }
+
+    /// Dispatch a fully-read frame. ACKs flow back into the buffer gate so
+    /// the next outbound frame can be sent; everything else goes through the
+    /// regular action pipeline.
+    fn dispatch_frame(
+        self: &Arc<Self>,
+        socket: &Arc<Socket>,
+        body: Vec<u8>,
+        ack_ready: &mut bool,
+        buffered: &mut VecDeque<Vec<u8>>,
+    ) {
+        if body.len() == 1 && body[0] == 0x01 {
+            *ack_ready = true;
+            if !buffered.is_empty() {
+                buffered.pop_front();
+            }
+            return;
+        }
+        self.process_inbound(socket, body);
+    }
+}
+
+enum ReadOutcome {
+    Bytes(usize),
+    Idle,
+    Closed,
+    Error,
+}
+
+fn read_into(stream: &mut TlsStream, buf: &mut [u8]) -> ReadOutcome {
+    use std::io::Read;
+    if buf.is_empty() {
+        return ReadOutcome::Idle;
+    }
+    match stream.read(buf) {
+        Ok(0) => ReadOutcome::Closed,
+        Ok(n) => ReadOutcome::Bytes(n),
+        Err(e) if e.kind() == ErrorKind::WouldBlock || e.kind() == ErrorKind::TimedOut => {
+            ReadOutcome::Idle
+        }
+        Err(e) if e.kind() == ErrorKind::Interrupted => ReadOutcome::Idle,
+        Err(_) => ReadOutcome::Error,
     }
 }
 

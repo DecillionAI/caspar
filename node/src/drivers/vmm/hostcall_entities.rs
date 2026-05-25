@@ -26,7 +26,7 @@ fn bool_from_input(input: &Value, key: &str, def: bool) -> bool {
 }
 
 impl Vmm {
-    pub(super) fn handle_creature_crud(&self, op: &str, input: &Value, req_id: i64) -> (String, i64) {
+    pub(crate) fn handle_creature_crud(&self, op: &str, input: &Value, req_id: i64) -> (String, i64) {
         match op {
             "create" => {
                 let mut id = check_str(input, "id", "");
@@ -193,7 +193,7 @@ impl Vmm {
         }
     }
 
-    pub(super) fn handle_resource_store_crud(
+    pub(crate) fn handle_resource_store_crud(
         &self,
         op: &str,
         input: &Value,
@@ -311,7 +311,7 @@ impl Vmm {
         }
     }
 
-    pub(super) fn handle_resource_entity_create(
+    pub(crate) fn handle_resource_entity_create(
         &self,
         input: &Value,
         req_id: i64,
@@ -363,7 +363,7 @@ impl Vmm {
         )
     }
 
-    pub(super) fn handle_resource_entity_delete(
+    pub(crate) fn handle_resource_entity_delete(
         &self,
         input: &Value,
         req_id: i64,
@@ -401,7 +401,7 @@ impl Vmm {
         (r#"{"ok":true}"#.into(), req_id)
     }
 
-    pub(super) fn handle_vm_chain_request(
+    pub(crate) fn handle_vm_chain_request(
         &self,
         op: &str,
         input: &Value,
@@ -505,7 +505,7 @@ impl Vmm {
         }
     }
 
-    pub(super) fn handle_exec_shell_action(&self, input: &Value, req_id: i64) -> (String, i64) {
+    pub(crate) fn handle_exec_shell_action(&self, input: &Value, req_id: i64) -> (String, i64) {
         let path = check_str(input, "path", "");
         if path.is_empty() {
             return (r#"{"ok":false,"error":"path is required"}"#.into(), req_id);
@@ -573,7 +573,7 @@ impl Vmm {
         }
     }
 
-    pub(super) fn handle_micro_host_action(
+    pub(crate) fn handle_micro_host_action(
         &self,
         op: &str,
         input: &Value,
@@ -780,7 +780,7 @@ impl Vmm {
         }
     }
 
-    pub(super) fn handle_store_crud(&self, op: &str, input: &Value, req_id: i64) -> (String, i64) {
+    pub(crate) fn handle_store_crud(&self, op: &str, input: &Value, req_id: i64) -> (String, i64) {
         match op {
             "create" => {
                 let mut store_id = check_str(input, "storeId", "");
@@ -945,7 +945,7 @@ impl Vmm {
     }
 
     /// `wm.handleTerminateVM` — terminates a VM by runtime.
-    pub(super) fn handle_terminate_vm(&self, input: &Value, req_id: i64) -> (String, i64) {
+    pub(crate) fn handle_terminate_vm(&self, input: &Value, req_id: i64) -> (String, i64) {
         let target_runtime = normalize_runtime(&check_str(input, "runtime", ""));
         if target_runtime.is_empty() {
             return (r#"{"error":1}"#.into(), req_id);
@@ -983,7 +983,7 @@ impl Vmm {
         ("unsupported runtime".into(), req_id)
     }
 
-    pub(super) fn handle_check_token_validity(&self, input: &Value, req_id: i64) -> (String, i64) {
+    pub(crate) fn handle_check_token_validity(&self, input: &Value, req_id: i64) -> (String, i64) {
         let token_owner_id = check_str(input, "tokenOwnerId", "");
         let token_id = check_str(input, "tokenId", "");
         if token_owner_id.is_empty() || token_id.is_empty() {
@@ -1019,7 +1019,7 @@ impl Vmm {
         (serde_json::to_string(&out).unwrap_or_default(), req_id)
     }
 
-    pub(super) fn handle_plant_trigger(&self, input: &Value, req_id: i64) -> (String, i64) {
+    pub(crate) fn handle_plant_trigger(&self, input: &Value, req_id: i64) -> (String, i64) {
         use std::thread;
         use std::time::Duration;
 
@@ -1087,7 +1087,7 @@ impl Vmm {
         ("{}".into(), req_id)
     }
 
-    pub(super) fn handle_signal_store(&self, input: &Value, req_id: i64) -> (String, i64) {
+    pub(crate) fn handle_signal_store(&self, input: &Value, req_id: i64) -> (String, i64) {
         let machine_id = check_str(input, "machineId", "");
         if machine_id.is_empty() {
             return (r#"{"error":1}"#.into(), req_id);
@@ -1136,7 +1136,7 @@ impl Vmm {
         ("{}".into(), req_id)
     }
 
-    pub(super) fn handle_send_message_on_chain(
+    pub(crate) fn handle_send_message_on_chain(
         &self,
         input: &Value,
         req_id: i64,
