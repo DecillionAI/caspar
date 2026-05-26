@@ -70,9 +70,30 @@ impl ControlTimer {
         let mut timer = set_timer(init);
         loop {
             select! {
-                recv(timer) -> _ => {
-                    let _ = self.tick_tx.send(());
+                recv(timer) -> result => {
+                    // Only deliver a tick when the timer actually
+                    // fired. Without this guard, an exhausted `after()`
+                    // channel becomes always-ready with
+                    // `Err(RecvError)` and the select arm fires every
+                    // iteration: a fake tick is pushed into the
+                    // bounded(0) `tick_tx`, which blocks waiting for
+                    // the babble loop to consume it. The babble loop,
+                    // having processed the previous tick, is sitting
+                    // in `reset_timer()` trying to send the next
+                    // duration into the bounded(0) `reset_tx`, which
+                    // requires this timer thread to be at `recv(reset_rx)`
+                    // — but we are blocked in `tick_tx.send`. The two
+                    // bounded-0 channels rendezvous on each other and
+                    // the whole control plane stalls. Switching `timer`
+                    // to `never()` after firing makes this loop wait
+                    // for an explicit `reset_rx` before producing the
+                    // next tick, which mirrors Go's `time.Timer` Reset
+                    // semantics that the original code translated from.
+                    if result.is_ok() {
+                        let _ = self.tick_tx.send(());
+                    }
                     self.is_set.store(false, Ordering::SeqCst);
+                    timer = never();
                 }
                 recv(self.reset_rx) -> t => {
                     if let Ok(t) = t {
