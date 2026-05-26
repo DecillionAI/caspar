@@ -125,6 +125,9 @@ pub struct Core {
     elections: Mutex<Vec<crate::models::chain::Election>>,
     cost: Mutex<CostConfig>,
     priv_key: Mutex<Option<Arc<RsaPrivateKey>>>,
+    /// Open per-VM transactions keyed by vm_id.  Created by [`ICore::begin_vm_trx`]
+    /// and committed+removed by [`ICore::end_vm_trx`].
+    vm_trxs: Mutex<HashMap<String, Arc<dyn ITrx>>>,
 }
 
 #[derive(Default)]
@@ -172,6 +175,7 @@ impl Core {
             elections: Mutex::new(Vec::new()),
             cost: Mutex::new(CostConfig::default()),
             priv_key: Mutex::new(None),
+            vm_trxs: Mutex::new(HashMap::new()),
         })
     }
 
@@ -676,6 +680,33 @@ impl ICore for Core {
             .clone()
             .expect("Core.globe accessed before Load()")
     }
+
+    fn begin_vm_trx(&self, vm_id: &str) -> Arc<dyn ITrx> {
+        // Fast path: return an existing open transaction.
+        {
+            let map = self.vm_trxs.lock().unwrap();
+            if let Some(t) = map.get(vm_id) {
+                return t.clone();
+            }
+        }
+        // Slow path: create a new TrxWrapper and register it.
+        // weak_self() and tools lock are taken without holding vm_trxs.
+        let Some(tools) = self.tools.lock().unwrap().clone() else {
+            panic!("ICore::begin_vm_trx called before tools were set (vm_id: {})", vm_id);
+        };
+        let trx: Arc<dyn ITrx> = TrxWrapper::new(self.weak_self(), tools.storage(), false);
+        self.vm_trxs.lock().unwrap()
+            .entry(vm_id.to_string())
+            .or_insert(trx)
+            .clone()
+    }
+
+    fn end_vm_trx(&self, vm_id: &str) {
+        let trx = self.vm_trxs.lock().unwrap().remove(vm_id);
+        if let Some(t) = trx {
+            t.commit();
+        }
+    }
 }
 
 impl Core {
@@ -1097,6 +1128,21 @@ impl ICore for WeakCoreView {
             .globe
             .clone()
             .expect("Globe unset on weak view")
+    }
+
+    fn begin_vm_trx(&self, _vm_id: &str) -> Arc<dyn ITrx> {
+        // WeakCoreView has no tracking map; create an untracked transaction.
+        // In practice VMs always call this via with_global_app which provides
+        // the real Core — this path is only hit in edge cases (e.g. nested trx).
+        let Some(tools) = self.inner.tools.clone() else {
+            panic!("WeakCoreView tools not set in begin_vm_trx");
+        };
+        let core: Arc<dyn ICore> = Arc::new(WeakCoreView { inner: clone_handles(&self.inner) });
+        TrxWrapper::new(core, tools.storage(), false)
+    }
+
+    fn end_vm_trx(&self, _vm_id: &str) {
+        // WeakCoreView has no tracking map; nothing to commit here.
     }
 }
 

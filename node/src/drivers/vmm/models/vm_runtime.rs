@@ -3,6 +3,7 @@ use crate::drivers::vmm::globals::{GLOBAL_DB, with_global_app};
 use crate::drivers::vmm::models::runtime_models::{Trx, WasmDbOp};
 use crate::drivers::vmm::bridge::runtime_io::{wasm_send, log, set_log_vm_context};
 use crate::drivers::vmm::host::task_graph::host_call;
+use crate::models::transaction::ITrx;
 
 pub(crate) static GLOBAL_MANAGED_VMS: Lazy<Arc<Mutex<HashMap<String, ManagedVmHandle>>>> =
     Lazy::new(|| Arc::new(Mutex::new(HashMap::new())));
@@ -15,6 +16,11 @@ pub struct WasmMac {
     pub vm_id: String,
     pub store_id: String,
     pub trx: Box<Trx>,
+    /// Per-VM JSON transaction held for the full lifecycle.  Lazily initialised
+    /// on the first putJson/getJson/getByPrefix/delKey host call and committed
+    /// (via ICore) either on an explicit `commitTrx` host call or at VM teardown
+    /// inside [`WasmMac::finalize`].
+    pub vm_trx: Option<Arc<dyn ITrx>>,
     pub mod_path: String,
     pub cost: u64,
     pub ram_limit_mb: u64,
@@ -187,6 +193,7 @@ impl WasmMac {
             vm_id,
             store_id,
             trx: Box::new(Trx::new()),
+            vm_trx: None,
             mod_path,
             execution_result: "".to_string(),
             has_output: false,
@@ -198,6 +205,11 @@ impl WasmMac {
     }
 
     pub fn finalize(&mut self) -> Vec<WasmDbOp> {
+        // Auto-commit the per-VM JSON transaction if the VM did not call commitTrx.
+        if self.vm_trx.is_some() {
+            with_global_app(|app| app.end_vm_trx(&self.vm_id));
+            self.vm_trx = None;
+        }
         self.trx.commit_as_offchain();
         // Surface the creature's final output (set by the `output` host op) as
         // a runtime vmLog so the host platform can observe the JSON response
