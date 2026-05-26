@@ -40,7 +40,7 @@ use crate::shell::api::packets::stores;
 /// Rather than scattering independent global statics for VM contexts, per-VM
 /// transaction buffers, and resource lock registries, they live here as fields
 /// so that the entire VMM state has a single, well-defined owner that is
-/// accessible through `GLOBAL_VMM` / `with_global_vmm`.
+/// accessible through the canonical `ICore → tools() → vmm()` path.
 pub struct Vmm {
     pub(super) app: Arc<dyn ICore>,
     pub(super) storage_root: String,
