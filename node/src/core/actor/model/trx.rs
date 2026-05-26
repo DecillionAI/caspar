@@ -695,6 +695,10 @@ mod tests {
         fn globe(&self) -> Arc<dyn crate::models::globe::IGlobe> {
             unimplemented!()
         }
+        fn begin_vm_trx(&self, _vm_id: &str) -> Arc<dyn ITrx> {
+            unimplemented!("begin_vm_trx not used in trx unit tests");
+        }
+        fn end_vm_trx(&self, _vm_id: &str) {}
     }
 
     struct StubStorage {

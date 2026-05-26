@@ -2,6 +2,20 @@ use crate::drivers::vmm::prelude::*;
 use crate::drivers::vmm::models::vm_runtime::{WasmMac, HostData, verify_program_execution_from_packet, parse_u64_array_field, parse_u8_array_field, acquire_resource_lock, release_resource_lock};
 use crate::drivers::vmm::bridge::runtime_io::{log_vm, wasm_send};
 use crate::drivers::vmm::host::vm_host_functions::{with_docker_controller, with_fire_controller, perform_http_request};
+use crate::drivers::vmm::globals::with_global_app;
+use crate::models::transaction::ITrx;
+
+/// Return the VM's current per-lifecycle JSON transaction, creating it lazily
+/// on first call via ICore's tracking registry.  Returns `None` only when ICore
+/// has not been initialised yet (e.g. unit-test stubs that panic inside).
+fn ensure_vm_trx(rt: &mut WasmMac) -> Option<Arc<dyn ITrx>> {
+    if let Some(ref trx) = rt.vm_trx {
+        return Some(trx.clone());
+    }
+    let trx = with_global_app(|app| app.begin_vm_trx(&rt.vm_id))?;
+    rt.vm_trx = Some(trx.clone());
+    Some(trx)
+}
 
 pub fn host_call(
     host_data: &mut HostData,
@@ -62,8 +76,13 @@ pub fn host_call(
             }
         }
         "commitTrx" => {
-            // Flush the WASM VM's per-lifecycle Trx buffer to ICore, then
-            // reset the buffer so subsequent ops start a clean transaction.
+            // Commit the JSON-level per-VM transaction tracked by ICore, then
+            // reset our reference so the next use starts a fresh transaction.
+            if rt.vm_trx.is_some() {
+                with_global_app(|app| app.end_vm_trx(&rt.vm_id));
+                rt.vm_trx = None;
+            }
+            // Also flush the low-level raw dbOp buffer.
             rt.trx.commit_as_offchain();
             rt.trx = Box::new(crate::drivers::vmm::models::runtime_models::Trx::new());
             json!({"ok": true}).to_string()
@@ -142,8 +161,63 @@ pub fn host_call(
                 Err(err) => json!({"ok": false, "error": err}).to_string(),
             }
         }
+        // ── Per-VM JSON transaction ops ───────────────────────────────────────
+        // These ops operate on the single TrxWrapper held for this VM's
+        // entire lifecycle.  Writes accumulate in an in-memory overlay and are
+        // persisted only when `commitTrx` is called or the VM exits.
+        "putJson" => {
+            let key  = req["input"]["key"].as_str().unwrap_or("");
+            let path = req["input"]["path"].as_str().unwrap_or("");
+            let merge = req["input"]["merge"].as_bool().unwrap_or(true);
+            let obj  = req["input"]["data"].clone();
+            match ensure_vm_trx(rt) {
+                Some(trx) => {
+                    let _ = trx.put_json(key, path, &obj, merge);
+                    json!({"ok": true}).to_string()
+                }
+                None => json!({"ok": false, "error": "ICore not initialised"}).to_string(),
+            }
+        }
+        "getJson" => {
+            let key  = req["input"]["key"].as_str().unwrap_or("");
+            let path = req["input"]["path"].as_str().unwrap_or("");
+            match ensure_vm_trx(rt) {
+                Some(trx) => match trx.get_json(key, path) {
+                    Ok(m)  => json!({"ok": true, "data": JsonValue::Object(m)}).to_string(),
+                    Err(_) => json!({"ok": true, "data": {}}).to_string(),
+                },
+                None => json!({"ok": false, "error": "ICore not initialised"}).to_string(),
+            }
+        }
+        "getByPrefix" => {
+            let prefix = req["input"]["prefix"].as_str().unwrap_or("");
+            match ensure_vm_trx(rt) {
+                Some(trx) => {
+                    // putJson stores keys as "json::key::path"; search within
+                    // that namespace and strip the prefix so callers see the
+                    // same key space they wrote to.
+                    let json_prefix = format!("json::{}", prefix);
+                    let keys = trx.get_by_prefix(&json_prefix);
+                    let stripped: Vec<String> = keys.into_iter()
+                        .map(|k| k.strip_prefix("json::").unwrap_or(&k).to_string())
+                        .collect();
+                    json!({"ok": true, "data": stripped}).to_string()
+                }
+                None => json!({"ok": false, "error": "ICore not initialised"}).to_string(),
+            }
+        }
+        "delKey" => {
+            let key = req["input"]["key"].as_str().unwrap_or("");
+            match ensure_vm_trx(rt) {
+                Some(trx) => {
+                    trx.del_key(key);
+                    json!({"ok": true}).to_string()
+                }
+                None => json!({"ok": false, "error": "ICore not initialised"}).to_string(),
+            }
+        }
         _ => {
-            // Forward unrecognised ops (signalUser, signalGroup, putJson, …)
+            // Forward unrecognised ops (signalUser, signalGroup, …)
             // through the unified host-call dispatcher so they reach handlers
             // that have access to the global signaler/storage. The previous
             // `wasm_send({key, input})` shape produced a packet with no

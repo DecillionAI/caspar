@@ -53,6 +53,10 @@ pub struct Socket {
     peer: String,
     user_id: Mutex<String>,
     disconnected: AtomicBool,
+    /// Set to true once the signaler listener has been registered for this
+    /// connection. Used to ensure we re-register on each new connection even
+    /// if a stale entry for the same user_id exists from a prior connection.
+    listener_registered: AtomicBool,
     outbound: Mutex<Option<Sender<OutboundFrame>>>,
 }
 
@@ -63,6 +67,7 @@ impl Socket {
             peer,
             user_id: Mutex::new(String::new()),
             disconnected: AtomicBool::new(false),
+            listener_registered: AtomicBool::new(false),
             outbound: Mutex::new(Some(outbound)),
         })
     }
@@ -239,6 +244,17 @@ impl Tcp {
             Ok((sc, value)) => {
                 let body = serde_json::to_vec(&value).unwrap_or_default();
                 socket.write_response(&parsed.packet_id, sc, &body);
+                // Lazily register the update-stream listener after the first
+                // successful authenticated request on this connection. We use
+                // a per-socket flag (not a global listener check) so that a
+                // new connection always refreshes the listener even if a stale
+                // entry for the same user_id exists from a previous connection.
+                if !parsed.user_id.is_empty()
+                    && !socket.listener_registered.load(Ordering::Acquire)
+                {
+                    socket.listener_registered.store(true, Ordering::Release);
+                    self.attach_user_listener(socket, &parsed.user_id);
+                }
             }
             Err(e) => {
                 socket.write_response(
@@ -334,11 +350,21 @@ impl Tcp {
             }
 
             // 2) Send next frame if ACK gate is open.
+            // Update frames (tag 0x01) are fire-and-forget — the client does
+            // not ACK them, so we pop them immediately and leave ack_ready
+            // unchanged. Response frames (tag 0x02) gate on ACK so we keep
+            // ack_ready=false until the client confirms receipt.
             if ack_ready {
                 if let Some(frame) = buffered.front() {
+                    let is_update = frame.first().copied() == Some(0x01);
                     match write_length_prefixed_frame(&mut stream, frame) {
                         Ok(()) => {
-                            ack_ready = false;
+                            if is_update {
+                                buffered.pop_front();
+                                // ack_ready stays true — no ACK coming for updates
+                            } else {
+                                ack_ready = false;
+                            }
                         }
                         Err(_) => break 'io,
                     }

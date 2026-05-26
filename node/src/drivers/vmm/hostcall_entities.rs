@@ -712,11 +712,20 @@ impl Vmm {
                 let prefix = check_str(input, "prefix", "");
                 let slot: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
                 let slot_clone = slot.clone();
-                let prefix_owned = prefix.clone();
+                // putJson/getJson store keys as "json::{key}::{path}", so prefix
+                // searches must also look under the "json::" namespace and strip
+                // it from results so callers see the same key space they wrote to.
+                let json_prefix = format!("json::{}", prefix);
                 self.app.modify_state(
                     true,
                     Box::new(move |t: &dyn ITrx| {
-                        *slot_clone.lock().unwrap() = t.get_by_prefix(&prefix_owned);
+                        let keys = t.get_by_prefix(&json_prefix);
+                        *slot_clone.lock().unwrap() = keys
+                            .into_iter()
+                            .map(|k| {
+                                k.strip_prefix("json::").unwrap_or(&k).to_string()
+                            })
+                            .collect();
                         Ok(())
                     }),
                 );
