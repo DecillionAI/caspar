@@ -100,23 +100,49 @@ fn dispatch_run_vm_packet(packet: &JsonValue, env: &VmPacketContext) -> String {
     let limits = parse_vm_resource_limits(packet);
 
     if runtime == VmRuntime::Elpify {
-        let vm_handle = {
-            let mut map = GLOBAL_ELPIFY_VMS.lock().unwrap();
-            Arc::clone(
-                map.entry(machine_id.clone())
-                    .or_insert_with(|| Arc::new(ElpifyManagedVm::new(machine_id.clone()))),
-            )
-        };
-        if let Err(e) = vm_handle.enqueue(ElpifyTask {
-            masm_path: ast_path,
-            input_raw: input,
-            vm_id,
-            limits,
-        }) {
-            return json!({"ok": false, "error": format!("failed to schedule elpify task: {}", e)})
-                .to_string();
+        // Elpify programs run to completion and produce a STARK proof.
+        // There's nothing to "leave running", so the host fn returns
+        // {outputs, proof} synchronously instead of enqueuing into the
+        // async ElpifyManagedVm worker. The caller (a wasm creature,
+        // typically the elpify-chain miniapp) can then pipe the proof
+        // straight into elpifyProof / submitTrx for validator consensus.
+        let _ = vm_id;
+        let _ = limits;
+        if ast_path.is_empty() {
+            return json!({"ok": false, "runtime": "elpify", "error": "astPath (MASM file) is required"}).to_string();
         }
-        return json!({"ok": true, "runtime": "elpify", "machineId": machine_id}).to_string();
+        // Two ways to pass public inputs:
+        //   1. `inputs` array directly on the packet (preferred for
+        //      host-fn callers).
+        //   2. `input` is a JSON string of `{"inputs":[...]}` (legacy
+        //      shape used by the wasm-runtime signal envelope).
+        let inputs = if !packet["inputs"].is_null() {
+            parse_u64_array_field(packet, "inputs")
+        } else {
+            match serde_json::from_str::<JsonValue>(&input) {
+                Ok(parsed) => parse_u64_array_field(&parsed, "inputs"),
+                Err(_) => Vec::new(),
+            }
+        };
+        return match elpify_lang::execute_masm_file_with_proof(&ast_path, &inputs) {
+            Ok(artifacts) => json!({
+                "ok": true,
+                "runtime": "elpify",
+                "machineId": machine_id,
+                "masmPath": ast_path,
+                "inputs": inputs,
+                "outputs": artifacts.stack_outputs,
+                "proof": artifacts.proof_bytes,
+            })
+            .to_string(),
+            Err(err) => json!({
+                "ok": false,
+                "runtime": "elpify",
+                "machineId": machine_id,
+                "error": err.to_string(),
+            })
+            .to_string(),
+        };
     }
 
     if runtime == VmRuntime::Elpian {
