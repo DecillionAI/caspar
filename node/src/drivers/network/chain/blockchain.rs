@@ -56,7 +56,7 @@ pub struct Blockchain {
     app: Arc<dyn ICore>,
     /// Wrapped in Arc so self_clone() shares the same map (DashMap::clone is a deep copy).
     chains: Arc<DashMap<String, Arc<WorkChain>>>,
-    pipeline: Mutex<Option<PipelineFn>>,
+    pipeline: Mutex<Option<Arc<PipelineFn>>>,
     trans: Mutex<Option<Arc<dyn Transport>>>,
     storage_root: String,
     // Weak handle back to the original Arc<Blockchain>. WorkChains downgrade
@@ -350,7 +350,7 @@ impl IChain for Blockchain {
     }
 
     fn register_pipeline(&self, pipeline: PipelineFn) {
-        *self.pipeline.lock().unwrap() = Some(pipeline);
+        *self.pipeline.lock().unwrap() = Some(Arc::new(pipeline));
     }
 
     fn notify_new_machine_created(&self, _chain_id: &str, _machine_id: &str) {
@@ -484,8 +484,15 @@ impl ProxyHandler for HgHandler {
         let blockchain = self.chain.blockchain.upgrade();
         let txs = block.transactions().to_vec();
         if let Some(bc) = blockchain {
-            let pipeline = bc.pipeline.lock().unwrap();
-            if let Some(pipeline) = pipeline.as_ref() {
+            // Clone the pipeline Arc under the lock, drop the guard,
+            // then dispatch. The pipeline closure can be slow (it
+            // dispatches per-tx handlers that re-enter modify_state,
+            // build wasm entities, etc.) and holding `bc.pipeline`
+            // through that window starves any concurrent call site
+            // that wants the lock. Cloning the Arc keeps the closure
+            // alive for the call without keeping the guard.
+            let pipeline_arc = bc.pipeline.lock().unwrap().clone();
+            if let Some(pipeline) = pipeline_arc {
                 let cb: Box<dyn Fn(Vec<u8>) + Send + Sync> = Box::new(|_| {});
                 let _: Vec<String> = pipeline(txs.clone(), cb);
             }
