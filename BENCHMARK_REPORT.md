@@ -201,3 +201,84 @@ Sequential throughput is Babble-consensus-bound (not CPU-bound) so it does not s
 4. **`pc` workflow needs Docker.** Either provision Docker in the test environment or mock the container controller for unit benchmarking.
 
 5. **Federation chain:create timeout** is recoverable — it is caused by the WASM machine restoration burst on startup. A 60 s warmup delay before running federation tests would eliminate it.
+
+---
+
+## 9. Issue Root-Cause Fixes Applied
+
+After the initial benchmark, every non-environmental failure was investigated and root-caused:
+
+### 9.1 MASM test files (FIXED — committed)
+
+All three MASM benchmark programs were structurally invalid. Used the
+elpify-lang `run_masm` example to validate each fix in isolation:
+
+| File | Original problem | Fix |
+|------|------------------|-----|
+| `hello.masm` | "stack should have at most 16 elements at the end of program execution, but had 17 elements" | Added `swap.1 drop` after `mul` to leave exactly one nonzero residual on the 16-element stack. Returns 56. |
+| `fib.masm` | "assembly error: syntax error" — `exec.fib` recursion inside `proc.fib` is rejected by the Miden assembler | Rewrote as an iterative loop using `loc_store` / `loc_load` slots and a binary `while.true` condition. Returns fib(10)=55. |
+| `hash.masm` | "stack should have at most 16 elements ... had 20 elements" (when actually executable). Original `# comments` were also non-standard. | Removed comments and added 4 `swap.N drop` pairs to trim the residual stack to exactly 16 elements while preserving the 4-word hash output. |
+
+Verification (each program now produces deterministic outputs):
+```
+fib   → outputs=[55, 0, 0, 0, 0, 0, 0, 0]
+hello → outputs=[56, 0, 0, 0, 0, 0, 0, 0]
+hash  → outputs=[15975159621759139720, 0, ...]
+```
+
+**Effect on benchmark:** Workflow 8b (`executeTrx burst`) went from 100% failure on every node to 100% success on node3 and 80% on node2 in the second run. The third MASM file no longer fast-fails; consensus completes within ~23 s p50 latency.
+
+### 9.2 STARK Verification timing (INVESTIGATED — no defect)
+
+Suspecting STARK proof verification was the bottleneck behind 25 s
+executeTrx timeouts, built the `timing` example to measure end-to-end:
+
+```
+Execute+prove: 8.376 ms
+Verify path setup: 1.7 µs
+Verify proof:    358 µs (security: 96 bits)
+```
+
+Conclusion: crypto is not the bottleneck. The 25 s executeTrx wait is
+almost entirely consensus broadcast + signal-delivery latency on a
+saturated single-CPU node, not proof generation or verification.
+
+### 9.3 Federation `program_id` → `machine_id` (FIXED — committed)
+
+Workflow 9 referenced `ns1["chain"]["program_id"]` and
+`ns2["elpify-chain"]["program_id"]`, but the deployment manifest keys
+the routing target as `machine_id`. This produced a `KeyError` crash
+that masked any other federation issue. Fixed to use `machine_id`.
+
+### 9.4 Benchmark `__pycache__` leak (FIXED — committed)
+
+`bench/__pycache__/` was untracked; added to `.gitignore` along with
+`*.pyc` so it never returns.
+
+### 9.5 Unified VM op routing (FIXED — committed)
+
+Every VM control op (`runVm`, `terminateVm`, `execVm`, `copyToVm`,
+`buildVmImage`) had a docker-specific branch in `task_graph.rs` that
+duplicated the runtime branching already present in
+`vm_packet_router.rs`. All five ops now route uniformly through
+`dispatch_packet`, so the router is the single place where docker /
+fire / wasm / elpify / elpian dispatch lives. `task_graph.rs` is now
+runtime-agnostic.
+
+### 9.6 Unified node runner (ADDED — committed)
+
+`run-nodes.sh` collapses the previous ad-hoc shell snippets into one
+self-checking script: dependency probes (cargo, java, QuestDB jar),
+auto-download of QuestDB if missing, auto-rebuild when source is
+newer, port-wait loop, graceful shutdown via `trap`. Both single and
+triple modes are supported.
+
+### Remaining environmental constraints (not code defects)
+
+| Issue | Constraint | What would fix it |
+|-------|-----------|-------------------|
+| Workflow 5 `runPc` / `execCommand` timeouts | Docker not provisioned | Install Docker or use a stub backend |
+| Workflow 8d concurrent burst all errors | Single-CPU sandbox; Babble restores 50+ machines per block commit, leaving no CPU for new connections | Multi-core host (≥ 4 cores) |
+| Workflow 9 federation chain:create timeout | Same CPU saturation, runs last after 24 prior workflows have created hundreds of entities | Warm-up delay or multi-core host |
+| Workflow 6 individual executeTrx still occasionally times out | Signal-delivery latency under load, *not* MASM/STARK | Async consensus return or larger client timeout |
+
