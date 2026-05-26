@@ -289,6 +289,9 @@ pub(crate) fn handle_unified_host_call(packet: &JsonValue) -> String {
         }
         "signalUser" => host_fn_signal_user(&input),
         "signalGroup" => host_fn_signal_group(&input),
+        "lockResource" => host_fn_lock_resource(&input),
+        "unlockResource" => host_fn_unlock_resource(&input),
+        "vmLog" | "consoleLog" => host_fn_vm_log(&input),
         // Micro ops backed by `Vmm::handle_micro_host_action` (the real DB /
         // signaler / access-control implementations).
         "genId" | "getLink" | "delKey" | "getJson" | "putJson" | "getByPrefix"

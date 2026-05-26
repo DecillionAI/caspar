@@ -69,43 +69,23 @@ pub fn host_call(
             json!({"ok": true}).to_string()
         }
         "lockResource" => {
-            let runtime = req["input"]["runtime"].as_str().unwrap_or("wasm");
-            if runtime != "wasm"
-                && runtime != "docker"
-                && runtime != "javascript"
-                && runtime != "elpian"
-            {
-                json!({"ok": false, "error": "lock API is only available for wasm, docker, javascript and elpian runtimes"})
-                    .to_string()
-            } else {
-                let resource_id = req["input"]["resourceId"].as_str().unwrap_or("");
-                let owner_id = req["input"]["ownerId"]
-                    .as_str()
-                    .unwrap_or(rt.machine_id.as_str());
-                match acquire_resource_lock(resource_id, owner_id) {
-                    Ok(()) => json!({"ok": true}).to_string(),
-                    Err(err) => json!({"ok": false, "error": err}).to_string(),
-                }
+            let resource_id = req["input"]["resourceId"].as_str().unwrap_or("");
+            let owner_id = req["input"]["ownerId"]
+                .as_str()
+                .unwrap_or(rt.machine_id.as_str());
+            match acquire_resource_lock(resource_id, owner_id) {
+                Ok(()) => json!({"ok": true}).to_string(),
+                Err(err) => json!({"ok": false, "error": err}).to_string(),
             }
         }
         "unlockResource" => {
-            let runtime = req["input"]["runtime"].as_str().unwrap_or("wasm");
-            if runtime != "wasm"
-                && runtime != "docker"
-                && runtime != "javascript"
-                && runtime != "elpian"
-            {
-                json!({"ok": false, "error": "unlock API is only available for wasm, docker, javascript and elpian runtimes"})
-                    .to_string()
-            } else {
-                let resource_id = req["input"]["resourceId"].as_str().unwrap_or("");
-                let owner_id = req["input"]["ownerId"]
-                    .as_str()
-                    .unwrap_or(rt.machine_id.as_str());
-                match release_resource_lock(resource_id, owner_id) {
-                    Ok(()) => json!({"ok": true}).to_string(),
-                    Err(err) => json!({"ok": false, "error": err}).to_string(),
-                }
+            let resource_id = req["input"]["resourceId"].as_str().unwrap_or("");
+            let owner_id = req["input"]["ownerId"]
+                .as_str()
+                .unwrap_or(rt.machine_id.as_str());
+            match release_resource_lock(resource_id, owner_id) {
+                Ok(()) => json!({"ok": true}).to_string(),
+                Err(err) => json!({"ok": false, "error": err}).to_string(),
             }
         }
         "runVm" => {
