@@ -8,11 +8,11 @@
 //! returning the resulting JSON body so the wasm program sees a real
 //! response instead of an "unsupported packet" stub.
 
-use crate::drivers::vmm::globals::with_global_vmm;
+use crate::drivers::vmm::globals::with_global_app;
 use crate::drivers::vmm::prelude::*;
 
 fn dispatch_store(op: &str, input: &JsonValue) -> String {
-    match with_global_vmm(|vmm| vmm.handle_store_crud(op, input, 0).0) {
+    match with_global_app(|app| app.tools().vmm().host_action_store(op, input, 0).0) {
         Some(out) => out,
         None => json!({"ok": false, "error": "vmm not initialised"}).to_string(),
     }

@@ -61,44 +61,31 @@ pub fn host_call(
                 "{}".to_string()
             }
         }
+        "commitTrx" => {
+            // Flush the WASM VM's per-lifecycle Trx buffer to ICore, then
+            // reset the buffer so subsequent ops start a clean transaction.
+            rt.trx.commit_as_offchain();
+            rt.trx = Box::new(crate::drivers::vmm::models::runtime_models::Trx::new());
+            json!({"ok": true}).to_string()
+        }
         "lockResource" => {
-            let runtime = req["input"]["runtime"].as_str().unwrap_or("wasm");
-            if runtime != "wasm"
-                && runtime != "docker"
-                && runtime != "javascript"
-                && runtime != "elpian"
-            {
-                json!({"ok": false, "error": "lock API is only available for wasm, docker, javascript and elpian runtimes"})
-                    .to_string()
-            } else {
-                let resource_id = req["input"]["resourceId"].as_str().unwrap_or("");
-                let owner_id = req["input"]["ownerId"]
-                    .as_str()
-                    .unwrap_or(rt.machine_id.as_str());
-                match acquire_resource_lock(resource_id, owner_id) {
-                    Ok(()) => json!({"ok": true}).to_string(),
-                    Err(err) => json!({"ok": false, "error": err}).to_string(),
-                }
+            let resource_id = req["input"]["resourceId"].as_str().unwrap_or("");
+            let owner_id = req["input"]["ownerId"]
+                .as_str()
+                .unwrap_or(rt.machine_id.as_str());
+            match acquire_resource_lock(resource_id, owner_id) {
+                Ok(()) => json!({"ok": true}).to_string(),
+                Err(err) => json!({"ok": false, "error": err}).to_string(),
             }
         }
         "unlockResource" => {
-            let runtime = req["input"]["runtime"].as_str().unwrap_or("wasm");
-            if runtime != "wasm"
-                && runtime != "docker"
-                && runtime != "javascript"
-                && runtime != "elpian"
-            {
-                json!({"ok": false, "error": "unlock API is only available for wasm, docker, javascript and elpian runtimes"})
-                    .to_string()
-            } else {
-                let resource_id = req["input"]["resourceId"].as_str().unwrap_or("");
-                let owner_id = req["input"]["ownerId"]
-                    .as_str()
-                    .unwrap_or(rt.machine_id.as_str());
-                match release_resource_lock(resource_id, owner_id) {
-                    Ok(()) => json!({"ok": true}).to_string(),
-                    Err(err) => json!({"ok": false, "error": err}).to_string(),
-                }
+            let resource_id = req["input"]["resourceId"].as_str().unwrap_or("");
+            let owner_id = req["input"]["ownerId"]
+                .as_str()
+                .unwrap_or(rt.machine_id.as_str());
+            match release_resource_lock(resource_id, owner_id) {
+                Ok(()) => json!({"ok": true}).to_string(),
+                Err(err) => json!({"ok": false, "error": err}).to_string(),
             }
         }
         "runVm" => {

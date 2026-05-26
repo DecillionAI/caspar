@@ -22,6 +22,7 @@ pub use reqwest::Method;
 pub use rocksdb::{
     Options, ReadOptions, TransactionDB, TransactionDBOptions, TransactionOptions, WriteOptions,
 };
+pub use dashmap::DashMap;
 pub use serde_json::{json, Value as JsonValue};
 pub use std::collections::{BTreeMap, HashMap, VecDeque};
 pub use std::io::Cursor;

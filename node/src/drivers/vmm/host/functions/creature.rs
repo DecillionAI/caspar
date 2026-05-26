@@ -1,11 +1,11 @@
 //! Wasm host-call entry points for creature CRUD. Routes through
 //! `Vmm::handle_creature_crud` which performs the real persisted-state work.
 
-use crate::drivers::vmm::globals::with_global_vmm;
+use crate::drivers::vmm::globals::with_global_app;
 use crate::drivers::vmm::prelude::*;
 
 fn dispatch_creature(op: &str, input: &JsonValue) -> String {
-    match with_global_vmm(|vmm| vmm.handle_creature_crud(op, input, 0).0) {
+    match with_global_app(|app| app.tools().vmm().host_action_creature(op, input, 0).0) {
         Some(out) => out,
         None => json!({"ok": false, "error": "vmm not initialised"}).to_string(),
     }

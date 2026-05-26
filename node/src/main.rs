@@ -18,12 +18,13 @@ mod util;
 
 use std::collections::HashMap;
 use std::env;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
 use crate::models::action::ExtendedField;
 use crate::models::core::ICore;
+use crate::models::transaction::ITrx;
 use crate::shell::api::main_api::plug_all;
 use crate::shell::kasper::new_app;
 
@@ -123,6 +124,43 @@ fn main() {
 
     let app_for_plug: Arc<dyn crate::models::core::ICore> = app.clone();
     plug_all(app_for_plug, &model_extender);
+
+    // ── Startup VMM listener restore ──────────────────────────────────────────
+    // The signaler listeners that vmm.assign() registers are in-memory only.
+    // After a node restart they are gone, so creature signals to deployed
+    // machines would silently drop.  Scan the DB for all previously deployed
+    // entity type links and re-register one listener per unique machine_id.
+    {
+        use std::collections::HashSet;
+        let keys_slot = std::sync::Arc::new(Mutex::new(Vec::<String>::new()));
+        let keys_clone = keys_slot.clone();
+        app.modify_state(
+            true,
+            Box::new(move |trx: &dyn crate::models::transaction::ITrx| {
+                *keys_clone.lock().unwrap() = trx.get_by_prefix("link::vmEntityType::");
+                Ok(())
+            }),
+        );
+        let mut seen: HashSet<String> = HashSet::new();
+        for key in keys_slot.lock().unwrap().iter() {
+            // key = "link::vmEntityType::MACHINE_ID::ENTITY_ID"
+            let rest = key
+                .strip_prefix("link::vmEntityType::")
+                .unwrap_or("");
+            if let Some(machine_id) = rest.split("::").next() {
+                if !machine_id.is_empty() && seen.insert(machine_id.to_string()) {
+                    app.tools().vmm().assign(machine_id);
+                }
+            }
+        }
+        if !seen.is_empty() {
+            eprintln!(
+                "[startup] Restored VMM listeners for {} machine(s): {:?}",
+                seen.len(),
+                seen
+            );
+        }
+    }
 
     app.run();
 

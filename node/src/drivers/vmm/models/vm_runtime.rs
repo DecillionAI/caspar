@@ -1,5 +1,5 @@
 use crate::drivers::vmm::prelude::*;
-use crate::drivers::vmm::globals::{GLOBAL_DB, GLOBAL_RESOURCE_LOCKS, ResourceLockState, ResourceLockEntry};
+use crate::drivers::vmm::globals::{GLOBAL_DB, with_global_app};
 use crate::drivers::vmm::models::runtime_models::{Trx, WasmDbOp};
 use crate::drivers::vmm::bridge::runtime_io::{wasm_send, log, set_log_vm_context};
 use crate::drivers::vmm::host::task_graph::host_call;
@@ -404,66 +404,18 @@ pub(crate) fn parse_u8_array_field(packet: &JsonValue, field_name: &str) -> Vec<
         .unwrap_or_default()
 }
 
-fn get_or_create_resource_lock(resource_id: &str) -> Arc<ResourceLockEntry> {
-    let mut map = GLOBAL_RESOURCE_LOCKS.lock().unwrap();
-    Arc::clone(map.entry(resource_id.to_string()).or_insert_with(|| {
-        Arc::new(ResourceLockEntry {
-            state: Mutex::new(ResourceLockState {
-                locked: false,
-                owner: None,
-                queue: VecDeque::new(),
-            }),
-            cv: Condvar::new(),
-        })
-    }))
-}
-
 pub(crate) fn acquire_resource_lock(resource_id: &str, owner_id: &str) -> Result<(), String> {
-    if resource_id.is_empty() {
-        return Err("resourceId is required".to_string());
+    match with_global_app(|app| app.tools().vmm().acquire_resource_lock(resource_id, owner_id)) {
+        Some(result) => result,
+        None => Err("vmm not initialised".to_string()),
     }
-    if owner_id.is_empty() {
-        return Err("ownerId is required".to_string());
-    }
-
-    let lock = get_or_create_resource_lock(resource_id);
-    let mut state = lock.state.lock().unwrap();
-
-    if state.owner.as_deref() == Some(owner_id) {
-        return Ok(());
-    }
-    if !state.queue.iter().any(|x| x == owner_id) {
-        state.queue.push_back(owner_id.to_string());
-    }
-
-    while state.locked || state.queue.front().map(|x| x.as_str()) != Some(owner_id) {
-        state = lock.cv.wait(state).unwrap();
-    }
-
-    state.locked = true;
-    state.owner = Some(owner_id.to_string());
-    state.queue.pop_front();
-    Ok(())
 }
 
 pub(crate) fn release_resource_lock(resource_id: &str, owner_id: &str) -> Result<(), String> {
-    if resource_id.is_empty() {
-        return Err("resourceId is required".to_string());
+    match with_global_app(|app| app.tools().vmm().release_resource_lock(resource_id, owner_id)) {
+        Some(result) => result,
+        None => Err("vmm not initialised".to_string()),
     }
-    if owner_id.is_empty() {
-        return Err("ownerId is required".to_string());
-    }
-
-    let lock = get_or_create_resource_lock(resource_id);
-    let mut state = lock.state.lock().unwrap();
-    if state.owner.as_deref() != Some(owner_id) {
-        return Err("lock owner mismatch".to_string());
-    }
-
-    state.locked = false;
-    state.owner = None;
-    lock.cv.notify_all();
-    Ok(())
 }
 
 pub(crate) fn verify_program_execution_from_packet(

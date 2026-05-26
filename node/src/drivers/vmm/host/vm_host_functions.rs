@@ -1,5 +1,5 @@
 use crate::drivers::vmm::prelude::*;
-use crate::drivers::vmm::globals::{GLOBAL_VM_CONTEXT, GLOBAL_DB};
+use crate::drivers::vmm::globals::with_global_app;
 use crate::drivers::vmm::controllers::docker_vm_controller::DockerVmController;
 use crate::drivers::vmm::controllers::fire_vm_controller::FireVmController;
 use crate::drivers::vmm::models::vm_runtime::{verify_program_execution_from_packet, parse_u64_array_field, parse_u8_array_field};
@@ -7,6 +7,7 @@ use crate::drivers::vmm::bridge::runtime_io::wasm_send;
 use crate::drivers::vmm::host::functions::*;
 
 pub(crate) struct HostHierarchy {
+    pub(crate) vm_id: String,
     pub(crate) creature_id: String,
     pub(crate) program_id: String,
     pub(crate) entity_name: String,
@@ -20,19 +21,17 @@ pub(crate) struct CachedVmHierarchy {
 }
 
 fn resolve_cached_vm_hierarchy(input: &JsonValue) -> CachedVmHierarchy {
-    let vm_id = input["vmId"].as_str().unwrap_or("").trim();
+    let vm_id = input["vmId"].as_str().unwrap_or("").trim().to_string();
     if vm_id.is_empty() {
         return CachedVmHierarchy::default();
     }
-
-    let vm_ctx = GLOBAL_VM_CONTEXT.lock().unwrap();
-    if let Some((creature_id, program_id)) = vm_ctx.get(vm_id) {
-        return CachedVmHierarchy {
-            creature_id: creature_id.clone(),
-            program_id: program_id.clone(),
-        };
-    }
-    CachedVmHierarchy::default()
+    with_global_app(|app| {
+        app.tools().vmm().get_vm_context(&vm_id).map(|(creature_id, program_id)| {
+            CachedVmHierarchy { creature_id, program_id }
+        })
+    })
+    .flatten()
+    .unwrap_or_default()
 }
 
 fn value_from_packet_or_input<'a>(
@@ -48,6 +47,12 @@ fn value_from_packet_or_input<'a>(
 }
 
 pub(crate) fn resolve_host_hierarchy(packet: &JsonValue, input: &JsonValue) -> HostHierarchy {
+    let vm_id = input["vmId"]
+        .as_str()
+        .or_else(|| packet["vmId"].as_str())
+        .unwrap_or("")
+        .trim()
+        .to_string();
     let cached = resolve_cached_vm_hierarchy(input);
 
     let creature_from_req = value_from_packet_or_input(packet, input, "creatureId");
@@ -75,6 +80,7 @@ pub(crate) fn resolve_host_hierarchy(packet: &JsonValue, input: &JsonValue) -> H
         .unwrap_or("")
         .to_string();
     HostHierarchy {
+        vm_id,
         creature_id: creature_id_owned,
         program_id: program_id_owned,
         entity_name,
@@ -82,9 +88,19 @@ pub(crate) fn resolve_host_hierarchy(packet: &JsonValue, input: &JsonValue) -> H
     }
 }
 
+/// Execute a low-level key-value DB operation for a VM host-call.
+///
+/// All logic (write-ahead buffering, read-your-own-writes, ICore fallthrough)
+/// lives in `IVmm::vm_db_op` on the `Vmm` struct, which is reached via the
+/// canonical `ICore → tools() → vmm()` path.  This function is a thin
+/// adapter that computes the storage namespace from `HostHierarchy` and
+/// delegates.
 pub(crate) fn run_db_op(ctx: &HostHierarchy, input: &JsonValue) -> Result<String, String> {
-    let op = input["op"].as_str().unwrap_or("");
+    let op  = input["op"].as_str().unwrap_or("");
     let key = input["key"].as_str().unwrap_or("");
+    let val = input["val"].as_str().unwrap_or("");
+    let prefix = input["prefix"].as_str().unwrap_or("");
+
     let db_prefix = if !ctx.creature_id.is_empty() && !ctx.program_id.is_empty() {
         if !ctx.entity_name.is_empty() && !ctx.entity_path.is_empty() {
             format!(
@@ -92,54 +108,24 @@ pub(crate) fn run_db_op(ctx: &HostHierarchy, input: &JsonValue) -> Result<String
                 ctx.creature_id, ctx.program_id, ctx.entity_name, ctx.entity_path
             )
         } else if !ctx.entity_name.is_empty() {
-            format!(
-                "{}::{}::{}",
-                ctx.creature_id, ctx.program_id, ctx.entity_name
-            )
+            format!("{}::{}::{}", ctx.creature_id, ctx.program_id, ctx.entity_name)
         } else {
             format!("{}::{}", ctx.creature_id, ctx.program_id)
         }
     } else if !ctx.program_id.is_empty() {
-        ctx.program_id.to_string()
+        ctx.program_id.clone()
     } else {
-        ctx.creature_id.to_string()
+        ctx.creature_id.clone()
     };
-    let namespaced_key = format!("{}::{}", db_prefix, key);
-    let db = GLOBAL_DB.lock().unwrap();
-    match op {
-        "put" => {
-            let val = input["val"].as_str().unwrap_or("");
-            db.put(namespaced_key.as_bytes(), val.as_bytes())
-                .map_err(|e| format!("db put failed: {}", e))?;
-            Ok("{}".to_string())
-        }
-        "get" => {
-            let val = db
-                .get(namespaced_key.as_bytes())
-                .map_err(|e| format!("db get failed: {}", e))?;
-            let val_str = val
-                .as_ref()
-                .and_then(|v| str::from_utf8(v).ok())
-                .unwrap_or("")
-                .to_string();
-            Ok(json!({"data": val_str}).to_string())
-        }
-        "del" => {
-            db.delete(namespaced_key.as_bytes())
-                .map_err(|e| format!("db delete failed: {}", e))?;
-            Ok("{}".to_string())
-        }
-        "getByPrefix" => {
-            let prefix = input["prefix"].as_str().unwrap_or("");
-            let namespaced_prefix = format!("{}::{}", db_prefix, prefix);
-            let mut vals = Vec::<String>::new();
-            for item in db.prefix_iterator(namespaced_prefix.as_bytes()) {
-                let (_, val) = item.map_err(|e| format!("db prefix iteration failed: {}", e))?;
-                vals.push(String::from_utf8_lossy(&val).to_string());
-            }
-            Ok(json!({"data": vals}).to_string())
-        }
-        _ => Err("unsupported db op".to_string()),
+
+    let namespaced_key = format!("AppletDb::{}::{}", db_prefix, key);
+    let ns_prefix = format!("AppletDb::{}::{}", db_prefix, prefix);
+
+    match with_global_app(|app| {
+        app.tools().vmm().vm_db_op(&ctx.vm_id, op, &namespaced_key, val, &ns_prefix)
+    }) {
+        Some(result) => result,
+        None => Err("vmm not initialised".to_string()),
     }
 }
 
@@ -249,6 +235,23 @@ pub(crate) fn handle_unified_host_call(packet: &JsonValue) -> String {
         }
     }
     match op {
+        "commitTrx" => {
+            let vm_id = input["vmId"]
+                .as_str()
+                .or_else(|| packet["vmId"].as_str())
+                .unwrap_or("")
+                .trim()
+                .to_string();
+            if vm_id.is_empty() {
+                json!({"ok": false, "error": "vmId required for commitTrx"}).to_string()
+            } else {
+                match with_global_app(|app| app.tools().vmm().vm_db_commit_explicit(&vm_id)) {
+                    Some(Ok(())) => json!({"ok": true}).to_string(),
+                    Some(Err(e)) => json!({"ok": false, "error": e}).to_string(),
+                    None         => json!({"ok": false, "error": "vmm not initialised"}).to_string(),
+                }
+            }
+        }
         "dbOp" => host_fn_db_op(&ctx, &input),
         "runVm" => host_fn_run_vm(&input),
         "terminateVm" => host_fn_terminate_vm(&input),
@@ -286,6 +289,9 @@ pub(crate) fn handle_unified_host_call(packet: &JsonValue) -> String {
         }
         "signalUser" => host_fn_signal_user(&input),
         "signalGroup" => host_fn_signal_group(&input),
+        "lockResource" => host_fn_lock_resource(&input),
+        "unlockResource" => host_fn_unlock_resource(&input),
+        "vmLog" | "consoleLog" => host_fn_vm_log(&input),
         // Micro ops backed by `Vmm::handle_micro_host_action` (the real DB /
         // signaler / access-control implementations).
         "genId" | "getLink" | "delKey" | "getJson" | "putJson" | "getByPrefix"
@@ -309,41 +315,33 @@ pub(crate) fn handle_unified_host_call(packet: &JsonValue) -> String {
     }
 }
 
-/// Generic dispatch into `Vmm::handle_micro_host_action`.
+/// Generic dispatch into `IVmm::host_action_micro` via the canonical tool path.
 pub(crate) fn host_fn_micro(op: &str, input: &JsonValue) -> String {
-    match crate::drivers::vmm::globals::with_global_vmm(|vmm| {
-        vmm.handle_micro_host_action(op, input, 0).0
-    }) {
+    match with_global_app(|app| app.tools().vmm().host_action_micro(op, input, 0).0) {
         Some(out) => out,
         None => json!({"ok": false, "error": "vmm not initialised"}).to_string(),
     }
 }
 
-/// Dispatch into `Vmm::handle_resource_store_crud`.
+/// Dispatch into `IVmm::host_action_resource_store` via the canonical tool path.
 pub(crate) fn host_fn_resource_store(op: &str, input: &JsonValue) -> String {
-    match crate::drivers::vmm::globals::with_global_vmm(|vmm| {
-        vmm.handle_resource_store_crud(op, input, 0).0
-    }) {
+    match with_global_app(|app| app.tools().vmm().host_action_resource_store(op, input, 0).0) {
         Some(out) => out,
         None => json!({"ok": false, "error": "vmm not initialised"}).to_string(),
     }
 }
 
-/// Dispatch into `Vmm::handle_resource_entity_create`.
+/// Dispatch into `IVmm::host_action_resource_entity_create`.
 pub(crate) fn host_fn_resource_entity_create(input: &JsonValue) -> String {
-    match crate::drivers::vmm::globals::with_global_vmm(|vmm| {
-        vmm.handle_resource_entity_create(input, 0).0
-    }) {
+    match with_global_app(|app| app.tools().vmm().host_action_resource_entity_create(input, 0).0) {
         Some(out) => out,
         None => json!({"ok": false, "error": "vmm not initialised"}).to_string(),
     }
 }
 
-/// Dispatch into `Vmm::handle_resource_entity_delete`.
+/// Dispatch into `IVmm::host_action_resource_entity_delete`.
 pub(crate) fn host_fn_resource_entity_delete(input: &JsonValue) -> String {
-    match crate::drivers::vmm::globals::with_global_vmm(|vmm| {
-        vmm.handle_resource_entity_delete(input, 0).0
-    }) {
+    match with_global_app(|app| app.tools().vmm().host_action_resource_entity_delete(input, 0).0) {
         Some(out) => out,
         None => json!({"ok": false, "error": "vmm not initialised"}).to_string(),
     }
