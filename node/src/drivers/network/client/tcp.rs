@@ -239,6 +239,20 @@ impl Tcp {
             Ok((sc, value)) => {
                 let body = serde_json::to_vec(&value).unwrap_or_default();
                 socket.write_response(&parsed.packet_id, sc, &body);
+                // Lazily register the update-stream listener after the first
+                // successful authenticated request. This means callers don't
+                // need a separate "authenticate" round-trip before signals
+                // from WASM creatures can be delivered to them.
+                if !parsed.user_id.is_empty()
+                    && !self
+                        .app
+                        .tools()
+                        .signaler()
+                        .listeners()
+                        .contains_key(&parsed.user_id)
+                {
+                    self.attach_user_listener(socket, &parsed.user_id);
+                }
             }
             Err(e) => {
                 socket.write_response(
@@ -334,11 +348,21 @@ impl Tcp {
             }
 
             // 2) Send next frame if ACK gate is open.
+            // Update frames (tag 0x01) are fire-and-forget — the client does
+            // not ACK them, so we pop them immediately and leave ack_ready
+            // unchanged. Response frames (tag 0x02) gate on ACK so we keep
+            // ack_ready=false until the client confirms receipt.
             if ack_ready {
                 if let Some(frame) = buffered.front() {
+                    let is_update = frame.first().copied() == Some(0x01);
                     match write_length_prefixed_frame(&mut stream, frame) {
                         Ok(()) => {
-                            ack_ready = false;
+                            if is_update {
+                                buffered.pop_front();
+                                // ack_ready stays true — no ACK coming for updates
+                            } else {
+                                ack_ready = false;
+                            }
                         }
                         Err(_) => break 'io,
                     }
