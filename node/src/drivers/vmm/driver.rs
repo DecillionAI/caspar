@@ -8,7 +8,9 @@
 //! [`hostcall_global`](super::hostcall_global).
 
 use crate::drivers::vmm::dispatch_packet;
-use crate::drivers::vmm::globals::{ResourceLockEntry, VmDbBuffer};
+use crate::drivers::vmm::globals::{ResourceLockEntry, ResourceLockState, VmDbBuffer};
+use std::sync::Condvar;
+use std::collections::VecDeque;
 use dashmap::DashMap;
 use std::collections::HashMap;
 use std::fs;
