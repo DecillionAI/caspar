@@ -4,11 +4,11 @@
 //! `onaccess::<storeId>::<userId>` + `hasaccess::<userId>::<storeId>` link
 //! mutations inside a hashgraph transaction.
 
-use crate::drivers::vmm::globals::with_global_vmm;
+use crate::drivers::vmm::globals::with_global_app;
 use crate::drivers::vmm::prelude::*;
 
 fn dispatch_micro(op: &str, input: &JsonValue) -> String {
-    match with_global_vmm(|vmm| vmm.handle_micro_host_action(op, input, 0).0) {
+    match with_global_app(|app| app.tools().vmm().host_action_micro(op, input, 0).0) {
         Some(out) => out,
         None => json!({"ok": false, "error": "vmm not initialised"}).to_string(),
     }

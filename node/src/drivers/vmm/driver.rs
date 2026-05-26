@@ -8,6 +8,9 @@
 //! [`hostcall_global`](super::hostcall_global).
 
 use crate::drivers::vmm::dispatch_packet;
+use crate::drivers::vmm::globals::{ResourceLockEntry, VmDbBuffer};
+use dashmap::DashMap;
+use std::collections::HashMap;
 use std::fs;
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -30,11 +33,26 @@ use crate::shell::api::packets::stores;
 /// to this with a REQ socket).
 
 /// The virtual-machine driver.
+///
+/// `Vmm` serves as the canonical owner of all per-execution concurrent state.
+/// Rather than scattering independent global statics for VM contexts, per-VM
+/// transaction buffers, and resource lock registries, they live here as fields
+/// so that the entire VMM state has a single, well-defined owner that is
+/// accessible through `GLOBAL_VMM` / `with_global_vmm`.
 pub struct Vmm {
     pub(super) app: Arc<dyn ICore>,
     pub(super) storage_root: String,
     pub(super) storage: Arc<dyn IStorage>,
     pub(super) file: Arc<dyn IFile>,
+
+    /// vm_id → (creature_id, machine_id): active VM execution context map.
+    pub(crate) vm_context: DashMap<String, (String, String)>,
+
+    /// vm_id → write-ahead transaction buffer for Docker/Fire VM executions.
+    pub(crate) vm_trx: DashMap<String, Arc<Mutex<VmDbBuffer>>>,
+
+    /// resource_id → per-resource lock state (used by lockResource host call).
+    pub(crate) resource_locks: DashMap<String, Arc<ResourceLockEntry>>,
 }
 
 impl Vmm {
@@ -55,10 +73,10 @@ impl Vmm {
             storage_root: storage_root.to_string(),
             storage,
             file,
+            vm_context: DashMap::new(),
+            vm_trx: DashMap::new(),
+            resource_locks: DashMap::new(),
         });
-        // Publish the live Vmm so host functions can dispatch to its CRUD
-        // handlers (handle_store_crud, handle_creature_crud, …).
-        crate::drivers::vmm::globals::set_global_vmm(vmm.clone());
         vmm
     }
 
@@ -178,6 +196,23 @@ impl Vmm {
         let vm_type = type_slot.lock().unwrap().clone();
         (path, vm_type)
     }
+
+    /// Get or atomically create the resource-lock entry for `resource_id`.
+    fn get_or_create_resource_lock(&self, resource_id: &str) -> Arc<ResourceLockEntry> {
+        self.resource_locks
+            .entry(resource_id.to_string())
+            .or_insert_with(|| {
+                Arc::new(ResourceLockEntry {
+                    state: Mutex::new(ResourceLockState {
+                        locked: false,
+                        owner: None,
+                        queue: std::collections::VecDeque::new(),
+                    }),
+                    cv: Condvar::new(),
+                })
+            })
+            .clone()
+    }
 }
 
 impl IVmm for Vmm {
@@ -270,6 +305,233 @@ impl IVmm for Vmm {
 
     fn vm_callback(&self, data_raw: &str) -> (String, i64) {
         Vmm::vm_callback(self, data_raw)
+    }
+
+    // ── VM execution context registry ────────────────────────────────────────
+
+    fn register_vm_context(&self, vm_id: &str, creature_id: &str, machine_id: &str) {
+        self.vm_context.insert(
+            vm_id.to_string(),
+            (creature_id.to_string(), machine_id.to_string()),
+        );
+    }
+
+    fn unregister_vm_context(&self, vm_id: &str) {
+        self.vm_context.remove(vm_id);
+    }
+
+    fn get_vm_context(&self, vm_id: &str) -> Option<(String, String)> {
+        self.vm_context
+            .get(vm_id)
+            .map(|e| (e.value().0.clone(), e.value().1.clone()))
+    }
+
+    // ── Per-VM lifecycle transaction ──────────────────────────────────────────
+
+    fn begin_vm_trx(&self, vm_id: &str) {
+        self.vm_trx.insert(
+            vm_id.to_string(),
+            Arc::new(Mutex::new(VmDbBuffer::new())),
+        );
+    }
+
+    fn commit_vm_trx(&self, vm_id: &str) {
+        if let Some((_, buf_arc)) = self.vm_trx.remove(vm_id) {
+            if let Err(e) = buf_arc.lock().unwrap().commit() {
+                eprintln!("[vmm] commit_vm_trx({}) failed: {}", vm_id, e);
+            }
+        }
+    }
+
+    fn vm_db_op(
+        &self,
+        vm_id: &str,
+        op: &str,
+        namespaced_key: &str,
+        val: &str,
+        prefix: &str,
+    ) -> Result<String, String> {
+        // Look up this VM's lifecycle buffer.
+        let buf_arc = if !vm_id.is_empty() {
+            self.vm_trx.get(vm_id).map(|r| r.clone())
+        } else {
+            None
+        };
+
+        match op {
+            "put" => {
+                if let Some(buf) = buf_arc {
+                    buf.lock().unwrap().put(namespaced_key.to_string(), val.to_string());
+                } else {
+                    let k = namespaced_key.to_string();
+                    let v = val.to_string();
+                    self.app.modify_state(
+                        false,
+                        Box::new(move |trx: &dyn crate::models::transaction::ITrx| {
+                            trx.put_link(&k, &v);
+                            Ok(())
+                        }),
+                    );
+                }
+                Ok("{}".to_string())
+            }
+            "get" => {
+                // 1. Check write-ahead buffer.
+                if let Some(ref buf) = buf_arc {
+                    let guard = buf.lock().unwrap();
+                    match guard.get_local(namespaced_key) {
+                        Some(Some(v)) => return Ok(serde_json::json!({"data": v}).to_string()),
+                        Some(None)    => return Ok(serde_json::json!({"data": ""}).to_string()),
+                        None          => {}
+                    }
+                    if let Some(cached) = guard.read_cache.get(namespaced_key) {
+                        return Ok(serde_json::json!({"data": cached}).to_string());
+                    }
+                }
+                // 2. Fall through to ICore.
+                let k = namespaced_key.to_string();
+                let slot = Arc::new(Mutex::new(String::new()));
+                let slot_c = slot.clone();
+                self.app.modify_state(
+                    true,
+                    Box::new(move |trx: &dyn crate::models::transaction::ITrx| {
+                        *slot_c.lock().unwrap() = trx.get_link(&k);
+                        Ok(())
+                    }),
+                );
+                let val_str = { slot.lock().unwrap().clone() };
+                if let Some(buf) = buf_arc {
+                    buf.lock().unwrap().read_cache.insert(namespaced_key.to_string(), val_str.clone());
+                }
+                Ok(serde_json::json!({"data": val_str}).to_string())
+            }
+            "del" => {
+                if let Some(buf) = buf_arc {
+                    buf.lock().unwrap().del(namespaced_key.to_string());
+                } else {
+                    let k = namespaced_key.to_string();
+                    self.app.modify_state(
+                        false,
+                        Box::new(move |trx: &dyn crate::models::transaction::ITrx| {
+                            trx.del_key(&k);
+                            Ok(())
+                        }),
+                    );
+                }
+                Ok("{}".to_string())
+            }
+            "getByPrefix" => {
+                let slot = Arc::new(Mutex::new(Vec::<String>::new()));
+                let slot_c = slot.clone();
+                let pfx = prefix.to_string();
+                self.app.modify_state(
+                    true,
+                    Box::new(move |trx: &dyn crate::models::transaction::ITrx| {
+                        *slot_c.lock().unwrap() = trx.get_by_prefix(&pfx);
+                        Ok(())
+                    }),
+                );
+                let mut vals = { slot.lock().unwrap().clone() };
+                // Overlay write-ahead buffer.
+                if let Some(buf) = buf_arc {
+                    let guard = buf.lock().unwrap();
+                    for (k, v) in &guard.pending_puts {
+                        if k.starts_with(prefix) && !vals.contains(v) {
+                            vals.push(v.clone());
+                        }
+                    }
+                }
+                Ok(serde_json::json!({"data": vals}).to_string())
+            }
+            _ => Err(format!("unsupported dbOp: {}", op)),
+        }
+    }
+
+    fn vm_db_commit_explicit(&self, vm_id: &str) -> Result<(), String> {
+        if let Some(buf_ref) = self.vm_trx.get(vm_id) {
+            buf_ref.lock().unwrap().commit()
+        } else {
+            Ok(())
+        }
+    }
+
+    // ── Resource lock management ──────────────────────────────────────────────
+
+    fn acquire_resource_lock(&self, resource_id: &str, owner_id: &str) -> Result<(), String> {
+        if resource_id.is_empty() {
+            return Err("resourceId is required".to_string());
+        }
+        if owner_id.is_empty() {
+            return Err("ownerId is required".to_string());
+        }
+        let lock = self.get_or_create_resource_lock(resource_id);
+        let mut state = lock.state.lock().unwrap();
+        if state.owner.as_deref() == Some(owner_id) {
+            return Ok(());
+        }
+        if state.locked {
+            state.queue.push_back(owner_id.to_string());
+            loop {
+                state = lock.cv.wait(state).unwrap();
+                if state.owner.as_deref() == Some(owner_id) {
+                    return Ok(());
+                }
+            }
+        }
+        state.locked = true;
+        state.owner = Some(owner_id.to_string());
+        Ok(())
+    }
+
+    fn release_resource_lock(&self, resource_id: &str, owner_id: &str) -> Result<(), String> {
+        if resource_id.is_empty() {
+            return Err("resourceId is required".to_string());
+        }
+        let lock = match self.resource_locks.get(resource_id) {
+            Some(l) => l.clone(),
+            None    => return Err(format!("lock '{}' not found", resource_id)),
+        };
+        let mut state = lock.state.lock().unwrap();
+        if state.owner.as_deref() != Some(owner_id) {
+            return Err(format!(
+                "lock '{}' not owned by '{}'",
+                resource_id, owner_id
+            ));
+        }
+        if let Some(next) = state.queue.pop_front() {
+            state.owner = Some(next);
+        } else {
+            state.locked = false;
+            state.owner  = None;
+        }
+        lock.cv.notify_all();
+        Ok(())
+    }
+
+    // ── Host-call dispatch bridge ─────────────────────────────────────────────
+
+    fn host_action_micro(&self, op: &str, input: &serde_json::Value, req_id: i64) -> (String, i64) {
+        self.handle_micro_host_action(op, input, req_id)
+    }
+
+    fn host_action_resource_store(&self, op: &str, input: &serde_json::Value, req_id: i64) -> (String, i64) {
+        self.handle_resource_store_crud(op, input, req_id)
+    }
+
+    fn host_action_resource_entity_create(&self, input: &serde_json::Value, req_id: i64) -> (String, i64) {
+        self.handle_resource_entity_create(input, req_id)
+    }
+
+    fn host_action_resource_entity_delete(&self, input: &serde_json::Value, req_id: i64) -> (String, i64) {
+        self.handle_resource_entity_delete(input, req_id)
+    }
+
+    fn host_action_store(&self, op: &str, input: &serde_json::Value, req_id: i64) -> (String, i64) {
+        self.handle_store_crud(op, input, req_id)
+    }
+
+    fn host_action_creature(&self, op: &str, input: &serde_json::Value, req_id: i64) -> (String, i64) {
+        self.handle_creature_crud(op, input, req_id)
     }
 }
 

@@ -61,6 +61,13 @@ pub fn host_call(
                 "{}".to_string()
             }
         }
+        "commitTrx" => {
+            // Flush the WASM VM's per-lifecycle Trx buffer to ICore, then
+            // reset the buffer so subsequent ops start a clean transaction.
+            rt.trx.commit_as_offchain();
+            rt.trx = Box::new(crate::drivers::vmm::models::runtime_models::Trx::new());
+            json!({"ok": true}).to_string()
+        }
         "lockResource" => {
             let runtime = req["input"]["runtime"].as_str().unwrap_or("wasm");
             if runtime != "wasm"

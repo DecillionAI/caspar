@@ -3,7 +3,7 @@ use crate::drivers::vmm::controllers::vm_controller::VmController;
 use crate::drivers::vmm::bridge::runtime_io::{wasm_send, log};
 use crate::drivers::vmm::models::vm_runtime::{parse_vm_resource_limits, VmResourceLimits};
 use crate::drivers::vmm::network::vm_network::VmNetworkService;
-use crate::drivers::vmm::globals::GLOBAL_VM_CONTEXT;
+use crate::drivers::vmm::globals::with_global_app;
 
 pub(crate) static GLOBAL_FIRE_VMS: Lazy<Arc<Mutex<HashMap<String, FireVmProcess>>>> =
     Lazy::new(|| Arc::new(Mutex::new(HashMap::new())));
@@ -156,11 +156,13 @@ impl FireVmController {
                 stderr_thread: Some(stderr_thread),
             },
         );
-        let mut vm_ctx = GLOBAL_VM_CONTEXT.lock().unwrap();
-        vm_ctx.insert(
-            vm_cache_key.to_string(),
-            (requester_user_id_for_cache, machine_id.to_string()),
-        );
+        with_global_app(|app| {
+            app.tools().vmm().register_vm_context(
+                vm_cache_key,
+                &requester_user_id_for_cache,
+                machine_id,
+            );
+        });
         let timeout_key = process_key.clone();
         let timeout_secs = limits.max_exec_time_secs;
         thread::spawn(move || {
@@ -177,8 +179,7 @@ impl FireVmController {
                     let _ = handle.join();
                 }
                 let _ = std::fs::remove_file(proc.socket_path);
-                let mut vm_ctx = GLOBAL_VM_CONTEXT.lock().unwrap();
-                vm_ctx.remove(proc.vm_id.as_str());
+                with_global_app(|app| app.tools().vmm().unregister_vm_context(proc.vm_id.as_str()));
                 let _ = wasm_send(json!({
                     "key": "vmLog",
                     "input": {
@@ -214,8 +215,7 @@ impl FireVmController {
         let vm_cache_key = if vm_id.is_empty() { "main" } else { vm_id };
         let process_key = fire_process_key(machine_id, vm_id);
         self.terminate_by_key(&process_key);
-        let mut vm_ctx = GLOBAL_VM_CONTEXT.lock().unwrap();
-        vm_ctx.remove(vm_cache_key);
+        with_global_app(|app| app.tools().vmm().unregister_vm_context(vm_cache_key));
 
         Ok(json!({
             "ok": true,
@@ -340,8 +340,7 @@ impl FireVmController {
             let vm_id = proc.vm_id;
             let _requester_user_id = proc.requester_user_id;
             let _stream_store_id = proc.stream_store_id;
-            let mut vm_ctx = GLOBAL_VM_CONTEXT.lock().unwrap();
-            vm_ctx.remove(vm_id.as_str());
+            with_global_app(|app| app.tools().vmm().unregister_vm_context(vm_id.as_str()));
         }
     }
 }

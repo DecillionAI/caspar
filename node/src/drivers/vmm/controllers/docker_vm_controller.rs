@@ -3,7 +3,7 @@ use crate::drivers::vmm::controllers::vm_controller::VmController;
 use crate::drivers::vmm::network::vm_network::VmNetworkService;
 use crate::drivers::vmm::models::vm_runtime::parse_vm_resource_limits;
 use crate::drivers::vmm::bridge::runtime_io::{wasm_send, log};
-use crate::drivers::vmm::globals::GLOBAL_VM_CONTEXT;
+use crate::drivers::vmm::globals::with_global_app;
 
 pub(crate) struct DockerVmController {
     docker: Docker,
@@ -119,8 +119,10 @@ impl DockerVmController {
                     ));
                 }
             }
-            let mut vm_ctx = GLOBAL_VM_CONTEXT.lock().unwrap();
-            vm_ctx.remove(timeout_vm.as_str());
+            // Commit and remove the lifecycle transaction buffer.
+            with_global_app(|app| app.tools().vmm().commit_vm_trx(timeout_vm.as_str()));
+            // DashMap: no lock needed — inserts/removes are concurrency-safe
+            with_global_app(|app| app.tools().vmm().unregister_vm_context(timeout_vm.as_str()));
         });
         let container_id_for_logs = container_id.clone();
         let vm_id_for_logs = vm_cache_key.clone();
@@ -160,8 +162,11 @@ impl DockerVmController {
                 }
             });
         });
-        let mut vm_ctx = GLOBAL_VM_CONTEXT.lock().unwrap();
-        vm_ctx.insert(vm_cache_key.clone(), (creature_id, machine_id.to_string()));
+        // DashMap: no lock needed — inserts/removes are concurrency-safe
+        with_global_app(|app| app.tools().vmm().register_vm_context(&vm_cache_key, &creature_id, machine_id));
+        // Begin a lifecycle transaction buffer for this VM execution so all
+        // dbOp writes are batched and committed atomically at VM end.
+        with_global_app(|app| app.tools().vmm().begin_vm_trx(&vm_cache_key));
         Ok(json!({
         "ok": true,
         "machineId": machine_id,
@@ -193,8 +198,10 @@ impl DockerVmController {
         };
         let container_id = docker_container_id(machine_id, &entity_id, &container_name, &vm_id);
         self.stop_and_remove_if_exists(&container_id)?;
-        let mut vm_ctx = GLOBAL_VM_CONTEXT.lock().unwrap();
-        vm_ctx.remove(vm_cache_key.as_str());
+        // Commit and remove the lifecycle transaction buffer before cleanup.
+        with_global_app(|app| app.tools().vmm().commit_vm_trx(vm_cache_key.as_str()));
+        // DashMap: no lock needed — inserts/removes are concurrency-safe
+        with_global_app(|app| app.tools().vmm().unregister_vm_context(vm_cache_key.as_str()));
         Ok(json!({
             "ok": true,
             "machineId": machine_id,
