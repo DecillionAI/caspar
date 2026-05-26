@@ -1,7 +1,11 @@
 use crate::drivers::vmm::prelude::*;
 use crate::drivers::vmm::models::vm_runtime::{WasmMac, HostData, verify_program_execution_from_packet, parse_u64_array_field, parse_u8_array_field, acquire_resource_lock, release_resource_lock};
 use crate::drivers::vmm::bridge::runtime_io::{log_vm, wasm_send};
-use crate::drivers::vmm::host::vm_host_functions::{with_docker_controller, with_fire_controller, perform_http_request};
+use crate::drivers::vmm::host::vm_host_functions::perform_http_request;
+use crate::drivers::vmm::host::functions::{
+    host_fn_run_vm, host_fn_terminate_vm, host_fn_exec_vm,
+    host_fn_copy_to_vm, host_fn_build_vm_image,
+};
 use crate::drivers::vmm::globals::with_global_app;
 use crate::models::transaction::ITrx;
 
@@ -107,44 +111,11 @@ pub fn host_call(
                 Err(err) => json!({"ok": false, "error": err}).to_string(),
             }
         }
-        "runVm" => {
-            if req["input"]["runtime"].as_str().unwrap_or("") == "docker" {
-                match with_docker_controller(|controller| controller.run_vm(&req["input"])) {
-                    Ok(res) => res.to_string(),
-                    Err(err) => json!({"ok": false, "error": err}).to_string(),
-                }
-            } else {
-                (rt.callback)(req.clone())
-            }
-        }
-        "terminateVm" => {
-            if req["input"]["runtime"].as_str().unwrap_or("") == "docker" {
-                match with_docker_controller(|controller| controller.terminate_vm(&req["input"])) {
-                    Ok(res) => res.to_string(),
-                    Err(err) => json!({"ok": false, "error": err}).to_string(),
-                }
-            } else {
-                (rt.callback)(req.clone())
-            }
-        }
-        "execVm" | "execDocker" => {
-            match with_docker_controller(|controller| controller.exec_vm(&req["input"])) {
-                Ok(res) => res.to_string(),
-                Err(err) => json!({"ok": false, "error": err}).to_string(),
-            }
-        }
-        "copyToVm" | "copyToDocker" => {
-            match with_docker_controller(|controller| controller.copy_to_vm(&req["input"])) {
-                Ok(res) => res.to_string(),
-                Err(err) => json!({"ok": false, "error": err}).to_string(),
-            }
-        }
-        "buildVmImage" | "buildDockerImage" => {
-            match with_docker_controller(|controller| controller.build_image(&req["input"])) {
-                Ok(res) => res.to_string(),
-                Err(err) => json!({"ok": false, "error": err}).to_string(),
-            }
-        }
+        "runVm" => host_fn_run_vm(&req["input"]),
+        "terminateVm" => host_fn_terminate_vm(&req["input"]),
+        "execVm" | "execDocker" => host_fn_exec_vm(&req["input"]),
+        "copyToVm" | "copyToDocker" => host_fn_copy_to_vm(&req["input"]),
+        "buildVmImage" | "buildDockerImage" => host_fn_build_vm_image(&req["input"]),
         "httpPost" | "httpRequest" => match perform_http_request(&req["input"]) {
             Ok(res) => res,
             Err(err) => json!({"ok": false, "error": err}).to_string(),
