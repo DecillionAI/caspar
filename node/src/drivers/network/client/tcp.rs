@@ -53,6 +53,10 @@ pub struct Socket {
     peer: String,
     user_id: Mutex<String>,
     disconnected: AtomicBool,
+    /// Set to true once the signaler listener has been registered for this
+    /// connection. Used to ensure we re-register on each new connection even
+    /// if a stale entry for the same user_id exists from a prior connection.
+    listener_registered: AtomicBool,
     outbound: Mutex<Option<Sender<OutboundFrame>>>,
 }
 
@@ -63,6 +67,7 @@ impl Socket {
             peer,
             user_id: Mutex::new(String::new()),
             disconnected: AtomicBool::new(false),
+            listener_registered: AtomicBool::new(false),
             outbound: Mutex::new(Some(outbound)),
         })
     }
@@ -240,17 +245,14 @@ impl Tcp {
                 let body = serde_json::to_vec(&value).unwrap_or_default();
                 socket.write_response(&parsed.packet_id, sc, &body);
                 // Lazily register the update-stream listener after the first
-                // successful authenticated request. This means callers don't
-                // need a separate "authenticate" round-trip before signals
-                // from WASM creatures can be delivered to them.
+                // successful authenticated request on this connection. We use
+                // a per-socket flag (not a global listener check) so that a
+                // new connection always refreshes the listener even if a stale
+                // entry for the same user_id exists from a previous connection.
                 if !parsed.user_id.is_empty()
-                    && !self
-                        .app
-                        .tools()
-                        .signaler()
-                        .listeners()
-                        .contains_key(&parsed.user_id)
+                    && !socket.listener_registered.load(Ordering::Acquire)
                 {
+                    socket.listener_registered.store(true, Ordering::Release);
                     self.attach_user_listener(socket, &parsed.user_id);
                 }
             }
