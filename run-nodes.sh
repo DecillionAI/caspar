@@ -1059,12 +1059,110 @@ fi
 #  node2: TCP=8174  WS=8176  FED=8177  CHAIN=8178  ENTITY=8179  VM=8180  TEL=9199
 #  node3: TCP=8274  WS=8276  FED=8277  CHAIN=8278  ENTITY=8279  VM=8280  TEL=9299
 
-ensure_node_config() {
+# _generate_node_config: create .env + babble key for a node from scratch.
+# Safe to call on an existing node — exits immediately if .env already exists.
+_generate_node_config() {
   local n="$1"
   local node_dir="$DATA_ROOT/node${n}"
   local env_file="$node_dir/.env"
+
+  [[ -f "$env_file" ]] && return 0   # already configured
+
+  info "Generating fresh config for node${n}…"
   mkdir -p "$node_dir"/{storage,db,applet,search,store_logs,telemetry,babble}
-  [[ ! -f "$env_file" ]] && warn "No $env_file found — node$n may not have keys configured"
+
+  # ── Babble secp256k1 consensus key ──────────────────────────────────────────
+  # caspar-keygen writes to $HOME/.babble/{priv_key,key.pub}.
+  # We override HOME so each node gets its own key.
+  local keygen_bin="$REPO_DIR/dist/bin/caspar-keygen"
+  if [[ -x "$keygen_bin" ]]; then
+    local tmp_home; tmp_home=$(mktemp -d)
+    HOME="$tmp_home" "$keygen_bin" >/dev/null 2>&1 || true
+    if [[ -f "$tmp_home/.babble/priv_key" ]]; then
+      cp "$tmp_home/.babble/priv_key" "$node_dir/babble/priv_key"
+    else
+      # keygen failed (race on $HOME/.babble?) — fall back to random key
+      python3 -c "import secrets; print(secrets.token_hex(32), end='')" \
+        > "$node_dir/babble/priv_key" 2>/dev/null \
+        || dd if=/dev/urandom bs=32 count=1 2>/dev/null | xxd -p | tr -d '\n' \
+           > "$node_dir/babble/priv_key"
+    fi
+    rm -rf "$tmp_home"
+  else
+    warn "caspar-keygen not found at $keygen_bin — generating random babble key"
+    python3 -c "import secrets; print(secrets.token_hex(32), end='')" \
+      > "$node_dir/babble/priv_key"
+  fi
+
+  # ── RSA identity key (OWNER_PRIVATE_KEY, PKCS#8 PEM) ───────────────────────
+  # Prefer openssl (always present) over pycryptodome.
+  local priv_pem=""
+  if command -v openssl &>/dev/null; then
+    priv_pem=$(openssl genrsa 2048 2>/dev/null \
+               | openssl pkcs8 -topk8 -nocrypt 2>/dev/null)
+  fi
+  if [[ -z "$priv_pem" ]]; then
+    priv_pem=$(python3 -c "
+from Crypto.PublicKey import RSA
+print(RSA.generate(2048).export_key().decode(), end='')
+" 2>/dev/null) || true
+  fi
+  [[ -z "$priv_pem" ]] && die "Cannot generate RSA key for node${n}: install openssl or pycryptodome"
+
+  # ── Port layout (matches the NODE LAYOUT above) ──────────────────────────────
+  local tcp_port=${NODE_TCP[$n]}            # 8074 / 8174 / 8274
+  local ws_port=$((tcp_port + 2))           # 8076 / 8176 / 8276
+  local fed_port=$((tcp_port + 3))          # 8077 / 8177 / 8277
+  local chain_port=$((tcp_port + 4))        # 8078 / 8178 / 8278
+  local entity_port=$((tcp_port + 5))       # 8079 / 8179 / 8279
+  local vm_port=$((tcp_port + 6))           # 8080 / 8180 / 8280
+  local tel_port=$((9099 + (n - 1) * 100))  # 9099 / 9199 / 9299
+
+  local is_head root_node
+  [[ $n -eq 1 ]] && is_head="true" || is_head="false"
+  root_node="localhost:${NODE_TCP[1]}"
+
+  # Docker mounts $node_dir as /app/data inside the container, so all paths
+  # inside .env use the container prefix.  Local mode overrides them via
+  # the env vars set in local_start_node.
+  cat > "$env_file" <<EOF
+OWNER_ID=owner-node${n}
+OWNER_PRIVATE_KEY="${priv_pem}"
+STORAGE_ROOT_PATH=/app/data/storage
+BASE_DB_PATH=/app/data/db
+APPLET_DB_PATH=/app/data/applet
+SEARCH_INDEX_PATH=/app/data/search
+STORE_LOGS_DB=/app/data/store_logs
+CLIENT_WS_API_PORT=${ws_port}
+CLIENT_TCP_API_PORT=${tcp_port}
+FEDERATION_API_PORT=${fed_port}
+BLOCKCHAIN_API_PORT=${chain_port}
+ENTITY_API_PORT=${entity_port}
+VM_API_PORT=${vm_port}
+ORIGIN=http://localhost:${tcp_port}
+IPADDR=127.0.0.1
+ROOT_NODE=${root_node}
+IS_HEAD=${is_head}
+AdminPassword=admin123
+VM_EXEC_COST_PER_SECOND=0
+VM_RAM_COST_PER_MB_PER_MINUTE=0
+VM_CPU_CORE_COST_PER_MINUTE=0
+VM_DISK_COST_PER_GB_PER_MINUTE=0
+TELEMETRY_API_PORT=${tel_port}
+TELEMETRY_DB_PATH=/app/data/telemetry
+BABBLE_DIR=/app/data/babble
+BABBLE_DATA_DIR=/app/data/babble
+EOF
+
+  ok "node${n} config generated (TCP=${tcp_port}, IS_HEAD=${is_head})"
+}
+
+ensure_node_config() {
+  local n="$1"
+  local node_dir="$DATA_ROOT/node${n}"
+  mkdir -p "$node_dir"/{storage,db,applet,search,store_logs,telemetry,babble}
+  # Generate .env + babble key if not already present (fresh environment).
+  _generate_node_config "$n"
 }
 
 # ─── Local-mode launch ───────────────────────────────────────────────────────
