@@ -707,6 +707,61 @@ _build_creatures() {
   ok "WASM creatures built: $(find "$wasm_dir" -name '*.wasm' 2>/dev/null | wc -l) files"
 }
 
+# ─── Application-level readiness probe ───────────────────────────────────────
+# TCP-open is necessary but not sufficient; wait until the node actually
+# responds to a /auths/getServerPublicKey request before deploying.
+_probe_node_app_ready() {
+  # $1 = TCP port.  Returns 0 when the node responds, 1 on timeout/error.
+  local port="$1"
+  python3 -c "
+import sys, socket, struct, uuid
+port = int('$port')
+def lp(x): b=x.encode(); return struct.pack('>I',len(b))+b
+pkt = str(uuid.uuid4())
+body = lp('') + lp('') + lp('/auths/getServerPublicKey') + lp(pkt) + b'{}'
+frame = struct.pack('>I',len(body)) + body
+s = socket.socket(); s.settimeout(5)
+try:
+    s.connect(('127.0.0.1', port))
+    s.sendall(frame)
+    hdr = b''
+    while len(hdr) < 4:
+        c = s.recv(4 - len(hdr))
+        if not c: sys.exit(1)
+        hdr += c
+    length = struct.unpack('>I', hdr)[0]
+    data = b''
+    while len(data) < length:
+        c = s.recv(length - len(data))
+        if not c: sys.exit(1)
+        data += c
+    sys.exit(0 if length > 0 else 1)
+except Exception:
+    sys.exit(1)
+finally:
+    try: s.close()
+    except: pass
+" 2>/dev/null
+}
+
+_wait_nodes_app_ready() {
+  local max_wait=90
+  info "Waiting for node(s) to be application-ready (up to ${max_wait}s)…"
+  for n in "${NODES[@]}"; do
+    local port=${NODE_TCP[$n]}
+    local elapsed=0
+    while ! _probe_node_app_ready "$port"; do
+      sleep 2; elapsed=$((elapsed + 2))
+      if [[ $elapsed -ge $max_wait ]]; then
+        warn "node$n did not become application-ready after ${max_wait}s — deploy may fail"
+        break
+      fi
+    done
+    _probe_node_app_ready "$port" && ok "node$n application-ready" \
+      || warn "node$n not responding to probes — continuing anyway"
+  done
+}
+
 # ─── Deploy WASM creatures to the running Caspar nodes ───────────────────────
 _deploy_creatures() {
   local server_dir="$1"
@@ -876,8 +931,12 @@ ok "All dependency checks passed"
 
 # ─── Fresh start ─────────────────────────────────────────────────────────────
 if $FRESH; then
-  warn "--fresh: wiping $DATA_ROOT"
+  warn "--fresh: wiping $DATA_ROOT and stale deployment/bench reports"
   rm -rf "$DATA_ROOT"
+  # Remove stale reports so bench-all.sh doesn't think deployment is done
+  rm -f "${HOME:-/root}/deployment_report.json" \
+        "${HOME:-/root}/workflow_results.json"  \
+        "${HOME:-/root}/workflow_report.md"
 fi
 
 mkdir -p "$DATA_ROOT"
@@ -1099,8 +1158,7 @@ if $DEPLOY_CREATURES; then
       export PATH="/usr/local/go123/bin:/usr/local/tinygo/bin:${PATH}"
       export GOROOT="/usr/local/go123"
       if _build_creatures "$DECILLIONAI_SERVER_DIR"; then
-        info "Waiting 5s for nodes to settle before creature deployment…"
-        sleep 5
+        _wait_nodes_app_ready
         _deploy_creatures "$DECILLIONAI_SERVER_DIR"
       fi
     fi
