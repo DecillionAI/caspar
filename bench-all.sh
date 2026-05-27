@@ -21,18 +21,54 @@
 #   --skip-deploy    Skip creature deployment; use the last deployment_report.json
 #   --help           Show this help
 #
-# Outputs:
-#   /home/user/workflow_results.json   — machine-readable benchmark results
-#   /home/user/workflow_report.md      — professional KPI report
-#   /home/user/deployment_report.json  — deployment manifest (by deploy.py)
+# Outputs (written to $HOME):
+#   ~/workflow_results.json   — machine-readable benchmark results
+#   ~/workflow_report.md      — professional KPI report
+#   ~/deployment_report.json  — deployment manifest (by deploy.py)
+#
+# Scripts location (auto-detected, override with DECILLIONAI_SERVER env var):
+#   <caspar-repo>/../decillionai-server/bench/deploy.py
+#   <caspar-repo>/../decillionai-server/bench/workflow_tests.py
 # =============================================================================
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-BENCH_DIR="/home/user/decillionai-server/bench"
-HOME_DIR="/home/user"
-DEPLOY_SCRIPT="$HOME_DIR/deploy.py"
+
+# ─── Locate decillionai-server/bench ─────────────────────────────────────────
+# Resolution order (first match wins):
+#   1. DECILLIONAI_SERVER env var  (explicit override)
+#   2. Sibling directory next to the caspar repo
+#   3. Legacy /home/user/decillionai-server path
+_find_bench_dir() {
+  if [[ -n "${DECILLIONAI_SERVER:-}" ]]; then
+    echo "$DECILLIONAI_SERVER/bench"
+    return
+  fi
+  # Walk up from SCRIPT_DIR to find a sibling decillionai-server repo
+  local parent; parent="$(dirname "$SCRIPT_DIR")"
+  if [[ -d "$parent/decillionai-server/bench" ]]; then
+    echo "$parent/decillionai-server/bench"
+    return
+  fi
+  # Legacy hard-coded path
+  if [[ -d "/home/user/decillionai-server/bench" ]]; then
+    echo "/home/user/decillionai-server/bench"
+    return
+  fi
+  echo ""
+}
+
+BENCH_DIR="$(_find_bench_dir)"
+if [[ -z "$BENCH_DIR" ]]; then
+  echo -e "\033[0;31m[bench] FATAL:\033[0m Cannot find decillionai-server/bench directory." >&2
+  echo "  Clone it next to the caspar repo:  git clone https://github.com/DecillionAI/decillionai-server.git" >&2
+  echo "  Or set: export DECILLIONAI_SERVER=/path/to/decillionai-server" >&2
+  exit 1
+fi
+
+HOME_DIR="${HOME:-/home/user}"
+DEPLOY_SCRIPT="$BENCH_DIR/deploy.py"
 BENCH_SCRIPT="$BENCH_DIR/workflow_tests.py"
 DEPLOY_REPORT="$HOME_DIR/deployment_report.json"
 RESULT_JSON="$HOME_DIR/workflow_results.json"
@@ -128,6 +164,9 @@ if ! $all_up; then
   die "One or more nodes not reachable. Start them first with:
   $SCRIPT_DIR/run-nodes.sh $MODE"
 fi
+
+# Ensure /tmp/caspar exists for log files (may be absent if bench is run standalone)
+mkdir -p /tmp/caspar
 
 # =============================================================================
 # STEP 3 — Deploy WASM creatures

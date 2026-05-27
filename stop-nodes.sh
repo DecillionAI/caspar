@@ -26,29 +26,44 @@ info() { echo -e "${CYAN}[stop]${NC} $*"; }
 ok()   { echo -e "${GREEN}[stop]${NC} $*"; }
 warn() { echo -e "${YELLOW}[stop]${NC} $*"; }
 
+# Detect WSL environment
+_is_wsl() { grep -qi 'microsoft\|wsl' /proc/version 2>/dev/null; }
+
 # ─── Helper: run a function body as root ─────────────────────────────────────
+# Exports ALL defined functions so sub-calls inside $fn are available.
 _as_root() {
   local fn="$1"
-  local helpers
-  helpers="$(declare -f info ok warn)"
   if [[ "$EUID" -eq 0 ]]; then
     "$fn"
-  elif command -v sudo &>/dev/null; then
-    sudo bash -c "${helpers}; $(declare -f "$fn"); $fn"
-  else
-    warn "Cannot run $fn: need root and sudo is not available."
-    return 1
+    return
   fi
+  command -v sudo &>/dev/null || { warn "Cannot run $fn: need root and sudo is not available."; return 1; }
+
+  local tmpscript
+  tmpscript=$(mktemp /tmp/caspar_root_XXXXXX.sh)
+  # shellcheck disable=SC2064
+  trap "rm -f '$tmpscript'" RETURN
+
+  declare -f   >> "$tmpscript"
+  echo "${fn}" >> "$tmpscript"
+  chmod 700 "$tmpscript"
+
+  sudo bash "$tmpscript"
 }
 
-# ─── Firecracker network teardown (inlined) ───────────────────────────────────
+# ─── Firecracker network teardown ────────────────────────────────────────────
+# All operations are best-effort (|| true) — WSL2 may not support bridge/iptables.
 _teardown_firecracker_network() {
   local bridge="br0"
   local host_iface
   host_iface=$(ip route show default 2>/dev/null | awk '/default/{print $5; exit}' || true)
 
-  if ip link show "$bridge" &>/dev/null; then
-    ip link set "$bridge" down 2>/dev/null || true
+  if _is_wsl; then
+    warn "WSL detected: bridge teardown and iptables rules may be restricted — attempting best-effort."
+  fi
+
+  if ip link show "$bridge" &>/dev/null 2>&1; then
+    ip link set "$bridge" down  2>/dev/null || true
     ip link delete "$bridge" type bridge 2>/dev/null || true
     ok "Bridge $bridge removed"
   fi
@@ -60,7 +75,9 @@ _teardown_firecracker_network() {
       -m state --state RELATED,ESTABLISHED -j ACCEPT 2>/dev/null || true
   fi
 
-  sysctl -qw net.ipv4.ip_forward=0 2>/dev/null || true
+  # ip_forward reset: read-only in WSL2 — best-effort only
+  sysctl -qw net.ipv4.ip_forward=0 2>/dev/null \
+    || warn "Could not reset ip_forward (read-only in WSL?) — no action needed"
   ok "Firecracker network teardown complete"
 }
 

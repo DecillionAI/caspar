@@ -1,0 +1,7 @@
+# Ensure shell scripts always use LF line endings on all platforms
+*.sh    text eol=lf
+*.py    text eol=lf
+*.toml  text eol=lf
+*.rs    text eol=lf
+*.go    text eol=lf
+*.md    text eol=lf

@@ -37,6 +37,16 @@ warn() { echo -e "${YELLOW}[build-dist]${NC} $*"; }
 die()  { echo -e "${RED}[build-dist] FATAL:${NC} $*" >&2; exit 1; }
 step() { echo -e "\n${BOLD}${CYAN}━━━ $* ━━━${NC}"; }
 
+# Portable arch token: amd64 / arm64 / armhf — works on any Linux/WSL distro
+_arch() {
+  case "$(uname -m)" in
+    x86_64)        echo amd64 ;;
+    aarch64|arm64) echo arm64 ;;
+    armv7l)        echo armhf ;;
+    *)             uname -m   ;;
+  esac
+}
+
 # ─── Args ────────────────────────────────────────────────────────────────────
 SKIP_NODE=false
 SKIP_CTL=false

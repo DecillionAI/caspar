@@ -33,11 +33,32 @@
 
 set -euo pipefail
 
+# ─── PATH: native Linux docker locations first ───────────────────────────────
+# Put native Linux paths BEFORE the Windows-mounted paths that WSL appends.
+# This prevents Windows Docker Desktop's docker.exe (reachable via /mnt/c/...)
+# from being used instead of a native Docker CE install.
+export PATH="/snap/bin:/usr/local/bin:/usr/bin:/usr/sbin:${PATH:-}"
+
+# _native_docker: returns true only if a native Linux docker binary exists.
+# Rejects .exe wrappers and Windows-mount paths (/mnt/...).
+_native_docker_exists() {
+  local p
+  p=$(command -v docker 2>/dev/null) || return 1
+  # Reject Windows-mount paths and .exe wrappers
+  [[ "$p" == /mnt/* ]] && return 1
+  [[ "$p" == *.exe  ]] && return 1
+  return 0
+}
+
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 NODE_DIR="$REPO_DIR/node"
 BINARY="$NODE_DIR/target/release/caspar-node"
 DATA_ROOT="/tmp/caspar"
-QUESTDB_JAR="/opt/questdb/questdb.jar"
+# Use the pre-built jar from dist/ if /opt/questdb/questdb.jar is absent
+QUESTDB_JAR="${QUESTDB_JAR:-}"
+[[ -z "$QUESTDB_JAR" ]] && [[ -f "/opt/questdb/questdb.jar" ]] && QUESTDB_JAR="/opt/questdb/questdb.jar"
+[[ -z "$QUESTDB_JAR" ]] && [[ -f "$REPO_DIR/dist/questdb/questdb.jar" ]] && QUESTDB_JAR="$REPO_DIR/dist/questdb/questdb.jar"
+[[ -z "$QUESTDB_JAR" ]] && QUESTDB_JAR="/opt/questdb/questdb.jar"  # keep original as default for download logic
 QUESTDB_DATA="$DATA_ROOT/questdb"
 QUESTDB_PORT=8812
 DOCKER_IMAGE="caspar-node:latest"
@@ -47,6 +68,47 @@ info()  { echo -e "${CYAN}[caspar]${NC} $*"; }
 ok()    { echo -e "${GREEN}[caspar]${NC} $*"; }
 warn()  { echo -e "${YELLOW}[caspar]${NC} $*"; }
 die()   { echo -e "${RED}[caspar] FATAL:${NC} $*" >&2; exit 1; }
+
+# ─── Environment detection ────────────────────────────────────────────────────
+# Detect WSL: /proc/version contains "Microsoft" or "WSL"
+_is_wsl() { grep -qi 'microsoft\|wsl' /proc/version 2>/dev/null; }
+# Detect systemd as PID 1 (works bare-metal AND WSL2 with systemd enabled)
+_has_systemd() { [[ "$(ps -p 1 -o comm= 2>/dev/null)" == "systemd" ]]; }
+# Return the active package manager token: apt | dnf | yum | pacman | unknown
+_pkg_mgr() {
+  command -v apt-get &>/dev/null && { echo apt;    return; }
+  command -v dnf     &>/dev/null && { echo dnf;    return; }
+  command -v yum     &>/dev/null && { echo yum;    return; }
+  command -v pacman  &>/dev/null && { echo pacman; return; }
+  echo unknown
+}
+# Normalise uname -m → Docker/apt arch token (amd64 / arm64 / armhf)
+_arch() {
+  case "$(uname -m)" in
+    x86_64)        echo amd64 ;;
+    aarch64|arm64) echo arm64 ;;
+    armv7l)        echo armhf ;;
+    *)             uname -m   ;;
+  esac
+}
+# Install packages via the appropriate manager (Debian/Ubuntu, RHEL/Fedora, Arch)
+_pkg_install() {
+  case "$(_pkg_mgr)" in
+    apt)    apt-get install -y -qq "$@" ;;
+    dnf)    dnf     install -y -q  "$@" ;;
+    yum)    yum     install -y -q  "$@" ;;
+    pacman) pacman  -S --noconfirm "$@" ;;
+    *)      warn "Unknown package manager — install manually: $*"; return 1 ;;
+  esac
+}
+_pkg_update() {
+  case "$(_pkg_mgr)" in
+    apt)    apt-get update -qq ;;
+    dnf|yum) : ;;  # dnf/yum update on demand; skip explicit refresh
+    pacman) pacman -Sy --noconfirm ;;
+    *) : ;;
+  esac
+}
 
 # ─── Arg parsing ─────────────────────────────────────────────────────────────
 MODE="triple"
@@ -82,6 +144,23 @@ NODES=(1)
 
 declare -A NODE_TCP=([1]=8074 [2]=8174 [3]=8274)
 
+# ─── Sudo pre-check ──────────────────────────────────────────────────────────
+# If Docker is not yet installed we will need root. Validate sudo credentials
+# NOW (interactively) so subsequent _as_root calls never hang waiting for a
+# password on a background/piped invocation.
+if $USE_DOCKER && ! _native_docker_exists; then
+  if [[ "$EUID" -ne 0 ]] && command -v sudo &>/dev/null; then
+    echo -e "${CYAN}[caspar]${NC} Docker CE not installed — root access is needed."
+    echo -e "${CYAN}[caspar]${NC} Please enter your sudo password when prompted:"
+    sudo -v || die "sudo authentication failed. Run 'sudo -v' first, then re-run this script."
+    # Keep sudo alive in the background for the duration of the script
+    ( while true; do sudo -n true; sleep 50; done ) &
+    _SUDO_KEEPALIVE_PID=$!
+    trap 'kill $_SUDO_KEEPALIVE_PID 2>/dev/null' EXIT
+    ok "sudo credentials cached"
+  fi
+fi
+
 # ─── Helper: run a function body as root ─────────────────────────────────────
 # Usage: _as_root <function_name>
 # Calls the named function directly if already root, otherwise exports its
@@ -89,42 +168,90 @@ declare -A NODE_TCP=([1]=8074 [2]=8174 [3]=8274)
 # (info/ok/warn) are exported alongside so output remains consistent.
 _as_root() {
   local fn="$1"
-  local helpers
-  helpers="$(declare -f info ok warn die)"
   if [[ "$EUID" -eq 0 ]]; then
     "$fn"
-  elif command -v sudo &>/dev/null; then
-    sudo bash -c "${helpers}; $(declare -f "$fn"); $fn"
-  else
-    warn "Cannot run $fn: need root and sudo is not available."
-    return 1
+    return
   fi
+  command -v sudo &>/dev/null || { warn "Cannot run $fn: need root and sudo is not available."; return 1; }
+
+  # Write all function definitions to a temp file so heredocs (e.g. <<'PYEOF'
+  # in _setup_gvisor) are preserved correctly — `bash -c "..."` misparses
+  # heredocs embedded inside a string and silently drops later definitions.
+  local tmpscript
+  tmpscript=$(mktemp /tmp/caspar_root_XXXXXX.sh)
+  # shellcheck disable=SC2064
+  trap "rm -f '$tmpscript'" RETURN
+
+  # Dump every currently-defined function, then call the requested one.
+  declare -f              >> "$tmpscript"
+  echo "${fn}"            >> "$tmpscript"
+  chmod 700 "$tmpscript"
+
+  sudo bash "$tmpscript"
 }
 
 # ─── gVisor setup ─────────────────────────────────────────────────────────────
+#
+# Snap-docker compatibility notes:
+#   • Snap docker reads its daemon.json from /var/snap/docker/<rev>/config/daemon.json
+#     NOT from /etc/docker/daemon.json — we detect this and write to the right path.
+#   • Snap docker uses strict confinement: external runtime binaries (runsc) may be
+#     blocked unless the snap has the right interfaces. We register runsc and warn if
+#     confinement might prevent execution. For full gVisor support, Docker CE (apt)
+#     is recommended over snap docker.
+#   • Restart is done via `snap restart docker` instead of `systemctl restart docker`.
 _setup_gvisor() {
   set -e
   info "Installing gVisor (runsc)…"
-  apt-get update -qq
-  apt-get install -y -qq apt-transport-https ca-certificates curl gnupg
 
-  local keyring="/usr/share/keyrings/gvisor-archive-keyring.gpg"
-  [[ -f "$keyring" ]] \
-    || curl -fsSL https://gvisor.dev/archive.key | gpg --dearmor --yes -o "$keyring"
+  if [[ "$(_pkg_mgr)" == apt ]]; then
+    # ── Debian / Ubuntu path (official apt repo) ──────────────────────────────
+    _pkg_update
+    _pkg_install apt-transport-https ca-certificates curl gnupg
 
-  local arch; arch=$(dpkg --print-architecture)
-  echo "deb [arch=${arch} signed-by=${keyring}] https://storage.googleapis.com/gvisor/releases release main" \
-    > /etc/apt/sources.list.d/gvisor.list
+    local keyring="/usr/share/keyrings/gvisor-archive-keyring.gpg"
+    [[ -f "$keyring" ]] \
+      || curl -fsSL https://gvisor.dev/archive.key | gpg --dearmor --yes -o "$keyring"
 
-  apt-get update -qq
-  apt-get install -y -qq runsc
+    local arch; arch=$(_arch)
+    echo "deb [arch=${arch} signed-by=${keyring}] https://storage.googleapis.com/gvisor/releases release main" \
+      > /etc/apt/sources.list.d/gvisor.list
 
-  # Merge runsc into /etc/docker/daemon.json
+    _pkg_update
+    _pkg_install runsc
+  else
+    # ── Non-Debian: direct binary download from gVisor release CDN ───────────
+    local hw_arch; hw_arch=$(uname -m)   # x86_64 or aarch64
+    local runsc_url="https://storage.googleapis.com/gvisor/releases/release/latest/${hw_arch}/runsc"
+    info "Non-apt system — downloading runsc binary for ${hw_arch}…"
+    curl -fsSL "$runsc_url" -o /usr/local/bin/runsc
+    chmod +x /usr/local/bin/runsc
+    ok "runsc installed: $(runsc --version 2>&1 | head -1)"
+  fi
+
+  # ── Detect whether Docker is snap-based or CE (apt) ─────────────────────────
+  local daemon_json snap_rev snap_config_dir
+  snap_rev=$(snap list docker 2>/dev/null | awk 'NR>1{print $3}' | head -1)
+  if [[ -n "$snap_rev" ]]; then
+    # Snap docker: config lives inside the snap revision directory
+    snap_config_dir="/var/snap/docker/${snap_rev}/config"
+    daemon_json="${snap_config_dir}/daemon.json"
+    mkdir -p "$snap_config_dir"
+    warn "Snap docker detected (rev ${snap_rev}) — writing runtime to ${daemon_json}"
+    warn "Note: snap strict confinement may prevent runsc execution."
+    warn "For full gVisor support, install Docker CE via apt instead of snap."
+  else
+    # Docker CE (apt) — standard path
+    daemon_json="/etc/docker/daemon.json"
+    mkdir -p /etc/docker
+  fi
+
+  # ── Merge runsc runtime into the correct daemon.json ────────────────────────
   # --network=host: sandbox shares host netstack (no NAT, full reachability)
   # --platform=ptrace: works without /dev/kvm
-  python3 -c "
-import json, os, tempfile
-path = '/etc/docker/daemon.json'
+  python3 - "$daemon_json" <<'PYEOF'
+import json, os, sys, tempfile
+path = sys.argv[1]
 try:
     cfg = json.loads(open(path).read().strip() or '{}')
 except FileNotFoundError:
@@ -133,20 +260,167 @@ cfg.setdefault('runtimes', {})['runsc'] = {
     'path': 'runsc',
     'runtimeArgs': ['--network=host', '--platform=ptrace'],
 }
-fd, tmp = tempfile.mkstemp(dir='/etc/docker', prefix='.daemon.')
+cfg_dir = os.path.dirname(path)
+fd, tmp = tempfile.mkstemp(dir=cfg_dir, prefix='.daemon.')
 with os.fdopen(fd, 'w') as f:
     json.dump(cfg, f, indent=2); f.write('\n')
 os.replace(tmp, path)
-print('  wrote /etc/docker/daemon.json')
-"
+print(f'  wrote {path}')
+PYEOF
 
-  # Restart Docker and wait for daemon to come back
-  if systemctl is-active --quiet docker 2>/dev/null; then
+  # ── Restart Docker and wait for daemon to come back ─────────────────────────
+  if [[ -n "${snap_rev:-}" ]]; then
+    # Snap docker restart
+    snap restart docker 2>/dev/null \
+      && { local i; for i in $(seq 1 20); do docker info >/dev/null 2>&1 && break; sleep 0.5; done; } \
+      || warn "snap restart docker failed — gVisor runtime registered but Docker not reloaded"
+  elif systemctl is-active --quiet docker 2>/dev/null; then
     systemctl restart docker
     local i
     for i in $(seq 1 20); do docker info >/dev/null 2>&1 && break; sleep 0.5; done
   fi
-  ok "gVisor (runsc) installed and registered with Docker"
+
+  ok "gVisor (runsc) installed and registered with Docker (${daemon_json})"
+}
+
+# ─── WSL2 DNS fix (run as root) ──────────────────────────────────────────────
+# WSL2's auto-generated /etc/resolv.conf uses 10.255.255.254 as a virtual DNS
+# relay. On some corporate / VPN networks this relay fails to resolve external
+# hostnames. This function permanently switches to 8.8.8.8 / 1.1.1.1 by
+# disabling WSL's auto-generation and writing a static resolv.conf.
+_fix_wsl_dns() {
+  set -e
+  # Only run inside WSL
+  grep -qi 'microsoft\|wsl' /proc/version 2>/dev/null || return 0
+
+  local current_ns
+  current_ns=$(awk '/^nameserver/{print $2; exit}' /etc/resolv.conf 2>/dev/null)
+  # If already using a non-relay DNS, skip
+  [[ "$current_ns" != "10.255.255.254" ]] && [[ "$current_ns" != "172.16."* ]] \
+    && [[ -n "${current_ns:-}" ]] && { ok "WSL2 DNS already set to $current_ns — skipping fix"; return 0; }
+
+  # Disable WSL auto-generation of resolv.conf
+  local wsl_conf="/etc/wsl.conf"
+  if ! grep -q 'generateResolvConf' "$wsl_conf" 2>/dev/null; then
+    {
+      grep -v 'generateResolvConf' "$wsl_conf" 2>/dev/null || true
+      printf '\n[network]\ngenerateResolvConf = false\n'
+    } > /tmp/_wsl_conf_new
+    mv /tmp/_wsl_conf_new "$wsl_conf"
+  else
+    sed -i 's/generateResolvConf *= *true/generateResolvConf = false/' "$wsl_conf"
+  fi
+
+  # Unlink if it's a symlink (WSL manages it as one)
+  [[ -L /etc/resolv.conf ]] && rm /etc/resolv.conf
+
+  # Write static resolv.conf
+  printf '# Static DNS set by run-nodes.sh (overrides broken WSL relay)\nnameserver 8.8.8.8\nnameserver 1.1.1.1\n' \
+    > /etc/resolv.conf
+
+  ok "WSL2 DNS fixed: /etc/resolv.conf → 8.8.8.8 / 1.1.1.1"
+}
+
+# ─── Docker CE auto-installation ─────────────────────────────────────────────
+# Called (as root) when USE_DOCKER=true but docker is not in PATH.
+# Supports Debian/Ubuntu (apt) and RHEL/Fedora/Amazon (dnf/yum).
+# Also handles WSL2 environments where systemd may not be running.
+_install_docker() {
+  set -e
+  info "Docker not found — installing Docker CE…"
+
+  # ── Fix WSL2 DNS first so apt-get can reach download.docker.com ─────────────
+  _fix_wsl_dns
+
+  # ── Detect package manager ──────────────────────────────────────────────────
+  if command -v apt-get &>/dev/null; then
+    # Debian / Ubuntu / Raspbian
+    apt-get update -qq
+    apt-get install -y -qq \
+      apt-transport-https ca-certificates curl gnupg lsb-release
+
+    # Load /etc/os-release for $ID
+    . /etc/os-release
+    local keyring="/usr/share/keyrings/docker-archive-keyring.gpg"
+    [[ -f "$keyring" ]] \
+      || curl -fsSL "https://download.docker.com/linux/${ID}/gpg" \
+           | gpg --dearmor --yes -o "$keyring"
+
+    local arch; arch=$(dpkg --print-architecture)
+    local codename; codename=$(lsb_release -cs)
+    echo "deb [arch=${arch} signed-by=${keyring}] \
+https://download.docker.com/linux/${ID} ${codename} stable" \
+      > /etc/apt/sources.list.d/docker.list
+
+    apt-get update -qq
+    apt-get install -y -qq \
+      docker-ce docker-ce-cli containerd.io \
+      docker-buildx-plugin docker-compose-plugin
+
+  elif command -v dnf &>/dev/null || command -v yum &>/dev/null; then
+    # RHEL / Fedora / Amazon Linux
+    local pkg_mgr; command -v dnf &>/dev/null && pkg_mgr=dnf || pkg_mgr=yum
+    $pkg_mgr install -y -q yum-utils
+    yum-config-manager --add-repo \
+      https://download.docker.com/linux/centos/docker-ce.repo
+    $pkg_mgr install -y -q \
+      docker-ce docker-ce-cli containerd.io \
+      docker-buildx-plugin docker-compose-plugin
+  else
+    die "Unsupported package manager — install Docker manually: https://docs.docker.com/engine/install/"
+  fi
+
+  # ── WSL2: switch to iptables-legacy so Docker CE daemon can start ───────────
+  # Ubuntu 22.04/24.04 defaults to nftables; dockerd requires iptables-legacy
+  # to configure bridge NAT rules inside WSL2 where nftables isn't available.
+  if _is_wsl && command -v update-alternatives &>/dev/null; then
+    update-alternatives --set iptables  /usr/sbin/iptables-legacy  >/dev/null 2>&1 || true
+    update-alternatives --set ip6tables /usr/sbin/ip6tables-legacy >/dev/null 2>&1 || true
+    ok "Configured iptables-legacy for Docker CE on WSL2"
+  fi
+
+  # ── Start the daemon ────────────────────────────────────────────────────────
+  # systemd path (bare-metal, LXC, WSL2 with systemd enabled)
+  if systemctl is-system-running 2>/dev/null | grep -qE 'running|degraded|starting'; then
+    systemctl enable docker --quiet 2>/dev/null || true
+    systemctl start  docker         2>/dev/null || true
+    local i; for i in $(seq 1 30); do docker info >/dev/null 2>&1 && break; sleep 1; done
+  else
+    # No systemd (plain WSL2, containers, CI) — launch dockerd directly
+    if ! docker info >/dev/null 2>&1; then
+      nohup dockerd --host=unix:///var/run/docker.sock \
+            > /tmp/dockerd.log 2>&1 &
+      local i; for i in $(seq 1 40); do docker info >/dev/null 2>&1 && break; sleep 1; done
+    fi
+  fi
+
+  # ── Allow the invoking (non-root) user to run docker ────────────────────────
+  if [[ -n "${SUDO_USER:-}" ]]; then
+    usermod -aG docker "$SUDO_USER" 2>/dev/null || true
+  fi
+
+  docker info >/dev/null 2>&1 || die "Docker daemon still not reachable after installation"
+  ok "Docker CE installed and running: $(docker --version)"
+}
+
+# ─── Snap → Docker CE migration ──────────────────────────────────────────────
+# Removes snap docker and installs Docker CE (apt) in its place.
+# Required for full gVisor (runsc) support — snap's strict confinement blocks
+# external runtime binaries and uses a non-standard daemon.json location.
+_migrate_snap_to_docker_ce() {
+  set -e
+  info "Removing snap docker and installing Docker CE (apt)…"
+
+  # Stop and remove snap docker
+  snap stop docker 2>/dev/null || true
+  snap remove docker 2>/dev/null || true
+  # Remove leftover snap socket/pid files
+  rm -f /run/snap.docker/docker.sock /run/snap.docker/docker.pid 2>/dev/null || true
+
+  # Install Docker CE via the official apt repo (reuses _install_docker logic)
+  _install_docker
+
+  ok "Migrated from snap docker to Docker CE"
 }
 
 # ─── Firecracker setup ────────────────────────────────────────────────────────
@@ -159,8 +433,14 @@ _install_firecracker() {
   local fc_arch="${FC_ARCH:-$(uname -m)}"
 
   info "Installing Firecracker ${fc_version} (${fc_arch})…"
-  apt-get update -qq
-  apt-get install -y -qq curl libelf-dev e2fsprogs
+  _pkg_update
+  case "$(_pkg_mgr)" in
+    apt)    _pkg_install curl libelf-dev e2fsprogs ;;
+    dnf)    _pkg_install curl elfutils-libelf-devel e2fsprogs ;;
+    yum)    _pkg_install curl elfutils-libelf-devel e2fsprogs ;;
+    pacman) _pkg_install curl libelf e2fsprogs ;;
+    *)      warn "Cannot auto-install Firecracker deps — ensure curl + e2fsprogs are present" ;;
+  esac
 
   mkdir -p /opt/firecracker/{vms,kernel,rootfs,snapshots}
 
@@ -193,22 +473,32 @@ _install_firecracker() {
   fi
 
   # Guest rootfs (Alpine-based ext4 image)
+  # Requires loop device support — may not be available in WSL2 without a custom kernel.
   if [[ ! -f /opt/firecracker/rootfs/rootfs.ext4 ]]; then
-    info "Building guest rootfs (Alpine 3.20 / ${fc_arch})…"
-    apt-get install -y -qq e2fsprogs >/dev/null
-    local alpine_url="https://dl-cdn.alpinelinux.org/alpine/v3.20/releases/${fc_arch}/alpine-minirootfs-3.20.0-${fc_arch}.tar.gz"
-    curl -fsSL "$alpine_url" -o /tmp/alpine-minirootfs.tar.gz
-    dd if=/dev/zero of=/opt/firecracker/rootfs/rootfs.ext4 bs=1M count=128 status=none
-    mkfs.ext4 -q /opt/firecracker/rootfs/rootfs.ext4
-    local mnt; mnt=$(mktemp -d)
-    mount -o loop /opt/firecracker/rootfs/rootfs.ext4 "$mnt"
-    tar -xzf /tmp/alpine-minirootfs.tar.gz -C "$mnt"
-    printf '#!/bin/sh\nmount -t proc proc /proc\nmount -t sysfs sysfs /sys\nmt -t devtmpfs devtmpfs /dev 2>/dev/null||true\nexec /bin/sh\n' \
-      > "$mnt/sbin/init"
-    chmod +x "$mnt/sbin/init"
-    umount "$mnt"; rmdir "$mnt"
-    rm -f /tmp/alpine-minirootfs.tar.gz
-    ok "Guest rootfs ready ($(ls -lh /opt/firecracker/rootfs/rootfs.ext4 | awk '{print $5}'))"
+    # WSL2 guard: check for usable loop devices before attempting mount
+    if _is_wsl && ! ls /dev/loop* &>/dev/null 2>&1; then
+      warn "WSL detected: no /dev/loop* devices found — skipping rootfs build."
+      warn "To enable loop devices in WSL2, add to /etc/wsl.conf:"
+      warn "  [boot]"
+      warn "  command = modprobe loop"
+      warn "Firecracker binary + kernel are installed; rootfs must be provided manually."
+    else
+      info "Building guest rootfs (Alpine 3.20 / ${fc_arch})…"
+      _pkg_install e2fsprogs 2>/dev/null || true
+      local alpine_url="https://dl-cdn.alpinelinux.org/alpine/v3.20/releases/${fc_arch}/alpine-minirootfs-3.20.0-${fc_arch}.tar.gz"
+      curl -fsSL "$alpine_url" -o /tmp/alpine-minirootfs.tar.gz
+      dd if=/dev/zero of=/opt/firecracker/rootfs/rootfs.ext4 bs=1M count=128 status=none
+      mkfs.ext4 -q /opt/firecracker/rootfs/rootfs.ext4
+      local mnt; mnt=$(mktemp -d)
+      mount -o loop /opt/firecracker/rootfs/rootfs.ext4 "$mnt"
+      tar -xzf /tmp/alpine-minirootfs.tar.gz -C "$mnt"
+      printf '#!/bin/sh\nmount -t proc proc /proc\nmount -t sysfs sysfs /sys\nmount -t devtmpfs devtmpfs /dev 2>/dev/null||true\nexec /bin/sh\n' \
+        > "$mnt/sbin/init"
+      chmod +x "$mnt/sbin/init"
+      umount "$mnt"; rmdir "$mnt"
+      rm -f /tmp/alpine-minirootfs.tar.gz
+      ok "Guest rootfs ready ($(ls -lh /opt/firecracker/rootfs/rootfs.ext4 | awk '{print $5}'))"
+    fi
   else
     ok "Guest rootfs already present"
   fi
@@ -225,29 +515,96 @@ _setup_firecracker_network() {
   local host_iface
   host_iface=$(ip route show default 2>/dev/null | awk '/default/{print $5; exit}')
 
+  # WSL2: restricted networking — bridge and iptables may not fully work.
+  # We attempt best-effort but never hard-fail.
+  if _is_wsl; then
+    warn "WSL detected: bridge networking / iptables rules may be restricted."
+    warn "Firecracker microVM networking may not work inside WSL2 without a custom kernel."
+  fi
+
   for tool in ip iptables sysctl; do
     command -v "$tool" &>/dev/null || { warn "$tool not found; skipping Firecracker network setup"; return 1; }
   done
 
   if ! ip link show "$bridge" &>/dev/null; then
-    ip link add name "$bridge" type bridge
-    ip addr add "$bridge_cidr" dev "$bridge"
-    ip link set "$bridge" up
+    ip link add name "$bridge" type bridge 2>/dev/null \
+      || { warn "Could not create bridge $bridge (WSL restriction?) — skipping"; return 0; }
+    ip addr add "$bridge_cidr" dev "$bridge" 2>/dev/null || true
+    ip link set "$bridge" up 2>/dev/null || true
   fi
 
   if [[ -n "$host_iface" ]]; then
     iptables -t nat -C POSTROUTING -o "$host_iface" -j MASQUERADE 2>/dev/null \
-      || iptables -t nat -A POSTROUTING -o "$host_iface" -j MASQUERADE
+      || iptables -t nat -A POSTROUTING -o "$host_iface" -j MASQUERADE 2>/dev/null || true
     iptables -C FORWARD -i "$bridge" -o "$host_iface" -j ACCEPT 2>/dev/null \
-      || iptables -A FORWARD -i "$bridge" -o "$host_iface" -j ACCEPT
+      || iptables -A FORWARD -i "$bridge" -o "$host_iface" -j ACCEPT 2>/dev/null || true
     iptables -C FORWARD -i "$host_iface" -o "$bridge" \
         -m state --state RELATED,ESTABLISHED -j ACCEPT 2>/dev/null \
       || iptables -A FORWARD -i "$host_iface" -o "$bridge" \
-           -m state --state RELATED,ESTABLISHED -j ACCEPT
+           -m state --state RELATED,ESTABLISHED -j ACCEPT 2>/dev/null || true
   fi
 
-  [[ "$(cat /proc/sys/net/ipv4/ip_forward 2>/dev/null)" == "1" ]] \
-    || sysctl -qw net.ipv4.ip_forward=1
+  # ip_forward: read-only in WSL2 — attempt but don't fail
+  if [[ "$(cat /proc/sys/net/ipv4/ip_forward 2>/dev/null)" != "1" ]]; then
+    sysctl -qw net.ipv4.ip_forward=1 2>/dev/null \
+      || warn "Could not enable ip_forward (read-only in WSL?) — microVM routing may not work"
+  fi
+}
+
+# ─── Docker daemon DNS auto-fix (Docker CE only) ─────────────────────────────
+# When Docker CE's daemon has DNS issues (resolv.conf / daemon.json not set up),
+# this writes the daemon DNS config and reloads dockerd.
+# For Docker Desktop, fix your host's DNS instead (see README).
+
+_fix_docker_ce_dns() {
+  local daemon_json="/etc/docker/daemon.json"
+  mkdir -p /etc/docker
+  python3 - "$daemon_json" <<'PYEOF'
+import json, sys, os, tempfile
+path = sys.argv[1]
+try:
+    cfg = json.loads(open(path).read().strip() or '{}')
+except (FileNotFoundError, json.JSONDecodeError):
+    cfg = {}
+cfg['dns'] = ['8.8.8.8', '1.1.1.1']
+d = os.path.dirname(path) or '.'
+fd, tmp = tempfile.mkstemp(dir=d, prefix='.daemon.')
+with os.fdopen(fd, 'w') as f:
+    json.dump(cfg, f, indent=2); f.write('\n')
+os.replace(tmp, path)
+print(f'Updated {path}')
+PYEOF
+  if systemctl is-active --quiet docker 2>/dev/null; then
+    systemctl reload docker 2>/dev/null || systemctl restart docker 2>/dev/null || true
+  elif [[ -f /var/run/docker.pid ]]; then
+    kill -HUP "$(cat /var/run/docker.pid)" 2>/dev/null || true
+  fi
+  sleep 2
+}
+
+# Verify Docker daemon can reach Docker Hub; offer DNS fix hint if not.
+_ensure_docker_dns() {
+  $USE_DOCKER || return 0
+
+  local probe_out
+  probe_out=$(docker pull hello-world:latest 2>&1) && {
+    docker rmi hello-world:latest >/dev/null 2>&1 || true
+    return 0
+  }
+
+  # Only act on clear DNS errors; skip auth / rate-limit errors
+  if echo "$probe_out" | grep -qiE 'no such host|lookup .+ on .+:[0-9]+|dial tcp.*i/o timeout'; then
+    warn "Docker daemon DNS issue detected."
+    warn "Fix: ensure /etc/resolv.conf has a working nameserver (e.g. 8.8.8.8) and retry."
+    # Auto-fix for Docker CE (not Docker Desktop — fix host DNS instead)
+    if ! _is_wsl || command -v dockerd &>/dev/null; then
+      warn "Attempting Docker CE daemon DNS fix…"
+      _as_root _fix_docker_ce_dns
+    fi
+  else
+    # Non-DNS error (e.g. TLS, auth) — show once and continue
+    info "Docker registry test: $(echo "$probe_out" | tail -1)"
+  fi
 }
 
 # ─── Dependency checks ───────────────────────────────────────────────────────
@@ -261,15 +618,77 @@ check_dep() {
 info "Checking dependencies…"
 
 if $USE_DOCKER; then
+  # ── Snap docker → Docker CE migration ────────────────────────────────────────
+  # Docker CE (apt) is required for full gVisor support.
+  # If snap docker is the only docker present, replace it with Docker CE.
+  _docker_bin=$(command -v docker 2>/dev/null || true)
+  # _docker_ce_installed: distro-agnostic check for Docker CE (apt/rpm)
+  _docker_ce_installed() {
+    command -v dpkg &>/dev/null && dpkg -l docker-ce &>/dev/null 2>&1 && return 0
+    command -v rpm  &>/dev/null && rpm -q docker-ce  &>/dev/null 2>&1 && return 0
+    return 1
+  }
+  if snap list docker &>/dev/null 2>&1 && ! _docker_ce_installed; then
+    warn "Snap docker detected — migrating to Docker CE (apt) for gVisor compatibility…"
+    _as_root _migrate_snap_to_docker_ce
+    export PATH="/usr/bin:/usr/local/bin:$PATH"
+    unset _docker_bin
+  fi
+  unset _docker_bin
+
+  # ── Auto-install Docker CE if no NATIVE docker exists ────────────────────
+  # _native_docker_exists rejects Windows .exe wrappers accessible via WSL PATH
+  if ! _native_docker_exists; then
+    warn "Native docker not found — auto-installing Docker CE…"
+    _as_root _install_docker
+    export PATH="/usr/bin:/usr/local/bin:$PATH"
+  fi
   check_dep "docker" "docker" "https://docs.docker.com/engine/install/"
-  docker info >/dev/null 2>&1 \
-    || die "Docker daemon is not reachable (try: sudo systemctl start docker)"
+
+  # ── Fix socket permissions (Docker CE fresh install: user not yet in group) ──
+  if ! docker info >/dev/null 2>&1 && sudo docker info >/dev/null 2>&1; then
+    warn "Docker socket not accessible to $(whoami) — fixing group membership…"
+    getent group docker &>/dev/null || sudo groupadd docker 2>/dev/null || true
+    sudo chown root:docker /var/run/docker.sock 2>/dev/null || true
+    sudo chmod 660 /var/run/docker.sock 2>/dev/null || true
+    sudo usermod -aG docker "$(whoami)" 2>/dev/null || true
+    # Re-exec this script under the docker group (avoids needing a new login session)
+    exec sg docker -c "bash $(printf '%q' "$0") $(printf '%q ' "$@")" \
+      || die "Could not re-exec with docker group. Log out and back in, then re-run."
+  fi
+
+  # Ensure the daemon is reachable; start dockerd if needed (handles WSL2 no-systemd)
+  if ! docker info >/dev/null 2>&1; then
+    warn "Docker daemon not reachable — attempting to start it…"
+    if command -v systemctl &>/dev/null && systemctl is-system-running 2>/dev/null | grep -qE 'running|degraded'; then
+      sudo systemctl start docker 2>/dev/null || true
+    else
+      sudo nohup dockerd --host=unix:///var/run/docker.sock \
+           > /tmp/dockerd.log 2>&1 &
+    fi
+    _di=0; while [[ $_di -lt 30 ]]; do docker info >/dev/null 2>&1 && break; sleep 1; _di=$((_di+1)); done
+    docker info >/dev/null 2>&1 \
+      || die "Docker daemon is not reachable. Check /tmp/dockerd.log for details."
+  fi
+
+  # ── Auto-fix Docker daemon DNS if Docker Hub is unreachable ──────────────
+  # Detects 10.255.255.254 relay failures (common on corporate/VPN networks)
+  # and reconfigures the daemon to use 8.8.8.8 / 1.1.1.1 with an auto-restart.
+  _ensure_docker_dns
 else
   check_dep "Rust/cargo" "cargo" "curl https://sh.rustup.rs -sSf | sh"
 fi
 
 if $START_QUESTDB; then
-  check_dep "java" "java" "apt-get install -y default-jre"
+  _java_hint() {
+    case "$(_pkg_mgr)" in
+      apt)    echo "apt-get install -y default-jre" ;;
+      dnf|yum) echo "dnf install -y java-11-openjdk" ;;
+      pacman) echo "pacman -S jre-openjdk" ;;
+      *)      echo "install Java 11+ for your distro" ;;
+    esac
+  }
+  check_dep "java" "java" "$(_java_hint)"
   if [[ ! -f "$QUESTDB_JAR" ]]; then
     if command -v curl &>/dev/null; then
       warn "QuestDB jar not found at $QUESTDB_JAR — downloading…"
@@ -366,12 +785,32 @@ stop_existing() {
 stop_existing
 
 # ─── Build / fetch the artifact we need ──────────────────────────────────────
+# Ensure ~/.cargo/bin is in PATH so build-dist.sh can find cargo if needed
+[[ -d "$HOME/.cargo/bin" ]] && export PATH="$HOME/.cargo/bin:$PATH"
+
 if $USE_DOCKER; then
   if $REBUILD_IMAGE || ! docker image inspect "$DOCKER_IMAGE" >/dev/null 2>&1; then
-    $REBUILD_IMAGE \
-      && info "--rebuild: force-rebuilding $DOCKER_IMAGE (build-dist.sh + docker build)…" \
-      || info "Docker image $DOCKER_IMAGE not present — building (runs build-dist.sh + docker build)…"
-    bash "$REPO_DIR/build-dist.sh"
+    # dist/ pre-built check: if all required artifacts already exist and we're not
+    # doing a forced rebuild, skip the expensive build-dist.sh step (~45 min).
+    _dist_ready() {
+      [[ -f "$REPO_DIR/dist/bin/caspar-node"       ]] || return 1
+      [[ -f "$REPO_DIR/dist/bin/caspar-keygen"      ]] || return 1
+      [[ -f "$REPO_DIR/dist/bin/casparctl"           ]] || return 1
+      [[ -f "$REPO_DIR/dist/questdb/questdb.jar"    ]] || return 1
+      # At least one wasmedge .so file must be present
+      ls "$REPO_DIR/dist/lib/wasmedge/libwasmedge.so"* >/dev/null 2>&1 || return 1
+      return 0
+    }
+
+    if $REBUILD_IMAGE; then
+      info "--rebuild: force-rebuilding $DOCKER_IMAGE (build-dist.sh + docker build)…"
+      bash "$REPO_DIR/build-dist.sh"
+    elif _dist_ready; then
+      info "dist/ already populated — skipping build-dist.sh, running docker build…"
+    else
+      info "Docker image $DOCKER_IMAGE not present — building (runs build-dist.sh + docker build)…"
+      bash "$REPO_DIR/build-dist.sh"
+    fi
     docker build -f "$REPO_DIR/node/Dockerfile" -t "$DOCKER_IMAGE" "$REPO_DIR"
   fi
   ok "Docker image ready: $DOCKER_IMAGE"
