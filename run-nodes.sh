@@ -26,6 +26,10 @@
 #                    (alias: --rebuild-image)
 #   --foreground     (docker mode) keep tailing container logs until Ctrl-C
 #                    instead of returning immediately
+#   --skip-deploy    Skip WASM creature build & deployment. By default
+#                    run-nodes.sh clones decillionai-server (if absent), builds
+#                    all WASM creatures with TinyGo, and deploys them so the
+#                    cluster is fully ready before the script exits.
 #   --help           show this help
 #
 # Companion script:
@@ -119,6 +123,7 @@ SETUP_GVISOR=true
 SETUP_FIRECRACKER=true
 REBUILD_IMAGE=false
 FOREGROUND=false
+DEPLOY_CREATURES=true
 
 for arg in "$@"; do
   case "$arg" in
@@ -131,8 +136,9 @@ for arg in "$@"; do
     --no-firecracker)  SETUP_FIRECRACKER=false ;;
     --rebuild|--rebuild-image) REBUILD_IMAGE=true ;;
     --foreground)      FOREGROUND=true ;;
+    --skip-deploy)     DEPLOY_CREATURES=false ;;
     --help|-h)
-      sed -n '2,28p' "$0" | sed 's/^# \{0,1\}//'
+      sed -n '2,34p' "$0" | sed 's/^# \{0,1\}//'
       exit 0
       ;;
     *) die "Unknown argument: $arg" ;;
@@ -607,6 +613,183 @@ _ensure_docker_dns() {
   fi
 }
 
+# ─── TinyGo + Go 1.23 installation (runs as root) ────────────────────────────
+# TinyGo is the WASM compiler for Caspar creature modules.
+# TinyGo ≤ 0.34 requires Go ≤ 1.23, so we install Go 1.23 to /usr/local/go123
+# and symlink tinygo to /usr/local/bin so it is in every user's PATH.
+TINYGO_VERSION="0.34.0"
+
+_install_tinygo() {
+  set -e
+  command -v tinygo &>/dev/null && {
+    ok "TinyGo already installed: $(tinygo version 2>&1 | head -1)"
+    return 0
+  }
+
+  info "Installing TinyGo ${TINYGO_VERSION}…"
+  local hw_arch; hw_arch=$(uname -m)
+  local tg_arch
+  case "$hw_arch" in
+    x86_64)        tg_arch="amd64" ;;
+    aarch64|arm64) tg_arch="arm64" ;;
+    *) warn "TinyGo: unsupported arch ${hw_arch} — skipping"; return 0 ;;
+  esac
+
+  _pkg_update; _pkg_install curl tar ca-certificates
+
+  # ── Go 1.23 (required by TinyGo ≤ 0.34) ─────────────────────────────────
+  if [[ ! -x "/usr/local/go123/bin/go" ]]; then
+    info "Installing Go 1.23 (required by TinyGo ≤ 0.34)…"
+    local go_tgz="go1.23.9.linux-${tg_arch}.tar.gz"
+    curl -fsSL "https://go.dev/dl/${go_tgz}" -o "/tmp/${go_tgz}"
+    tar -xzf "/tmp/${go_tgz}" -C /tmp
+    mv /tmp/go /usr/local/go123
+    rm -f "/tmp/${go_tgz}"
+    ok "Go 1.23 installed at /usr/local/go123"
+  else
+    ok "Go 1.23 already present: $(/usr/local/go123/bin/go version)"
+  fi
+
+  # ── TinyGo binary ─────────────────────────────────────────────────────────
+  local tg_tgz="tinygo${TINYGO_VERSION}.linux-${tg_arch}.tar.gz"
+  curl -fsSL \
+    "https://github.com/tinygo-org/tinygo/releases/download/v${TINYGO_VERSION}/${tg_tgz}" \
+    -o "/tmp/${tg_tgz}"
+  tar -xzf "/tmp/${tg_tgz}" -C /usr/local
+  rm -f "/tmp/${tg_tgz}"
+  ln -sf /usr/local/tinygo/bin/tinygo /usr/local/bin/tinygo
+
+  ok "TinyGo installed: $(GOROOT=/usr/local/go123 /usr/local/bin/tinygo version 2>&1 | head -1)"
+}
+
+# ─── Python creature-deploy dependencies (runs as root) ──────────────────────
+_install_python_deps() {
+  python3 -c "from Crypto.PublicKey import RSA" 2>/dev/null && return 0
+  info "Installing pycryptodome…"
+  pip3 install pycryptodome --quiet \
+    || warn "pycryptodome install failed — creature deployment may not work"
+}
+
+# ─── Clone / verify decillionai-server repo ───────────────────────────────────
+# Sets global DECILLIONAI_SERVER_DIR.  Returns 1 on failure.
+DECILLIONAI_SERVER_DIR=""
+_ensure_decillionai_server() {
+  local server_dir; server_dir="$(dirname "$REPO_DIR")/decillionai-server"
+  if [[ ! -d "$server_dir/.git" ]]; then
+    info "Cloning decillionai-server…"
+    git clone --depth=1 \
+      https://github.com/DecillionAI/decillionai-server.git \
+      "$server_dir" 2>&1 \
+      || { warn "git clone failed — skipping creature deployment"; return 1; }
+    ok "Cloned decillionai-server → $server_dir"
+  else
+    ok "decillionai-server present: $server_dir"
+  fi
+  DECILLIONAI_SERVER_DIR="$server_dir"
+}
+
+# ─── Build WASM creatures via decillionai-server/build-all.sh ────────────────
+_build_creatures() {
+  local server_dir="$1"
+  local wasm_dir="$server_dir/wasm"
+  local wasm_count; wasm_count=$(find "$wasm_dir" -name "*.wasm" 2>/dev/null | wc -l)
+  if [[ $wasm_count -ge 6 ]]; then
+    ok "WASM creatures already built (${wasm_count} .wasm files)"
+    return 0
+  fi
+  [[ -f "$server_dir/build-all.sh" ]] \
+    || { warn "build-all.sh not found in $server_dir — skipping build"; return 1; }
+  info "Building WASM creatures via build-all.sh (~2-3 min)…"
+  export PATH="/usr/local/go123/bin:/usr/local/tinygo/bin:${PATH}"
+  export GOROOT="/usr/local/go123"
+  bash "$server_dir/build-all.sh" \
+    || { warn "build-all.sh failed — creature deployment may be incomplete"; return 1; }
+  ok "WASM creatures built: $(find "$wasm_dir" -name '*.wasm' 2>/dev/null | wc -l) files"
+}
+
+# ─── Application-level readiness probe ───────────────────────────────────────
+# TCP-open is necessary but not sufficient; wait until the node actually
+# responds to a /auths/getServerPublicKey request before deploying.
+_probe_node_app_ready() {
+  # $1 = TCP port.  Returns 0 when the node responds, 1 on timeout/error.
+  local port="$1"
+  python3 -c "
+import sys, socket, struct, uuid
+port = int('$port')
+def lp(x): b=x.encode(); return struct.pack('>I',len(b))+b
+pkt = str(uuid.uuid4())
+body = lp('') + lp('') + lp('/auths/getServerPublicKey') + lp(pkt) + b'{}'
+frame = struct.pack('>I',len(body)) + body
+s = socket.socket(); s.settimeout(5)
+try:
+    s.connect(('127.0.0.1', port))
+    s.sendall(frame)
+    hdr = b''
+    while len(hdr) < 4:
+        c = s.recv(4 - len(hdr))
+        if not c: sys.exit(1)
+        hdr += c
+    length = struct.unpack('>I', hdr)[0]
+    data = b''
+    while len(data) < length:
+        c = s.recv(length - len(data))
+        if not c: sys.exit(1)
+        data += c
+    sys.exit(0 if length > 0 else 1)
+except Exception:
+    sys.exit(1)
+finally:
+    try: s.close()
+    except: pass
+" 2>/dev/null
+}
+
+_wait_nodes_app_ready() {
+  local max_wait=90
+  info "Waiting for node(s) to be application-ready (up to ${max_wait}s)…"
+  for n in "${NODES[@]}"; do
+    local port=${NODE_TCP[$n]}
+    local elapsed=0
+    while ! _probe_node_app_ready "$port"; do
+      sleep 2; elapsed=$((elapsed + 2))
+      if [[ $elapsed -ge $max_wait ]]; then
+        warn "node$n did not become application-ready after ${max_wait}s — deploy may fail"
+        break
+      fi
+    done
+    _probe_node_app_ready "$port" && ok "node$n application-ready" \
+      || warn "node$n not responding to probes — continuing anyway"
+  done
+}
+
+# ─── Deploy WASM creatures to the running Caspar nodes ───────────────────────
+_deploy_creatures() {
+  local server_dir="$1"
+  local deploy_script="$server_dir/bench/deploy.py"
+  [[ -f "$deploy_script" ]] \
+    || { warn "deploy.py not found at $deploy_script"; return 1; }
+  python3 -c "from Crypto.PublicKey import RSA" 2>/dev/null \
+    || { warn "pycryptodome not available — skipping deployment"; return 1; }
+  info "Deploying WASM creatures to node(s)…"
+  mkdir -p "$DATA_ROOT"
+  python3 "$deploy_script" 2>&1 | tee "$DATA_ROOT/deploy.log"
+  local report="${HOME:-/root}/deployment_report.json"
+  if [[ -f "$report" ]]; then
+    local ok_count
+    ok_count=$(python3 -c "
+import json
+try:
+    reps = json.load(open('$report'))
+    print(sum(r.get('ok_count', 0) for r in reps if isinstance(r, dict)))
+except Exception:
+    print(0)
+" 2>/dev/null || echo 0)
+    ok "Creature deployment complete — ${ok_count} WASM modules deployed"
+  else
+    warn "deploy.py finished but deployment_report.json not found"
+  fi
+}
+
 # ─── Dependency checks ───────────────────────────────────────────────────────
 check_dep() {
   local name="$1" cmd="$2" hint="$3"
@@ -748,8 +931,12 @@ ok "All dependency checks passed"
 
 # ─── Fresh start ─────────────────────────────────────────────────────────────
 if $FRESH; then
-  warn "--fresh: wiping $DATA_ROOT"
+  warn "--fresh: wiping $DATA_ROOT and stale deployment/bench reports"
   rm -rf "$DATA_ROOT"
+  # Remove stale reports so bench-all.sh doesn't think deployment is done
+  rm -f "${HOME:-/root}/deployment_report.json" \
+        "${HOME:-/root}/workflow_results.json"  \
+        "${HOME:-/root}/workflow_report.md"
 fi
 
 mkdir -p "$DATA_ROOT"
@@ -872,12 +1059,110 @@ fi
 #  node2: TCP=8174  WS=8176  FED=8177  CHAIN=8178  ENTITY=8179  VM=8180  TEL=9199
 #  node3: TCP=8274  WS=8276  FED=8277  CHAIN=8278  ENTITY=8279  VM=8280  TEL=9299
 
-ensure_node_config() {
+# _generate_node_config: create .env + babble key for a node from scratch.
+# Safe to call on an existing node — exits immediately if .env already exists.
+_generate_node_config() {
   local n="$1"
   local node_dir="$DATA_ROOT/node${n}"
   local env_file="$node_dir/.env"
+
+  [[ -f "$env_file" ]] && return 0   # already configured
+
+  info "Generating fresh config for node${n}…"
   mkdir -p "$node_dir"/{storage,db,applet,search,store_logs,telemetry,babble}
-  [[ ! -f "$env_file" ]] && warn "No $env_file found — node$n may not have keys configured"
+
+  # ── Babble secp256k1 consensus key ──────────────────────────────────────────
+  # caspar-keygen writes to $HOME/.babble/{priv_key,key.pub}.
+  # We override HOME so each node gets its own key.
+  local keygen_bin="$REPO_DIR/dist/bin/caspar-keygen"
+  if [[ -x "$keygen_bin" ]]; then
+    local tmp_home; tmp_home=$(mktemp -d)
+    HOME="$tmp_home" "$keygen_bin" >/dev/null 2>&1 || true
+    if [[ -f "$tmp_home/.babble/priv_key" ]]; then
+      cp "$tmp_home/.babble/priv_key" "$node_dir/babble/priv_key"
+    else
+      # keygen failed (race on $HOME/.babble?) — fall back to random key
+      python3 -c "import secrets; print(secrets.token_hex(32), end='')" \
+        > "$node_dir/babble/priv_key" 2>/dev/null \
+        || dd if=/dev/urandom bs=32 count=1 2>/dev/null | xxd -p | tr -d '\n' \
+           > "$node_dir/babble/priv_key"
+    fi
+    rm -rf "$tmp_home"
+  else
+    warn "caspar-keygen not found at $keygen_bin — generating random babble key"
+    python3 -c "import secrets; print(secrets.token_hex(32), end='')" \
+      > "$node_dir/babble/priv_key"
+  fi
+
+  # ── RSA identity key (OWNER_PRIVATE_KEY, PKCS#8 PEM) ───────────────────────
+  # Prefer openssl (always present) over pycryptodome.
+  local priv_pem=""
+  if command -v openssl &>/dev/null; then
+    priv_pem=$(openssl genrsa 2048 2>/dev/null \
+               | openssl pkcs8 -topk8 -nocrypt 2>/dev/null)
+  fi
+  if [[ -z "$priv_pem" ]]; then
+    priv_pem=$(python3 -c "
+from Crypto.PublicKey import RSA
+print(RSA.generate(2048).export_key().decode(), end='')
+" 2>/dev/null) || true
+  fi
+  [[ -z "$priv_pem" ]] && die "Cannot generate RSA key for node${n}: install openssl or pycryptodome"
+
+  # ── Port layout (matches the NODE LAYOUT above) ──────────────────────────────
+  local tcp_port=${NODE_TCP[$n]}            # 8074 / 8174 / 8274
+  local ws_port=$((tcp_port + 2))           # 8076 / 8176 / 8276
+  local fed_port=$((tcp_port + 3))          # 8077 / 8177 / 8277
+  local chain_port=$((tcp_port + 4))        # 8078 / 8178 / 8278
+  local entity_port=$((tcp_port + 5))       # 8079 / 8179 / 8279
+  local vm_port=$((tcp_port + 6))           # 8080 / 8180 / 8280
+  local tel_port=$((9099 + (n - 1) * 100))  # 9099 / 9199 / 9299
+
+  local is_head root_node
+  [[ $n -eq 1 ]] && is_head="true" || is_head="false"
+  root_node="localhost:${NODE_TCP[1]}"
+
+  # Docker mounts $node_dir as /app/data inside the container, so all paths
+  # inside .env use the container prefix.  Local mode overrides them via
+  # the env vars set in local_start_node.
+  cat > "$env_file" <<EOF
+OWNER_ID=owner-node${n}
+OWNER_PRIVATE_KEY="${priv_pem}"
+STORAGE_ROOT_PATH=/app/data/storage
+BASE_DB_PATH=/app/data/db
+APPLET_DB_PATH=/app/data/applet
+SEARCH_INDEX_PATH=/app/data/search
+STORE_LOGS_DB=/app/data/store_logs
+CLIENT_WS_API_PORT=${ws_port}
+CLIENT_TCP_API_PORT=${tcp_port}
+FEDERATION_API_PORT=${fed_port}
+BLOCKCHAIN_API_PORT=${chain_port}
+ENTITY_API_PORT=${entity_port}
+VM_API_PORT=${vm_port}
+ORIGIN=http://localhost:${tcp_port}
+IPADDR=127.0.0.1
+ROOT_NODE=${root_node}
+IS_HEAD=${is_head}
+AdminPassword=admin123
+VM_EXEC_COST_PER_SECOND=0
+VM_RAM_COST_PER_MB_PER_MINUTE=0
+VM_CPU_CORE_COST_PER_MINUTE=0
+VM_DISK_COST_PER_GB_PER_MINUTE=0
+TELEMETRY_API_PORT=${tel_port}
+TELEMETRY_DB_PATH=/app/data/telemetry
+BABBLE_DIR=/app/data/babble
+BABBLE_DATA_DIR=/app/data/babble
+EOF
+
+  ok "node${n} config generated (TCP=${tcp_port}, IS_HEAD=${is_head})"
+}
+
+ensure_node_config() {
+  local n="$1"
+  local node_dir="$DATA_ROOT/node${n}"
+  mkdir -p "$node_dir"/{storage,db,applet,search,store_logs,telemetry,babble}
+  # Generate .env + babble key if not already present (fresh environment).
+  _generate_node_config "$n"
 }
 
 # ─── Local-mode launch ───────────────────────────────────────────────────────
@@ -957,6 +1242,30 @@ for n in "${NODES[@]}"; do
     all_up=false
   fi
 done
+
+# ─── Clone, build, and deploy WASM creatures ─────────────────────────────────
+# run-nodes.sh owns the full setup so the cluster is ready for benchmarking
+# the moment the script exits. bench-all.sh auto-detects this and skips the
+# deploy step when deployment_report.json already contains successful entries.
+if $DEPLOY_CREATURES; then
+  if $all_up; then
+    if _ensure_decillionai_server; then
+      _as_root _install_tinygo
+      _as_root _install_python_deps
+      # Make Go 1.23 / TinyGo visible in the current shell after root install
+      export PATH="/usr/local/go123/bin:/usr/local/tinygo/bin:${PATH}"
+      export GOROOT="/usr/local/go123"
+      if _build_creatures "$DECILLIONAI_SERVER_DIR"; then
+        _wait_nodes_app_ready
+        _deploy_creatures "$DECILLIONAI_SERVER_DIR"
+      fi
+    fi
+  else
+    warn "Skipping creature deployment — not all nodes came up cleanly"
+  fi
+else
+  info "Skipping creature build/deploy (--skip-deploy)"
+fi
 
 # ─── Summary ─────────────────────────────────────────────────────────────────
 echo ""
