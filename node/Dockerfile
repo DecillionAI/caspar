@@ -60,14 +60,33 @@ RUN apt-get update -y && apt-get install -y --no-install-recommends \
 COPY dist/questdb/questdb.jar /opt/questdb/questdb.jar
 
 # ─── Firecracker microVM manager ────────────────────────────────────────────
-# install-fcvmm.sh fetches the binary, kernel, and rootfs.
-# setup-fcvmm-network.sh is NOT run at build time — it configures the host
-# network bridge at container-start time and requires the real network stack.
-COPY node/scripts/install-fcvmm.sh node/scripts/setup-fcvmm-network.sh /tmp/fcvmm/
-RUN bash /tmp/fcvmm/install-fcvmm.sh \
-    && cp /tmp/fcvmm/setup-fcvmm-network.sh /usr/local/bin/setup-fcvmm-network.sh \
-    && chmod +x /usr/local/bin/setup-fcvmm-network.sh \
-    && rm -rf /tmp/fcvmm
+# Downloads the binary and guest kernel at build time.
+# Network bridge setup (br0 / NAT) is a host-level operation done at runtime
+# by run-nodes.sh — it is NOT performed here.
+ARG FC_VERSION=v1.10.1
+RUN apt-get update -y && apt-get install -y --no-install-recommends \
+        libelf-dev e2fsprogs \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+RUN set -e; \
+    FC_ARCH=$(uname -m); \
+    TGZ="firecracker-${FC_VERSION}-${FC_ARCH}.tgz"; \
+    curl -fsSL \
+      "https://github.com/firecracker-microvm/firecracker/releases/download/${FC_VERSION}/${TGZ}" \
+      -o "/tmp/${TGZ}"; \
+    tar -xzf "/tmp/${TGZ}" -C /tmp; \
+    mv "/tmp/release-${FC_VERSION}-${FC_ARCH}/firecracker-${FC_VERSION}-${FC_ARCH}" \
+       /usr/local/bin/firecracker; \
+    chmod +x /usr/local/bin/firecracker; \
+    rm -rf "/tmp/${TGZ}" "/tmp/release-${FC_VERSION}-${FC_ARCH}"
+
+RUN set -e; \
+    FC_ARCH=$(uname -m); \
+    mkdir -p /opt/firecracker/{vms,kernel,rootfs,snapshots}; \
+    curl -fsSL \
+      "https://s3.amazonaws.com/spec.ccfc.min/img/quickstart_guide/${FC_ARCH}/kernels/vmlinux.bin" \
+      -o /opt/firecracker/kernel/vmlinux; \
+    chmod +x /opt/firecracker/kernel/vmlinux
 
 # ─── Entrypoint ─────────────────────────────────────────────────────────────
 COPY node/scripts/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh

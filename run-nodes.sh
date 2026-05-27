@@ -80,6 +80,174 @@ NODES=(1)
 
 declare -A NODE_TCP=([1]=8074 [2]=8174 [3]=8274)
 
+# ─── Helper: run a function body as root ─────────────────────────────────────
+# Usage: _as_root <function_name>
+# Calls the named function directly if already root, otherwise exports its
+# definition and re-invokes it through sudo bash.  Colour helper functions
+# (info/ok/warn) are exported alongside so output remains consistent.
+_as_root() {
+  local fn="$1"
+  local helpers
+  helpers="$(declare -f info ok warn die)"
+  if [[ "$EUID" -eq 0 ]]; then
+    "$fn"
+  elif command -v sudo &>/dev/null; then
+    sudo bash -c "${helpers}; $(declare -f "$fn"); $fn"
+  else
+    warn "Cannot run $fn: need root and sudo is not available."
+    return 1
+  fi
+}
+
+# ─── gVisor setup ─────────────────────────────────────────────────────────────
+_setup_gvisor() {
+  set -e
+  info "Installing gVisor (runsc)…"
+  apt-get update -qq
+  apt-get install -y -qq apt-transport-https ca-certificates curl gnupg
+
+  local keyring="/usr/share/keyrings/gvisor-archive-keyring.gpg"
+  [[ -f "$keyring" ]] \
+    || curl -fsSL https://gvisor.dev/archive.key | gpg --dearmor --yes -o "$keyring"
+
+  local arch; arch=$(dpkg --print-architecture)
+  echo "deb [arch=${arch} signed-by=${keyring}] https://storage.googleapis.com/gvisor/releases release main" \
+    > /etc/apt/sources.list.d/gvisor.list
+
+  apt-get update -qq
+  apt-get install -y -qq runsc
+
+  # Merge runsc into /etc/docker/daemon.json
+  # --network=host: sandbox shares host netstack (no NAT, full reachability)
+  # --platform=ptrace: works without /dev/kvm
+  python3 -c "
+import json, os, tempfile
+path = '/etc/docker/daemon.json'
+try:
+    cfg = json.loads(open(path).read().strip() or '{}')
+except FileNotFoundError:
+    cfg = {}
+cfg.setdefault('runtimes', {})['runsc'] = {
+    'path': 'runsc',
+    'runtimeArgs': ['--network=host', '--platform=ptrace'],
+}
+fd, tmp = tempfile.mkstemp(dir='/etc/docker', prefix='.daemon.')
+with os.fdopen(fd, 'w') as f:
+    json.dump(cfg, f, indent=2); f.write('\n')
+os.replace(tmp, path)
+print('  wrote /etc/docker/daemon.json')
+"
+
+  # Restart Docker and wait for daemon to come back
+  if systemctl is-active --quiet docker 2>/dev/null; then
+    systemctl restart docker
+    local i
+    for i in $(seq 1 20); do docker info >/dev/null 2>&1 && break; sleep 0.5; done
+  fi
+  ok "gVisor (runsc) installed and registered with Docker"
+}
+
+# ─── Firecracker setup ────────────────────────────────────────────────────────
+FC_VERSION="v1.10.1"
+FC_ARCH=$(uname -m)   # x86_64 or aarch64
+
+_install_firecracker() {
+  set -e
+  local fc_version="${FC_VERSION:-v1.10.1}"
+  local fc_arch="${FC_ARCH:-$(uname -m)}"
+
+  info "Installing Firecracker ${fc_version} (${fc_arch})…"
+  apt-get update -qq
+  apt-get install -y -qq curl libelf-dev e2fsprogs
+
+  mkdir -p /opt/firecracker/{vms,kernel,rootfs,snapshots}
+
+  # Binary
+  if ! command -v firecracker &>/dev/null; then
+    local tgz="firecracker-${fc_version}-${fc_arch}.tgz"
+    curl -fsSL \
+      "https://github.com/firecracker-microvm/firecracker/releases/download/${fc_version}/${tgz}" \
+      -o "/tmp/${tgz}"
+    tar -xzf "/tmp/${tgz}" -C /tmp
+    mv "/tmp/release-${fc_version}-${fc_arch}/firecracker-${fc_version}-${fc_arch}" \
+       /usr/local/bin/firecracker
+    chmod +x /usr/local/bin/firecracker
+    rm -rf "/tmp/${tgz}" "/tmp/release-${fc_version}-${fc_arch}"
+    ok "Installed: $(firecracker --version 2>&1 | head -1)"
+  else
+    ok "Firecracker binary already present: $(firecracker --version 2>&1 | head -1)"
+  fi
+
+  # Guest kernel
+  if [[ ! -f /opt/firecracker/kernel/vmlinux ]]; then
+    info "Downloading guest kernel for ${fc_arch}…"
+    curl -fsSL \
+      "https://s3.amazonaws.com/spec.ccfc.min/img/quickstart_guide/${fc_arch}/kernels/vmlinux.bin" \
+      -o /opt/firecracker/kernel/vmlinux
+    chmod +x /opt/firecracker/kernel/vmlinux
+    ok "Guest kernel ready ($(ls -lh /opt/firecracker/kernel/vmlinux | awk '{print $5}'))"
+  else
+    ok "Guest kernel already present"
+  fi
+
+  # Guest rootfs (Alpine-based ext4 image)
+  if [[ ! -f /opt/firecracker/rootfs/rootfs.ext4 ]]; then
+    info "Building guest rootfs (Alpine 3.20 / ${fc_arch})…"
+    apt-get install -y -qq e2fsprogs >/dev/null
+    local alpine_url="https://dl-cdn.alpinelinux.org/alpine/v3.20/releases/${fc_arch}/alpine-minirootfs-3.20.0-${fc_arch}.tar.gz"
+    curl -fsSL "$alpine_url" -o /tmp/alpine-minirootfs.tar.gz
+    dd if=/dev/zero of=/opt/firecracker/rootfs/rootfs.ext4 bs=1M count=128 status=none
+    mkfs.ext4 -q /opt/firecracker/rootfs/rootfs.ext4
+    local mnt; mnt=$(mktemp -d)
+    mount -o loop /opt/firecracker/rootfs/rootfs.ext4 "$mnt"
+    tar -xzf /tmp/alpine-minirootfs.tar.gz -C "$mnt"
+    printf '#!/bin/sh\nmount -t proc proc /proc\nmount -t sysfs sysfs /sys\nmt -t devtmpfs devtmpfs /dev 2>/dev/null||true\nexec /bin/sh\n' \
+      > "$mnt/sbin/init"
+    chmod +x "$mnt/sbin/init"
+    umount "$mnt"; rmdir "$mnt"
+    rm -f /tmp/alpine-minirootfs.tar.gz
+    ok "Guest rootfs ready ($(ls -lh /opt/firecracker/rootfs/rootfs.ext4 | awk '{print $5}'))"
+  else
+    ok "Guest rootfs already present"
+  fi
+
+  [[ -e /dev/kvm ]] \
+    && ok "/dev/kvm available — hardware-accelerated microVMs enabled" \
+    || warn "/dev/kvm not available — Firecracker will use ptrace platform (slower cold-start)"
+}
+
+_setup_firecracker_network() {
+  set -e
+  local bridge="br0"
+  local bridge_cidr="172.16.0.1/24"
+  local host_iface
+  host_iface=$(ip route show default 2>/dev/null | awk '/default/{print $5; exit}')
+
+  for tool in ip iptables sysctl; do
+    command -v "$tool" &>/dev/null || { warn "$tool not found; skipping Firecracker network setup"; return 1; }
+  done
+
+  if ! ip link show "$bridge" &>/dev/null; then
+    ip link add name "$bridge" type bridge
+    ip addr add "$bridge_cidr" dev "$bridge"
+    ip link set "$bridge" up
+  fi
+
+  if [[ -n "$host_iface" ]]; then
+    iptables -t nat -C POSTROUTING -o "$host_iface" -j MASQUERADE 2>/dev/null \
+      || iptables -t nat -A POSTROUTING -o "$host_iface" -j MASQUERADE
+    iptables -C FORWARD -i "$bridge" -o "$host_iface" -j ACCEPT 2>/dev/null \
+      || iptables -A FORWARD -i "$bridge" -o "$host_iface" -j ACCEPT
+    iptables -C FORWARD -i "$host_iface" -o "$bridge" \
+        -m state --state RELATED,ESTABLISHED -j ACCEPT 2>/dev/null \
+      || iptables -A FORWARD -i "$host_iface" -o "$bridge" \
+           -m state --state RELATED,ESTABLISHED -j ACCEPT
+  fi
+
+  [[ "$(cat /proc/sys/net/ipv4/ip_forward 2>/dev/null)" == "1" ]] \
+    || sysctl -qw net.ipv4.ip_forward=1
+}
+
 # ─── Dependency checks ───────────────────────────────────────────────────────
 check_dep() {
   local name="$1" cmd="$2" hint="$3"
@@ -105,8 +273,9 @@ if $START_QUESTDB; then
       warn "QuestDB jar not found at $QUESTDB_JAR — downloading…"
       mkdir -p /opt/questdb
       QDB_VER="8.3.1"
-      QDB_URL="https://github.com/questdb/questdb/releases/download/$QDB_VER/questdb-$QDB_VER-no-jre-bin.tar.gz"
-      curl -fsSL "$QDB_URL" -o /tmp/questdb.tar.gz
+      curl -fsSL \
+        "https://github.com/questdb/questdb/releases/download/$QDB_VER/questdb-$QDB_VER-no-jre-bin.tar.gz" \
+        -o /tmp/questdb.tar.gz
       tar -xzf /tmp/questdb.tar.gz -C /opt/questdb --strip-components=1
       mv /opt/questdb/questdb.jar "$QUESTDB_JAR" 2>/dev/null || true
       rm -f /tmp/questdb.tar.gz
@@ -124,54 +293,33 @@ if $START_QUESTDB; then
   fi
 fi
 
-# ─── gVisor (runsc) check / install (default ON) ─────────────────────────────
+# ─── gVisor (runsc) — default ON ──────────────────────────────────────────────
 if ! $SETUP_GVISOR; then
   info "Skipping gVisor setup (--no-gvisor)"
 elif ! command -v docker &>/dev/null; then
   warn "Docker not installed — skipping gVisor setup"
 elif command -v runsc &>/dev/null && docker info 2>/dev/null | grep -q runsc; then
-  ok "gVisor (runsc) installed and registered with Docker"
+  ok "gVisor (runsc) already installed and registered with Docker"
 else
-  info "Installing gVisor (runsc)…"
-  if [[ "$EUID" -eq 0 ]]; then
-    bash "$REPO_DIR/node/scripts/install-gvisor.sh"
-  elif command -v sudo &>/dev/null; then
-    sudo bash "$REPO_DIR/node/scripts/install-gvisor.sh"
-  else
-    warn "Cannot install gVisor: need root. Re-run as root, or pass --no-gvisor to skip."
-  fi
+  _as_root _setup_gvisor
+  docker info 2>/dev/null | grep -q runsc \
+    && ok "gVisor registered with Docker" \
+    || warn "gVisor setup completed but runsc not visible in docker info"
 fi
 
-# ─── Firecracker (microVM runtime) check / install (default ON) ──────────────
-# caspar-node's fire_vm_controller spawns /usr/local/bin/firecracker for
-# microVM workloads. We also run setup-fcvmm-network.sh to ensure the host
-# bridge (br0) and NAT rules are in place before the node starts.
-_run_privileged() {
-  if [[ "$EUID" -eq 0 ]]; then
-    bash "$@"
-  elif command -v sudo &>/dev/null; then
-    sudo bash "$@"
-  else
-    warn "Cannot run '$*': need root (no sudo). Pass --no-firecracker to skip."
-    return 1
-  fi
-}
-
+# ─── Firecracker — default ON ─────────────────────────────────────────────────
 if ! $SETUP_FIRECRACKER; then
   info "Skipping Firecracker setup (--no-firecracker)"
 else
-  # Install binary + kernel + rootfs if missing
   if command -v firecracker &>/dev/null && [[ -f /opt/firecracker/kernel/vmlinux ]]; then
-    ok "Firecracker installed: $(firecracker --version 2>&1 | head -1)"
+    ok "Firecracker already installed: $(firecracker --version 2>&1 | head -1)"
   else
-    info "Installing Firecracker…"
-    _run_privileged "$REPO_DIR/node/scripts/install-fcvmm.sh"
+    _as_root _install_firecracker
   fi
 
-  # Configure host bridge + NAT (idempotent, needed on every boot)
   info "Configuring Firecracker host network (bridge + NAT)…"
-  _run_privileged "$REPO_DIR/node/scripts/setup-fcvmm-network.sh" \
-    && ok "Firecracker network ready" \
+  _as_root _setup_firecracker_network \
+    && ok "Firecracker network ready (br0 172.16.0.1/24)" \
     || warn "Firecracker network setup failed — microVM networking may not work"
 fi
 
@@ -187,7 +335,6 @@ mkdir -p "$DATA_ROOT"
 
 # ─── Stop existing processes / containers ───────────────────────────────────
 stop_existing() {
-  # Local caspar-node processes
   local pids
   pids=$(ps -eo pid,cmd 2>/dev/null | awk '/caspar-node/ && !/awk/ && !/grep/ && !/run-nodes/ {print $1}')
   if [[ -n "$pids" ]]; then
@@ -197,7 +344,6 @@ stop_existing() {
     for p in $pids; do kill -9 "$p" 2>/dev/null || true; done
   fi
 
-  # Docker containers
   if command -v docker &>/dev/null; then
     for n in 1 2 3; do
       if docker ps -a --format '{{.Names}}' 2>/dev/null | grep -q "^caspar-node${n}$"; then
@@ -207,7 +353,6 @@ stop_existing() {
     done
   fi
 
-  # QuestDB
   local jpids
   jpids=$(ps -eo pid,cmd 2>/dev/null | awk '/questdb/ && !/awk/ && !/grep/ {print $1}')
   if [[ -n "$jpids" ]]; then
@@ -221,7 +366,7 @@ stop_existing
 # ─── Build / fetch the artifact we need ──────────────────────────────────────
 if $USE_DOCKER; then
   if $REBUILD_IMAGE || ! docker image inspect "$DOCKER_IMAGE" >/dev/null 2>&1; then
-    info "Docker image $DOCKER_IMAGE not present — building (this requires build-dist.sh + docker build)…"
+    info "Docker image $DOCKER_IMAGE not present — building (runs build-dist.sh + docker build)…"
     bash "$REPO_DIR/build-dist.sh"
     docker build -f "$REPO_DIR/node/Dockerfile" -t "$DOCKER_IMAGE" "$REPO_DIR"
   fi
@@ -270,7 +415,7 @@ if $START_QUESTDB; then
   fi
 fi
 
-# ─── Per-node config (re-used by both modes) ─────────────────────────────────
+# ─── Per-node config ──────────────────────────────────────────────────────────
 # NODE LAYOUT:
 #  node1: TCP=8074  WS=8076  FED=8077  CHAIN=8078  ENTITY=8079  VM=8080  TEL=9099
 #  node2: TCP=8174  WS=8176  FED=8177  CHAIN=8178  ENTITY=8179  VM=8180  TEL=9199
@@ -281,10 +426,7 @@ ensure_node_config() {
   local node_dir="$DATA_ROOT/node${n}"
   local env_file="$node_dir/.env"
   mkdir -p "$node_dir"/{storage,db,applet,search,store_logs,telemetry,babble}
-
-  if [[ ! -f "$env_file" ]]; then
-    warn "No $env_file found — node$n may not have keys configured"
-  fi
+  [[ ! -f "$env_file" ]] && warn "No $env_file found — node$n may not have keys configured"
 }
 
 # ─── Local-mode launch ───────────────────────────────────────────────────────
@@ -294,22 +436,17 @@ local_start_node() {
   local env_file="$node_dir/.env"
   local log_file="$node_dir/node.log"
 
-  if [[ -f "$env_file" ]]; then
-    set -a; source "$env_file"; set +a
-  fi
+  [[ -f "$env_file" ]] && { set -a; source "$env_file"; set +a; }
 
   info "Starting node$n locally (TCP=${NODE_TCP[$n]})…"
-  BABBLE_DIR="$node_dir/babble" \
-    "$BINARY" >> "$log_file" 2>&1 &
+  BABBLE_DIR="$node_dir/babble" "$BINARY" >> "$log_file" 2>&1 &
   echo $! > "$node_dir/caspar.pid"
   echo $!
 }
 
 # ─── Docker-mode launch ──────────────────────────────────────────────────────
-# Generates a container-paths version of .env (host /tmp/caspar/nodeN/ →
-# in-container /app/data/), then launches the container with --network host
-# so federation, client TCP, telemetry, and inter-node babble all use the
-# same ports as local mode without any port-mapping translation.
+# Path translation: .env host paths (/tmp/caspar/nodeN/) → container (/app/data/)
+# --network host: ports match local mode exactly; no NAT or port-mapping needed.
 docker_start_node() {
   local n="$1"
   local node_dir="$DATA_ROOT/node${n}"
@@ -322,7 +459,6 @@ docker_start_node() {
     touch "$env_file"
   fi
 
-  # Translate host paths inside .env to /app/data/* paths used in the container
   sed "s|${DATA_ROOT}/node${n}|/app/data|g" "$env_file" > "$docker_env"
 
   info "Starting node$n in docker (container=$container, TCP=${NODE_TCP[$n]})…"
@@ -334,12 +470,8 @@ docker_start_node() {
     -v "$docker_env":/app/.env:ro
     -v "$node_dir":/app/data
   )
-
-  # Mount docker socket so caspar can spawn sibling VM containers via the host
-  # daemon — required for the docker-backed VM runtime.
-  if [[ -S /var/run/docker.sock ]]; then
-    docker_args+=( -v /var/run/docker.sock:/var/run/docker.sock )
-  fi
+  [[ -S /var/run/docker.sock ]] \
+    && docker_args+=( -v /var/run/docker.sock:/var/run/docker.sock )
 
   docker run -d "${docker_args[@]}" "$DOCKER_IMAGE" >/dev/null
   echo "$container"
@@ -368,67 +500,48 @@ for n in "${NODES[@]}"; do
   if wait_for_port localhost "$port" "node$n" 30; then
     ok "node$n up on TCP port $port"
   else
-    if $USE_DOCKER; then
-      warn "node$n did not listen on port $port within 30s"
-      warn "  → docker logs caspar-node${n}"
-    else
-      warn "node$n did not listen on port $port within 30s"
-      warn "  → tail $DATA_ROOT/node${n}/node.log"
-    fi
+    $USE_DOCKER \
+      && warn "node$n (port $port): timeout — check: docker logs caspar-node${n}" \
+      || warn "node$n (port $port): timeout — check: tail $DATA_ROOT/node${n}/node.log"
     all_up=false
   fi
 done
 
 # ─── Summary ─────────────────────────────────────────────────────────────────
 echo ""
-if $all_up; then
-  ok "All ${#NODES[@]} node(s) running."
-else
-  warn "Some node(s) may not have started correctly."
-fi
+$all_up && ok "All ${#NODES[@]} node(s) running." || warn "Some node(s) may not have started correctly."
 
 echo ""
 echo "  Mode:    $MODE (${#NODES[@]} node(s)) — $($USE_DOCKER && echo 'docker' || echo 'local')"
-[[ $USE_DOCKER == true ]] && echo "  Image:   $DOCKER_IMAGE"
-[[ $USE_DOCKER == false ]] && echo "  Binary:  $BINARY"
+$USE_DOCKER  && echo "  Image:   $DOCKER_IMAGE"
+$USE_DOCKER  || echo "  Binary:  $BINARY"
 echo "  Data:    $DATA_ROOT"
-[[ $START_QUESTDB == true ]] && echo "  QuestDB: localhost:$QUESTDB_PORT (http: localhost:9000)"
-
+$START_QUESTDB && echo "  QuestDB: localhost:$QUESTDB_PORT (http: localhost:9000)"
 echo ""
 if $USE_DOCKER; then
   echo "  Containers:"
-  for c in "${STARTED_CONTAINERS[@]}"; do
-    echo "    $c → docker logs -f $c"
-  done
+  for c in "${STARTED_CONTAINERS[@]}"; do echo "    $c → docker logs -f $c"; done
   echo ""
   echo "  Stop all:  $REPO_DIR/stop-nodes.sh"
 else
   echo "  Logs:"
-  for n in "${NODES[@]}"; do
-    echo "    node$n → $DATA_ROOT/node${n}/node.log"
-  done
+  for n in "${NODES[@]}"; do echo "    node$n → $DATA_ROOT/node${n}/node.log"; done
   echo ""
   echo "  Stop all:  $REPO_DIR/stop-nodes.sh   (or Ctrl-C in this terminal)"
 fi
 echo ""
 
-# ─── Foreground vs detached behaviour ────────────────────────────────────────
+# ─── Foreground vs detached ──────────────────────────────────────────────────
 if $USE_DOCKER && ! $FOREGROUND; then
-  # Docker containers run detached; safe to return now.
   info "Containers running detached. Run with --foreground to tail logs."
   exit 0
 fi
 
-# Otherwise (local mode OR docker --foreground) stay alive so Ctrl-C stops it
 cleanup() {
   echo ""
   info "Shutting down…"
-  for p in "${STARTED_PIDS[@]:-}"; do
-    [[ -n "$p" ]] && kill "$p" 2>/dev/null || true
-  done
-  for c in "${STARTED_CONTAINERS[@]:-}"; do
-    [[ -n "$c" ]] && docker stop --time 10 "$c" >/dev/null 2>&1 || true
-  done
+  for p in "${STARTED_PIDS[@]:-}";      do [[ -n "$p" ]] && kill "$p" 2>/dev/null || true; done
+  for c in "${STARTED_CONTAINERS[@]:-}"; do [[ -n "$c" ]] && docker stop --time 10 "$c" >/dev/null 2>&1 || true; done
   [[ -n "$QUESTDB_PID" ]] && kill "$QUESTDB_PID" 2>/dev/null || true
   exit 0
 }
@@ -436,7 +549,6 @@ trap cleanup INT TERM
 
 info "Press Ctrl-C to stop everything."
 if $USE_DOCKER; then
-  # Multiplex docker logs from all containers
   docker logs -f --tail=20 "${STARTED_CONTAINERS[0]}" &
   wait $!
 else

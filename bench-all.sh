@@ -173,16 +173,163 @@ ok "deploy.py at $DEPLOY_SCRIPT"
 [[ -f "$BENCH_SCRIPT" ]] || die "workflow_tests.py not found at $BENCH_SCRIPT"
 ok "workflow_tests.py at $BENCH_SCRIPT"
 
-# Shared helper for privileged script execution
-_run_privileged() {
+# ─── Helper: run a function body as root ────────────────────────────────────
+_as_root() {
+  local fn="$1"
+  local helpers
+  helpers="$(declare -f info ok warn die)"
   if [[ "$EUID" -eq 0 ]]; then
-    bash "$@"
+    "$fn"
   elif command -v sudo &>/dev/null; then
-    sudo bash "$@"
+    sudo bash -c "${helpers}; $(declare -f "$fn"); $fn"
   else
-    warn "Cannot run '$*': need root (no sudo). Pass the corresponding --no-* flag to skip."
+    warn "Cannot run $fn: need root and sudo is not available."
     return 1
   fi
+}
+
+# ─── gVisor setup (inlined) ──────────────────────────────────────────────────
+_setup_gvisor() {
+  set -e
+  info "Installing gVisor (runsc)…"
+  apt-get update -qq
+  apt-get install -y -qq apt-transport-https ca-certificates curl gnupg
+
+  local keyring="/usr/share/keyrings/gvisor-archive-keyring.gpg"
+  [[ -f "$keyring" ]] \
+    || curl -fsSL https://gvisor.dev/archive.key | gpg --dearmor --yes -o "$keyring"
+
+  local arch; arch=$(dpkg --print-architecture)
+  echo "deb [arch=${arch} signed-by=${keyring}] https://storage.googleapis.com/gvisor/releases release main" \
+    > /etc/apt/sources.list.d/gvisor.list
+
+  apt-get update -qq
+  apt-get install -y -qq runsc
+
+  # --network=host: sandbox shares host netstack (no NAT, full reachability)
+  # --platform=ptrace: works without /dev/kvm
+  python3 -c "
+import json, os, tempfile
+path = '/etc/docker/daemon.json'
+try:
+    cfg = json.loads(open(path).read().strip() or '{}')
+except FileNotFoundError:
+    cfg = {}
+cfg.setdefault('runtimes', {})['runsc'] = {
+    'path': 'runsc',
+    'runtimeArgs': ['--network=host', '--platform=ptrace'],
+}
+fd, tmp = tempfile.mkstemp(dir='/etc/docker', prefix='.daemon.')
+with os.fdopen(fd, 'w') as f:
+    json.dump(cfg, f, indent=2); f.write('\n')
+os.replace(tmp, path)
+print('  wrote /etc/docker/daemon.json')
+"
+
+  if systemctl is-active --quiet docker 2>/dev/null; then
+    systemctl restart docker
+    local i
+    for i in $(seq 1 20); do docker info >/dev/null 2>&1 && break; sleep 0.5; done
+  fi
+  ok "gVisor (runsc) installed and registered with Docker"
+}
+
+# ─── Firecracker setup (inlined) ─────────────────────────────────────────────
+FC_VERSION="v1.10.1"
+FC_ARCH=$(uname -m)
+
+_install_firecracker() {
+  set -e
+  local fc_version="${FC_VERSION:-v1.10.1}"
+  local fc_arch="${FC_ARCH:-$(uname -m)}"
+
+  info "Installing Firecracker ${fc_version} (${fc_arch})…"
+  apt-get update -qq
+  apt-get install -y -qq curl libelf-dev e2fsprogs
+
+  mkdir -p /opt/firecracker/{vms,kernel,rootfs,snapshots}
+
+  if ! command -v firecracker &>/dev/null; then
+    local tgz="firecracker-${fc_version}-${fc_arch}.tgz"
+    curl -fsSL \
+      "https://github.com/firecracker-microvm/firecracker/releases/download/${fc_version}/${tgz}" \
+      -o "/tmp/${tgz}"
+    tar -xzf "/tmp/${tgz}" -C /tmp
+    mv "/tmp/release-${fc_version}-${fc_arch}/firecracker-${fc_version}-${fc_arch}" \
+       /usr/local/bin/firecracker
+    chmod +x /usr/local/bin/firecracker
+    rm -rf "/tmp/${tgz}" "/tmp/release-${fc_version}-${fc_arch}"
+    ok "Installed: $(firecracker --version 2>&1 | head -1)"
+  else
+    ok "Firecracker binary already present: $(firecracker --version 2>&1 | head -1)"
+  fi
+
+  if [[ ! -f /opt/firecracker/kernel/vmlinux ]]; then
+    info "Downloading guest kernel for ${fc_arch}…"
+    curl -fsSL \
+      "https://s3.amazonaws.com/spec.ccfc.min/img/quickstart_guide/${fc_arch}/kernels/vmlinux.bin" \
+      -o /opt/firecracker/kernel/vmlinux
+    chmod +x /opt/firecracker/kernel/vmlinux
+    ok "Guest kernel ready ($(ls -lh /opt/firecracker/kernel/vmlinux | awk '{print $5}'))"
+  else
+    ok "Guest kernel already present"
+  fi
+
+  if [[ ! -f /opt/firecracker/rootfs/rootfs.ext4 ]]; then
+    info "Building guest rootfs (Alpine 3.20 / ${fc_arch})…"
+    local alpine_url="https://dl-cdn.alpinelinux.org/alpine/v3.20/releases/${fc_arch}/alpine-minirootfs-3.20.0-${fc_arch}.tar.gz"
+    curl -fsSL "$alpine_url" -o /tmp/alpine-minirootfs.tar.gz
+    dd if=/dev/zero of=/opt/firecracker/rootfs/rootfs.ext4 bs=1M count=128 status=none
+    mkfs.ext4 -q /opt/firecracker/rootfs/rootfs.ext4
+    local mnt; mnt=$(mktemp -d)
+    mount -o loop /opt/firecracker/rootfs/rootfs.ext4 "$mnt"
+    tar -xzf /tmp/alpine-minirootfs.tar.gz -C "$mnt"
+    printf '#!/bin/sh\nmount -t proc proc /proc\nmount -t sysfs sysfs /sys\nmount -t devtmpfs devtmpfs /dev 2>/dev/null||true\nexec /bin/sh\n' \
+      > "$mnt/sbin/init"
+    chmod +x "$mnt/sbin/init"
+    umount "$mnt"; rmdir "$mnt"
+    rm -f /tmp/alpine-minirootfs.tar.gz
+    ok "Guest rootfs ready ($(ls -lh /opt/firecracker/rootfs/rootfs.ext4 | awk '{print $5}'))"
+  else
+    ok "Guest rootfs already present"
+  fi
+
+  [[ -e /dev/kvm ]] \
+    && ok "/dev/kvm available — hardware-accelerated microVMs enabled" \
+    || warn "/dev/kvm not available — Firecracker will use ptrace platform (slower cold-start)"
+}
+
+_setup_firecracker_network() {
+  set -e
+  local bridge="br0"
+  local bridge_cidr="172.16.0.1/24"
+  local host_iface
+  host_iface=$(ip route show default 2>/dev/null | awk '/default/{print $5; exit}')
+
+  for tool in ip iptables sysctl; do
+    command -v "$tool" &>/dev/null || { warn "$tool not found; skipping Firecracker network setup"; return 1; }
+  done
+
+  if ! ip link show "$bridge" &>/dev/null; then
+    ip link add name "$bridge" type bridge
+    ip addr add "$bridge_cidr" dev "$bridge"
+    ip link set "$bridge" up
+  fi
+
+  if [[ -n "$host_iface" ]]; then
+    iptables -t nat -C POSTROUTING -o "$host_iface" -j MASQUERADE 2>/dev/null \
+      || iptables -t nat -A POSTROUTING -o "$host_iface" -j MASQUERADE
+    iptables -C FORWARD -i "$bridge" -o "$host_iface" -j ACCEPT 2>/dev/null \
+      || iptables -A FORWARD -i "$bridge" -o "$host_iface" -j ACCEPT
+    iptables -C FORWARD -i "$host_iface" -o "$bridge" \
+        -m state --state RELATED,ESTABLISHED -j ACCEPT 2>/dev/null \
+      || iptables -A FORWARD -i "$host_iface" -o "$bridge" \
+           -m state --state RELATED,ESTABLISHED -j ACCEPT
+  fi
+
+  [[ "$(cat /proc/sys/net/ipv4/ip_forward 2>/dev/null)" == "1" ]] \
+    || sysctl -qw net.ipv4.ip_forward=1
+  ok "Firecracker network ready (br0 ${bridge_cidr})"
 }
 
 # gVisor (runsc) — installed by default so Docker-backed VMs run sandboxed.
@@ -194,8 +341,10 @@ elif ! command -v docker &>/dev/null; then
 elif command -v runsc &>/dev/null && docker info 2>/dev/null | grep -q runsc; then
   ok "gVisor (runsc) registered with Docker"
 else
-  info "Installing gVisor (runsc)…"
-  _run_privileged "$REPO_DIR/node/scripts/install-gvisor.sh"
+  _as_root _setup_gvisor
+  docker info 2>/dev/null | grep -q runsc \
+    && ok "gVisor registered with Docker" \
+    || warn "gVisor setup completed but runsc not visible in docker info"
 fi
 
 # Firecracker — installed by default for microVM-backed workloads.
@@ -206,12 +355,10 @@ else
   if command -v firecracker &>/dev/null && [[ -f /opt/firecracker/kernel/vmlinux ]]; then
     ok "Firecracker installed: $(firecracker --version 2>&1 | head -1)"
   else
-    info "Installing Firecracker…"
-    _run_privileged "$REPO_DIR/node/scripts/install-fcvmm.sh"
+    _as_root _install_firecracker
   fi
   info "Configuring Firecracker host network (bridge + NAT)…"
-  _run_privileged "$REPO_DIR/node/scripts/setup-fcvmm-network.sh" \
-    && ok "Firecracker network ready" \
+  _as_root _setup_firecracker_network \
     || warn "Firecracker network setup failed — microVM networking may not work"
 fi
 

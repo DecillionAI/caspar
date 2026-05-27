@@ -26,6 +26,44 @@ info() { echo -e "${CYAN}[stop]${NC} $*"; }
 ok()   { echo -e "${GREEN}[stop]${NC} $*"; }
 warn() { echo -e "${YELLOW}[stop]${NC} $*"; }
 
+# ─── Helper: run a function body as root ─────────────────────────────────────
+_as_root() {
+  local fn="$1"
+  local helpers
+  helpers="$(declare -f info ok warn)"
+  if [[ "$EUID" -eq 0 ]]; then
+    "$fn"
+  elif command -v sudo &>/dev/null; then
+    sudo bash -c "${helpers}; $(declare -f "$fn"); $fn"
+  else
+    warn "Cannot run $fn: need root and sudo is not available."
+    return 1
+  fi
+}
+
+# ─── Firecracker network teardown (inlined) ───────────────────────────────────
+_teardown_firecracker_network() {
+  local bridge="br0"
+  local host_iface
+  host_iface=$(ip route show default 2>/dev/null | awk '/default/{print $5; exit}' || true)
+
+  if ip link show "$bridge" &>/dev/null; then
+    ip link set "$bridge" down 2>/dev/null || true
+    ip link delete "$bridge" type bridge 2>/dev/null || true
+    ok "Bridge $bridge removed"
+  fi
+
+  if [[ -n "$host_iface" ]]; then
+    iptables -t nat -D POSTROUTING -o "$host_iface" -j MASQUERADE 2>/dev/null || true
+    iptables -D FORWARD -i "$bridge" -o "$host_iface" -j ACCEPT 2>/dev/null || true
+    iptables -D FORWARD -i "$host_iface" -o "$bridge" \
+      -m state --state RELATED,ESTABLISHED -j ACCEPT 2>/dev/null || true
+  fi
+
+  sysctl -qw net.ipv4.ip_forward=0 2>/dev/null || true
+  ok "Firecracker network teardown complete"
+}
+
 CLEAN=false
 PURGE=false
 KEEP_QUESTDB=false
@@ -128,15 +166,8 @@ fi
 if $PURGE; then
   warn "--purge: wiping $DATA_ROOT entirely (including .env keys)"
   rm -rf "$DATA_ROOT"
-  # Tear down the Firecracker host bridge and NAT rules
-  FCVMM_NET="$(dirname "$0")/node/scripts/setup-fcvmm-network.sh"
-  if [[ -f "$FCVMM_NET" ]]; then
-    if [[ "$EUID" -eq 0 ]]; then
-      bash "$FCVMM_NET" --teardown 2>/dev/null || true
-    elif command -v sudo &>/dev/null; then
-      sudo bash "$FCVMM_NET" --teardown 2>/dev/null || true
-    fi
-  fi
+  info "Tearing down Firecracker host bridge and NAT rules…"
+  _as_root _teardown_firecracker_network 2>/dev/null || true
   ok "All state purged"
 elif $CLEAN; then
   warn "--clean: wiping per-node state (keeping .env / keys)"
