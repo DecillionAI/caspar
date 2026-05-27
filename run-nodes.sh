@@ -20,8 +20,10 @@
 #   --no-firecracker Skip Firecracker install and network setup. By default
 #                    Firecracker is installed and its host bridge is configured
 #                    so microVM-backed workloads can run immediately.
-#   --rebuild-image  Force rebuild of the caspar-node:latest docker image
-#                    (runs build-dist.sh + docker build)
+#   --rebuild        Force rebuild even if binaries / image already exist.
+#                    Docker mode: re-runs build-dist.sh + docker build.
+#                    Local mode:  re-runs cargo build --release.
+#                    (alias: --rebuild-image)
 #   --foreground     (docker mode) keep tailing container logs until Ctrl-C
 #                    instead of returning immediately
 #   --help           show this help
@@ -65,10 +67,10 @@ for arg in "$@"; do
     --fresh)           FRESH=true ;;
     --no-gvisor)       SETUP_GVISOR=false ;;
     --no-firecracker)  SETUP_FIRECRACKER=false ;;
-    --rebuild-image)   REBUILD_IMAGE=true ;;
+    --rebuild|--rebuild-image) REBUILD_IMAGE=true ;;
     --foreground)      FOREGROUND=true ;;
     --help|-h)
-      sed -n '2,27p' "$0" | sed 's/^# \{0,1\}//'
+      sed -n '2,28p' "$0" | sed 's/^# \{0,1\}//'
       exit 0
       ;;
     *) die "Unknown argument: $arg" ;;
@@ -366,14 +368,19 @@ stop_existing
 # ─── Build / fetch the artifact we need ──────────────────────────────────────
 if $USE_DOCKER; then
   if $REBUILD_IMAGE || ! docker image inspect "$DOCKER_IMAGE" >/dev/null 2>&1; then
-    info "Docker image $DOCKER_IMAGE not present — building (runs build-dist.sh + docker build)…"
+    $REBUILD_IMAGE \
+      && info "--rebuild: force-rebuilding $DOCKER_IMAGE (build-dist.sh + docker build)…" \
+      || info "Docker image $DOCKER_IMAGE not present — building (runs build-dist.sh + docker build)…"
     bash "$REPO_DIR/build-dist.sh"
     docker build -f "$REPO_DIR/node/Dockerfile" -t "$DOCKER_IMAGE" "$REPO_DIR"
   fi
   ok "Docker image ready: $DOCKER_IMAGE"
 else
   build_needed=false
-  if [[ ! -f "$BINARY" ]]; then
+  if $REBUILD_IMAGE; then
+    build_needed=true
+    info "--rebuild: forcing cargo build --release…"
+  elif [[ ! -f "$BINARY" ]]; then
     build_needed=true
     info "Binary not found — building (this takes ~3 min first time)…"
   elif [[ "$BINARY" -ot "$NODE_DIR/src/main.rs" ]]; then
