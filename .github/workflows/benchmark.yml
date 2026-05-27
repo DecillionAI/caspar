@@ -1,0 +1,307 @@
+name: Caspar Cluster Benchmark
+
+# ─── Triggers ─────────────────────────────────────────────────────────────────
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'Cluster mode'
+        required: false
+        default: triple
+        type: choice
+        options: [single, triple]
+      skip_build:
+        description: 'Skip cargo build if dist/ already has binaries'
+        required: false
+        default: 'false'
+        type: boolean
+
+  schedule:
+    - cron: '0 3 * * 1'   # Every Monday 03:00 UTC
+
+# The bot needs write access to push report commits back to the repo.
+permissions:
+  contents: write
+
+jobs:
+  benchmark:
+    name: ${{ inputs.mode || 'triple' }}-node benchmark
+    runs-on: ubuntu-latest
+    timeout-minutes: 180   # 3 h: ~50 m build + ~15 m startup + ~60 m bench
+
+    env:
+      MODE: ${{ inputs.mode || 'triple' }}
+
+    steps:
+
+      # ═══════════════════════════════════════════════════════════════════════
+      # 1. SOURCE
+      # ═══════════════════════════════════════════════════════════════════════
+
+      - name: Checkout caspar
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      # bench-all.sh looks for decillionai-server/bench/{deploy.py,workflow_tests.py}
+      # next to the caspar repo.  We check it out inside the workspace and tell
+      # bench-all.sh its exact location via the DECILLIONAI_SERVER env var.
+      - name: Checkout decillionai-server (bench scripts)
+        uses: actions/checkout@v4
+        with:
+          repository: DecillionAI/decillionai-server
+          # If the repo is private, add a PAT in repo secrets and uncomment:
+          # token: ${{ secrets.DECILLIONAI_TOKEN }}
+          path: _decillionai-server
+
+      # ═══════════════════════════════════════════════════════════════════════
+      # 2. RUNTIME TOOLING
+      # ═══════════════════════════════════════════════════════════════════════
+
+      - name: Set up Java 17  (required by QuestDB)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Python 3  (required by bench scripts)
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Install pycryptodome  (required by deploy.py)
+        run: pip3 install pycryptodome --quiet
+
+      # ═══════════════════════════════════════════════════════════════════════
+      # 3. BUILD  (skip if skip_build=true and dist/ is already populated)
+      # ═══════════════════════════════════════════════════════════════════════
+
+      - name: Install Rust stable
+        if: ${{ inputs.skip_build != 'true' }}
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build output
+        if: ${{ inputs.skip_build != 'true' }}
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            node         -> target
+            cmd/casparctl -> target
+
+      - name: Install WasmEdge 0.14.0
+        if: ${{ inputs.skip_build != 'true' }}
+        run: |
+          curl -sSf \
+            https://raw.githubusercontent.com/WasmEdge/WasmEdge/0.14.0/utils/install.sh \
+            | bash -s -- -v 0.14.0
+          echo "WASMEDGE_LIB_DIR=$HOME/.wasmedge/lib" >> $GITHUB_ENV
+          echo "LD_LIBRARY_PATH=$HOME/.wasmedge/lib"  >> $GITHUB_ENV
+          echo "$HOME/.wasmedge/bin"                  >> $GITHUB_PATH
+
+      - name: Build dist/  (caspar-node, caspar-keygen, casparctl, WasmEdge, QuestDB)
+        if: ${{ inputs.skip_build != 'true' }}
+        run: bash build-dist.sh
+
+      # ═══════════════════════════════════════════════════════════════════════
+      # 4. DOCKER IMAGE
+      # ═══════════════════════════════════════════════════════════════════════
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build caspar-node Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: node/Dockerfile
+          push: false
+          tags: caspar-node:latest
+          # Layer cache — dramatically speeds up repeat runs
+          cache-from: type=gha
+          cache-to:   type=gha,mode=max
+
+      # ═══════════════════════════════════════════════════════════════════════
+      # 5. NODE KEY GENERATION
+      #    caspar-keygen produces OWNER_ID + OWNER_PRIVATE_KEY.
+      #    Each node gets its own identity; node2/3 peer to node1.
+      # ═══════════════════════════════════════════════════════════════════════
+
+      - name: Generate per-node key pairs and .env files
+        run: |
+          KEYGEN="./dist/bin/caspar-keygen"
+          DATA="/tmp/caspar"
+          chmod +x "$KEYGEN"
+
+          # Discover caspar-keygen's output format
+          echo "=== caspar-keygen --help ===" && "$KEYGEN" --help 2>&1 || true
+
+          declare -A TCP=([1]=8074 [2]=8174 [3]=8274)
+          declare -A WS=( [1]=8076 [2]=8176 [3]=8276)
+          declare -A FED=([1]=8077 [2]=8177 [3]=8277)
+          declare -A CHN=([1]=8078 [2]=8178 [3]=8278)
+          declare -A ENT=([1]=8079 [2]=8179 [3]=8279)
+          declare -A VM=( [1]=8080 [2]=8180 [3]=8280)
+          declare -A TEL=([1]=9099 [2]=9199 [3]=9299)
+
+          for n in 1 2 3; do
+            NODE_DIR="${DATA}/node${n}"
+            mkdir -p "${NODE_DIR}"/{storage,db,applet,search,store_logs,telemetry,babble}
+
+            # Run keygen — try common output patterns
+            KEY_OUTPUT=$("$KEYGEN" 2>&1) || KEY_OUTPUT=""
+            OWNER_ID=$(echo "$KEY_OUTPUT"       | grep -i 'owner_id\|id:'      | head -1 | awk '{print $NF}')
+            OWNER_KEY=$(echo "$KEY_OUTPUT"      | grep -i 'private_key\|key:'  | head -1 | awk '{print $NF}')
+
+            # Fallback: try JSON output
+            if [[ -z "$OWNER_ID" ]]; then
+              OWNER_ID=$(echo "$KEY_OUTPUT"  | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('owner_id',d.get('id','')))" 2>/dev/null || true)
+              OWNER_KEY=$(echo "$KEY_OUTPUT" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('owner_private_key',d.get('private_key','')))" 2>/dev/null || true)
+            fi
+
+            # Last-resort: use the raw output as the key (adjust if format differs)
+            [[ -z "$OWNER_ID"  ]] && OWNER_ID="ci-node${n}-$(openssl rand -hex 8)"
+            [[ -z "$OWNER_KEY" ]] && OWNER_KEY=$(echo "$KEY_OUTPUT" | head -1 | tr -d '[:space:]')
+
+            IS_HEAD="false"; [[ $n -eq 1 ]] && IS_HEAD="true"
+
+            cat > "${NODE_DIR}/.env" <<EOF
+          OWNER_ID="${OWNER_ID}"
+          OWNER_PRIVATE_KEY="${OWNER_KEY}"
+          STORAGE_ROOT_PATH="${NODE_DIR}/storage"
+          BASE_DB_PATH="${NODE_DIR}/db"
+          APPLET_DB_PATH="${NODE_DIR}/applet"
+          SEARCH_INDEX_PATH="${NODE_DIR}/search"
+          STORE_LOGS_DB="${NODE_DIR}/store_logs"
+          TELEMETRY_DB_PATH="${NODE_DIR}/telemetry"
+          BABBLE_DIR="${NODE_DIR}/babble"
+          CLIENT_TCP_API_PORT="${TCP[$n]}"
+          CLIENT_WS_API_PORT="${WS[$n]}"
+          FEDERATION_API_PORT="${FED[$n]}"
+          BLOCKCHAIN_API_PORT="${CHN[$n]}"
+          ENTITY_API_PORT="${ENT[$n]}"
+          VM_API_PORT="${VM[$n]}"
+          TELEMETRY_API_PORT="${TEL[$n]}"
+          ORIGIN="127.0.0.1"
+          IPADDR="127.0.0.1"
+          ROOT_NODE="127.0.0.1:8074"
+          IS_HEAD="${IS_HEAD}"
+          AdminPassword="ci-admin-$(openssl rand -hex 6)"
+          VM_EXEC_COST_PER_SECOND="0"
+          VM_RAM_COST_PER_MB_PER_MINUTE="0"
+          VM_CPU_CORE_COST_PER_MINUTE="0"
+          VM_DISK_COST_PER_GB_PER_MINUTE="0"
+          EOF
+            echo "Generated .env for node${n} (TCP=${TCP[$n]})"
+          done
+
+      # ═══════════════════════════════════════════════════════════════════════
+      # 6. START CLUSTER
+      # ═══════════════════════════════════════════════════════════════════════
+
+      - name: Start ${{ env.MODE }}-node cluster  (run-nodes.sh)
+        run: bash run-nodes.sh "$MODE" --no-gvisor --no-firecracker
+        timeout-minutes: 15
+
+      # ═══════════════════════════════════════════════════════════════════════
+      # 7. BENCHMARK
+      # ═══════════════════════════════════════════════════════════════════════
+
+      - name: Deploy WASM creatures + run benchmark suite  (bench-all.sh)
+        run: bash bench-all.sh "$MODE"
+        env:
+          DECILLIONAI_SERVER: ${{ github.workspace }}/_decillionai-server
+        timeout-minutes: 60
+
+      # ═══════════════════════════════════════════════════════════════════════
+      # 8. TEARDOWN  (always runs so logs are always collected)
+      # ═══════════════════════════════════════════════════════════════════════
+
+      - name: Stop cluster  (stop-nodes.sh)
+        if: always()
+        run: bash stop-nodes.sh
+
+      # ═══════════════════════════════════════════════════════════════════════
+      # 9. COLLECT & PUBLISH REPORTS
+      # ═══════════════════════════════════════════════════════════════════════
+
+      - name: Collect report files
+        if: always()
+        run: |
+          TS=$(date -u +%Y-%m-%dT%H%M%SZ)
+          DEST="reports/${TS}"
+          mkdir -p "${DEST}" reports/latest
+
+          copy_report() {
+            [[ -f "$1" ]] || return 0
+            cp "$1" "${DEST}/"
+            cp "$1" reports/latest/
+            echo "  + $(basename "$1")  ($(du -sh "$1" | cut -f1))"
+          }
+
+          echo "=== Benchmark reports ==="
+          copy_report ~/workflow_results.json
+          copy_report ~/workflow_report.md
+          copy_report ~/deployment_report.json
+          copy_report /tmp/caspar/bench.log
+          copy_report /tmp/caspar/deploy.log
+
+          echo "=== Node logs ==="
+          for n in 1 2 3; do
+            log="/tmp/caspar/node${n}/node.log"
+            if [[ -f "$log" ]]; then
+              cp "$log" "${DEST}/node${n}.log"
+              echo "  + node${n}.log  ($(wc -l < "$log") lines)"
+            fi
+          done
+
+          echo "REPORT_TS=${TS}"    >> $GITHUB_ENV
+          echo "REPORT_DIR=${DEST}" >> $GITHUB_ENV
+
+      # Print the KPI markdown report directly in the GitHub Actions run summary
+      - name: Publish KPI summary to run page
+        if: always()
+        run: |
+          {
+            echo "## 🚀 Caspar Benchmark — run \`#${{ github.run_number }}\`"
+            echo ""
+            echo "| | |"
+            echo "|---|---|"
+            echo "| **Mode** | \`${MODE}\` |"
+            echo "| **Commit** | \`${{ github.sha }}\` |"
+            echo "| **Triggered by** | ${{ github.actor }} |"
+            echo ""
+          } >> $GITHUB_STEP_SUMMARY
+
+          if [[ -f ~/workflow_report.md ]]; then
+            cat ~/workflow_report.md >> $GITHUB_STEP_SUMMARY
+          else
+            echo "> ⚠️ No report generated — check the bench log in the artifact." >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Upload benchmark artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-${{ github.run_number }}-${{ github.run_attempt }}
+          path: reports/
+          retention-days: 90
+          if-no-files-found: warn
+
+      # Push the timestamped reports + latest/ back into the repo so they are
+      # accessible without downloading the Actions artifact.
+      - name: Commit and push reports to repo
+        if: always()
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add reports/
+          if git diff --staged --quiet; then
+            echo "No new report files to commit."
+            exit 0
+          fi
+          git commit -m "chore(reports): run #${{ github.run_number }} ${REPORT_TS}
+
+Mode: ${MODE}
+Run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+Triggered by: ${{ github.actor }}"
+          git push
