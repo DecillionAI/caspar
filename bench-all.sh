@@ -19,6 +19,8 @@
 #
 # Options:
 #   --skip-deploy    Skip creature deployment; use the last deployment_report.json
+#   --redeploy       Force a fresh creature deployment even if one was already done
+#                    by run-nodes.sh (overrides the auto-skip logic)
 #   --help           Show this help
 #
 # Outputs (written to $HOME):
@@ -35,26 +37,30 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# ─── Locate decillionai-server/bench ─────────────────────────────────────────
+# ─── Locate (or auto-clone) decillionai-server/bench ─────────────────────────
 # Resolution order (first match wins):
 #   1. DECILLIONAI_SERVER env var  (explicit override)
-#   2. Sibling directory next to the caspar repo
-#   3. Legacy /home/user/decillionai-server path
+#   2. Sibling directory next to the caspar repo  ← run-nodes.sh puts it here
+#   3. Auto-clone from GitHub next to the caspar repo
 _find_bench_dir() {
   if [[ -n "${DECILLIONAI_SERVER:-}" ]]; then
     echo "$DECILLIONAI_SERVER/bench"
     return
   fi
-  # Walk up from SCRIPT_DIR to find a sibling decillionai-server repo
   local parent; parent="$(dirname "$SCRIPT_DIR")"
   if [[ -d "$parent/decillionai-server/bench" ]]; then
     echo "$parent/decillionai-server/bench"
     return
   fi
-  # Legacy hard-coded path
-  if [[ -d "/home/user/decillionai-server/bench" ]]; then
-    echo "/home/user/decillionai-server/bench"
-    return
+  # Not found — attempt auto-clone so bench-all.sh is self-sufficient even
+  # when run without run-nodes.sh having set things up first.
+  if command -v git &>/dev/null; then
+    echo -e "\033[1;33m[bench]\033[0m decillionai-server not found — cloning…" >&2
+    git clone --depth=1 \
+      https://github.com/DecillionAI/decillionai-server.git \
+      "$parent/decillionai-server" >&2 \
+      && { echo "$parent/decillionai-server/bench"; return; } \
+      || true
   fi
   echo ""
 }
@@ -62,7 +68,8 @@ _find_bench_dir() {
 BENCH_DIR="$(_find_bench_dir)"
 if [[ -z "$BENCH_DIR" ]]; then
   echo -e "\033[0;31m[bench] FATAL:\033[0m Cannot find decillionai-server/bench directory." >&2
-  echo "  Clone it next to the caspar repo:  git clone https://github.com/DecillionAI/decillionai-server.git" >&2
+  echo "  Either run run-nodes.sh first (it handles this automatically)," >&2
+  echo "  or clone manually:  git clone https://github.com/DecillionAI/decillionai-server.git" >&2
   echo "  Or set: export DECILLIONAI_SERVER=/path/to/decillionai-server" >&2
   exit 1
 fi
@@ -85,14 +92,16 @@ step()  { echo -e "\n${BOLD}${CYAN}━━━ $* ━━━${NC}"; }
 # ─── Arg parsing ─────────────────────────────────────────────────────────────
 MODE="triple"
 SKIP_DEPLOY=false
+FORCE_REDEPLOY=false
 
 for arg in "$@"; do
   case "$arg" in
     single)           MODE="single" ;;
     triple)           MODE="triple" ;;
     --skip-deploy)    SKIP_DEPLOY=true ;;
+    --redeploy)       FORCE_REDEPLOY=true ;;
     --help|-h)
-      sed -n '2,26p' "$0" | sed 's/^# \{0,1\}//'
+      sed -n '2,28p' "$0" | sed 's/^# \{0,1\}//'
       exit 0
       ;;
     *) die "Unknown argument: $arg" ;;
@@ -143,8 +152,12 @@ check_port() {
   python3 -c "
 import socket, sys
 s = socket.socket(); s.settimeout(2)
-try: s.connect(('$host', $port)); s.close(); sys.exit(0)
-except: sys.exit(1)
+try:
+    s.connect(('$host', $port))
+    s.close()
+    sys.exit(0)
+except Exception:
+    sys.exit(1)
 " 2>/dev/null
 }
 
@@ -173,12 +186,33 @@ mkdir -p /tmp/caspar
 # =============================================================================
 step "Step 3: Deploy WASM creatures"
 
+# Auto-detect whether run-nodes.sh already deployed creatures.
+# Returns 0 (true) when deployment_report.json exists with at least one
+# successfully deployed module — meaning run-nodes.sh already did the work.
+_deploy_already_done() {
+  [[ -f "$DEPLOY_REPORT" ]] || return 1
+  local ok_count
+  ok_count=$(python3 -c "
+import json
+try:
+    reps = json.load(open('$DEPLOY_REPORT'))
+    print(sum(r.get('ok_count', 0) for r in reps if isinstance(r, dict)))
+except Exception:
+    print(0)
+" 2>/dev/null || echo 0)
+  [[ "${ok_count:-0}" -gt 0 ]]
+}
+
+DEPLOY_ELAPSED=0
 if $SKIP_DEPLOY; then
   if [[ -f "$DEPLOY_REPORT" ]]; then
     ok "Skipping deployment (--skip-deploy) — using $DEPLOY_REPORT"
   else
     warn "--skip-deploy set but $DEPLOY_REPORT not found; workflow_tests may fail"
   fi
+elif ! $FORCE_REDEPLOY && _deploy_already_done; then
+  ok "Creatures already deployed by run-nodes.sh — skipping deploy step"
+  ok "  (pass --redeploy to force a fresh deployment)"
 else
   DEPLOY_START=$SECONDS
   info "Running deploy.py — creates machine creatures, programs, and deploys WASM modules"

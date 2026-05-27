@@ -26,6 +26,10 @@
 #                    (alias: --rebuild-image)
 #   --foreground     (docker mode) keep tailing container logs until Ctrl-C
 #                    instead of returning immediately
+#   --skip-deploy    Skip WASM creature build & deployment. By default
+#                    run-nodes.sh clones decillionai-server (if absent), builds
+#                    all WASM creatures with TinyGo, and deploys them so the
+#                    cluster is fully ready before the script exits.
 #   --help           show this help
 #
 # Companion script:
@@ -119,6 +123,7 @@ SETUP_GVISOR=true
 SETUP_FIRECRACKER=true
 REBUILD_IMAGE=false
 FOREGROUND=false
+DEPLOY_CREATURES=true
 
 for arg in "$@"; do
   case "$arg" in
@@ -131,8 +136,9 @@ for arg in "$@"; do
     --no-firecracker)  SETUP_FIRECRACKER=false ;;
     --rebuild|--rebuild-image) REBUILD_IMAGE=true ;;
     --foreground)      FOREGROUND=true ;;
+    --skip-deploy)     DEPLOY_CREATURES=false ;;
     --help|-h)
-      sed -n '2,28p' "$0" | sed 's/^# \{0,1\}//'
+      sed -n '2,34p' "$0" | sed 's/^# \{0,1\}//'
       exit 0
       ;;
     *) die "Unknown argument: $arg" ;;
@@ -607,6 +613,128 @@ _ensure_docker_dns() {
   fi
 }
 
+# ─── TinyGo + Go 1.23 installation (runs as root) ────────────────────────────
+# TinyGo is the WASM compiler for Caspar creature modules.
+# TinyGo ≤ 0.34 requires Go ≤ 1.23, so we install Go 1.23 to /usr/local/go123
+# and symlink tinygo to /usr/local/bin so it is in every user's PATH.
+TINYGO_VERSION="0.34.0"
+
+_install_tinygo() {
+  set -e
+  command -v tinygo &>/dev/null && {
+    ok "TinyGo already installed: $(tinygo version 2>&1 | head -1)"
+    return 0
+  }
+
+  info "Installing TinyGo ${TINYGO_VERSION}…"
+  local hw_arch; hw_arch=$(uname -m)
+  local tg_arch
+  case "$hw_arch" in
+    x86_64)        tg_arch="amd64" ;;
+    aarch64|arm64) tg_arch="arm64" ;;
+    *) warn "TinyGo: unsupported arch ${hw_arch} — skipping"; return 0 ;;
+  esac
+
+  _pkg_update; _pkg_install curl tar ca-certificates
+
+  # ── Go 1.23 (required by TinyGo ≤ 0.34) ─────────────────────────────────
+  if [[ ! -x "/usr/local/go123/bin/go" ]]; then
+    info "Installing Go 1.23 (required by TinyGo ≤ 0.34)…"
+    local go_tgz="go1.23.9.linux-${tg_arch}.tar.gz"
+    curl -fsSL "https://go.dev/dl/${go_tgz}" -o "/tmp/${go_tgz}"
+    tar -xzf "/tmp/${go_tgz}" -C /tmp
+    mv /tmp/go /usr/local/go123
+    rm -f "/tmp/${go_tgz}"
+    ok "Go 1.23 installed at /usr/local/go123"
+  else
+    ok "Go 1.23 already present: $(/usr/local/go123/bin/go version)"
+  fi
+
+  # ── TinyGo binary ─────────────────────────────────────────────────────────
+  local tg_tgz="tinygo${TINYGO_VERSION}.linux-${tg_arch}.tar.gz"
+  curl -fsSL \
+    "https://github.com/tinygo-org/tinygo/releases/download/v${TINYGO_VERSION}/${tg_tgz}" \
+    -o "/tmp/${tg_tgz}"
+  tar -xzf "/tmp/${tg_tgz}" -C /usr/local
+  rm -f "/tmp/${tg_tgz}"
+  ln -sf /usr/local/tinygo/bin/tinygo /usr/local/bin/tinygo
+
+  ok "TinyGo installed: $(GOROOT=/usr/local/go123 /usr/local/bin/tinygo version 2>&1 | head -1)"
+}
+
+# ─── Python creature-deploy dependencies (runs as root) ──────────────────────
+_install_python_deps() {
+  python3 -c "from Crypto.PublicKey import RSA" 2>/dev/null && return 0
+  info "Installing pycryptodome…"
+  pip3 install pycryptodome --quiet \
+    || warn "pycryptodome install failed — creature deployment may not work"
+}
+
+# ─── Clone / verify decillionai-server repo ───────────────────────────────────
+# Sets global DECILLIONAI_SERVER_DIR.  Returns 1 on failure.
+DECILLIONAI_SERVER_DIR=""
+_ensure_decillionai_server() {
+  local server_dir; server_dir="$(dirname "$REPO_DIR")/decillionai-server"
+  if [[ ! -d "$server_dir/.git" ]]; then
+    info "Cloning decillionai-server…"
+    git clone --depth=1 \
+      https://github.com/DecillionAI/decillionai-server.git \
+      "$server_dir" 2>&1 \
+      || { warn "git clone failed — skipping creature deployment"; return 1; }
+    ok "Cloned decillionai-server → $server_dir"
+  else
+    ok "decillionai-server present: $server_dir"
+  fi
+  DECILLIONAI_SERVER_DIR="$server_dir"
+}
+
+# ─── Build WASM creatures via decillionai-server/build-all.sh ────────────────
+_build_creatures() {
+  local server_dir="$1"
+  local wasm_dir="$server_dir/wasm"
+  local wasm_count; wasm_count=$(find "$wasm_dir" -name "*.wasm" 2>/dev/null | wc -l)
+  if [[ $wasm_count -ge 6 ]]; then
+    ok "WASM creatures already built (${wasm_count} .wasm files)"
+    return 0
+  fi
+  [[ -f "$server_dir/build-all.sh" ]] \
+    || { warn "build-all.sh not found in $server_dir — skipping build"; return 1; }
+  info "Building WASM creatures via build-all.sh (~2-3 min)…"
+  export PATH="/usr/local/go123/bin:/usr/local/tinygo/bin:${PATH}"
+  export GOROOT="/usr/local/go123"
+  bash "$server_dir/build-all.sh" \
+    || { warn "build-all.sh failed — creature deployment may be incomplete"; return 1; }
+  ok "WASM creatures built: $(find "$wasm_dir" -name '*.wasm' 2>/dev/null | wc -l) files"
+}
+
+# ─── Deploy WASM creatures to the running Caspar nodes ───────────────────────
+_deploy_creatures() {
+  local server_dir="$1"
+  local deploy_script="$server_dir/bench/deploy.py"
+  [[ -f "$deploy_script" ]] \
+    || { warn "deploy.py not found at $deploy_script"; return 1; }
+  python3 -c "from Crypto.PublicKey import RSA" 2>/dev/null \
+    || { warn "pycryptodome not available — skipping deployment"; return 1; }
+  info "Deploying WASM creatures to node(s)…"
+  mkdir -p "$DATA_ROOT"
+  python3 "$deploy_script" 2>&1 | tee "$DATA_ROOT/deploy.log"
+  local report="${HOME:-/root}/deployment_report.json"
+  if [[ -f "$report" ]]; then
+    local ok_count
+    ok_count=$(python3 -c "
+import json
+try:
+    reps = json.load(open('$report'))
+    print(sum(r.get('ok_count', 0) for r in reps if isinstance(r, dict)))
+except Exception:
+    print(0)
+" 2>/dev/null || echo 0)
+    ok "Creature deployment complete — ${ok_count} WASM modules deployed"
+  else
+    warn "deploy.py finished but deployment_report.json not found"
+  fi
+}
+
 # ─── Dependency checks ───────────────────────────────────────────────────────
 check_dep() {
   local name="$1" cmd="$2" hint="$3"
@@ -957,6 +1085,31 @@ for n in "${NODES[@]}"; do
     all_up=false
   fi
 done
+
+# ─── Clone, build, and deploy WASM creatures ─────────────────────────────────
+# run-nodes.sh owns the full setup so the cluster is ready for benchmarking
+# the moment the script exits. bench-all.sh auto-detects this and skips the
+# deploy step when deployment_report.json already contains successful entries.
+if $DEPLOY_CREATURES; then
+  if $all_up; then
+    if _ensure_decillionai_server; then
+      _as_root _install_tinygo
+      _as_root _install_python_deps
+      # Make Go 1.23 / TinyGo visible in the current shell after root install
+      export PATH="/usr/local/go123/bin:/usr/local/tinygo/bin:${PATH}"
+      export GOROOT="/usr/local/go123"
+      if _build_creatures "$DECILLIONAI_SERVER_DIR"; then
+        info "Waiting 5s for nodes to settle before creature deployment…"
+        sleep 5
+        _deploy_creatures "$DECILLIONAI_SERVER_DIR"
+      fi
+    fi
+  else
+    warn "Skipping creature deployment — not all nodes came up cleanly"
+  fi
+else
+  info "Skipping creature build/deploy (--skip-deploy)"
+fi
 
 # ─── Summary ─────────────────────────────────────────────────────────────────
 echo ""
