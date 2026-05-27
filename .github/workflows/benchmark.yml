@@ -299,9 +299,9 @@ jobs:
             echo "No new report files to commit."
             exit 0
           fi
-          git commit -m "chore(reports): run #${{ github.run_number }} ${REPORT_TS}
-
-Mode: ${MODE}
-Run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
-Triggered by: ${{ github.actor }}"
+          git commit \
+            -m "chore(reports): run #${{ github.run_number }} ${REPORT_TS}" \
+            -m "Mode: ${MODE}" \
+            -m "Run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            -m "Triggered by: ${{ github.actor }}"
           git push
