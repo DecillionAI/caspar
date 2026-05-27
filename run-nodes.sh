@@ -2,7 +2,7 @@
 # run-nodes.sh — unified Caspar node runner
 #
 # Usage:
-#   ./run-nodes.sh [single|triple] [--no-questdb] [--fresh] [--help]
+#   ./run-nodes.sh [single|triple] [--no-questdb] [--fresh] [--with-gvisor] [--help]
 #
 # Modes:
 #   single  — run only node1 (default when --single or no arg given for quick dev)
@@ -11,6 +11,8 @@
 # Options:
 #   --no-questdb   skip QuestDB startup (useful if you manage it separately)
 #   --fresh        wipe /tmp/caspar/* before starting (clean-slate run)
+#   --with-gvisor  install + configure gVisor (runsc) for Docker VM sandboxing
+#                  (auto-skipped if Docker is not installed; needs sudo)
 #   --help         show this help
 #
 # Requirements (auto-checked, missing deps printed with install hint):
@@ -38,15 +40,17 @@ die()   { echo -e "${RED}[caspar] FATAL:${NC} $*" >&2; exit 1; }
 MODE="triple"
 START_QUESTDB=true
 FRESH=false
+WITH_GVISOR=false
 
 for arg in "$@"; do
   case "$arg" in
-    single)       MODE="single" ;;
-    triple)       MODE="triple" ;;
-    --no-questdb) START_QUESTDB=false ;;
-    --fresh)      FRESH=true ;;
+    single)        MODE="single" ;;
+    triple)        MODE="triple" ;;
+    --no-questdb)  START_QUESTDB=false ;;
+    --fresh)       FRESH=true ;;
+    --with-gvisor) WITH_GVISOR=true ;;
     --help|-h)
-      sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'
+      sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'
       exit 0
       ;;
     *) die "Unknown argument: $arg" ;;
@@ -99,6 +103,31 @@ if $START_QUESTDB && command -v java &>/dev/null; then
     warn "Java $jver found but QuestDB needs Java 11+. Skipping QuestDB."
     START_QUESTDB=false
   fi
+fi
+
+# ─── gVisor (runsc) check / install ──────────────────────────────────────────
+# Docker-backed VMs spawned by caspar-node use --runtime=runsc for kernel-level
+# sandboxing. If Docker is installed but runsc isn't, --with-gvisor will install
+# and configure it; otherwise we just warn.
+if command -v docker &>/dev/null; then
+  if command -v runsc &>/dev/null && docker info 2>/dev/null | grep -q runsc; then
+    ok "gVisor (runsc) installed and registered with Docker"
+  elif $WITH_GVISOR; then
+    info "Installing gVisor (runsc)…"
+    if [[ "$EUID" -eq 0 ]]; then
+      bash "$REPO_DIR/node/scripts/install-gvisor.sh"
+    elif command -v sudo &>/dev/null; then
+      sudo bash "$REPO_DIR/node/scripts/install-gvisor.sh"
+    else
+      warn "Cannot install gVisor: need root (no sudo available). Re-run as root with --with-gvisor"
+    fi
+  else
+    warn "gVisor (runsc) not installed. Docker-backed VMs will use the default runc."
+    warn "  To enable sandboxing:  sudo $REPO_DIR/node/scripts/install-gvisor.sh"
+    warn "  Or re-run:             $0 $* --with-gvisor"
+  fi
+else
+  $WITH_GVISOR && warn "--with-gvisor given but Docker is not installed; skipping"
 fi
 
 ok "All dependency checks passed"

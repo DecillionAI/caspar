@@ -27,6 +27,8 @@
 #   --skip-deploy    Skip creature deployment (use existing deployment)
 #   --skip-bench     Start nodes + deploy only, do not run benchmark
 #   --deploy-only    Start nodes + deploy only (same as --skip-bench)
+#   --with-gvisor    Install + configure gVisor (runsc) for Docker VM sandboxing
+#                    (no-op if Docker is not installed; needs sudo)
 #   --help           Show this help
 #
 # Output:
@@ -68,6 +70,7 @@ FRESH=false
 SKIP_BUILD=false
 SKIP_DEPLOY=false
 SKIP_BENCH=false
+WITH_GVISOR=false
 
 for arg in "$@"; do
   case "$arg" in
@@ -78,8 +81,9 @@ for arg in "$@"; do
     --skip-build)  SKIP_BUILD=true ;;
     --skip-deploy) SKIP_DEPLOY=true ;;
     --skip-bench|--deploy-only) SKIP_BENCH=true ;;
+    --with-gvisor) WITH_GVISOR=true ;;
     --help|-h)
-      sed -n '2,35p' "$0" | sed 's/^# \{0,1\}//'
+      sed -n '2,37p' "$0" | sed 's/^# \{0,1\}//'
       exit 0
       ;;
     *) die "Unknown argument: $arg" ;;
@@ -163,6 +167,26 @@ ok "deploy.py at $DEPLOY_SCRIPT"
 
 [[ -f "$BENCH_SCRIPT" ]] || die "workflow_tests.py not found at $BENCH_SCRIPT"
 ok "workflow_tests.py at $BENCH_SCRIPT"
+
+# gVisor (runsc) — required for sandboxed Docker-backed VMs.
+# Auto-install with --with-gvisor when Docker is present; otherwise warn.
+if command -v docker &>/dev/null; then
+  if command -v runsc &>/dev/null && docker info 2>/dev/null | grep -q runsc; then
+    ok "gVisor (runsc) registered with Docker"
+  elif $WITH_GVISOR; then
+    info "Installing gVisor (runsc)…"
+    if [[ "$EUID" -eq 0 ]]; then
+      bash "$REPO_DIR/node/scripts/install-gvisor.sh"
+    elif command -v sudo &>/dev/null; then
+      sudo bash "$REPO_DIR/node/scripts/install-gvisor.sh"
+    else
+      warn "Cannot install gVisor: need root. Re-run as root with --with-gvisor"
+    fi
+  else
+    warn "gVisor (runsc) not installed — Docker-backed VM workflows will fall back to runc"
+    warn "  Enable with: $0 $* --with-gvisor    (or: sudo $REPO_DIR/node/scripts/install-gvisor.sh)"
+  fi
+fi
 
 # =============================================================================
 # STEP 2 — Build binary
