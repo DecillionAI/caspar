@@ -115,7 +115,16 @@ jobs:
           context: .
           file: node/Dockerfile
           push: false
+          # load: true makes the image available to the local Docker daemon so
+          # run-nodes.sh can find it via `docker image inspect caspar-node:latest`
+          # and skip the redundant rebuild step.
+          load: true
           tags: caspar-node:latest
+          # Firecracker is not used in CI (run-nodes.sh is called with
+          # --no-firecracker), so skip the binary + kernel downloads to keep
+          # the image lean and avoid optional S3/GitHub download failures.
+          build-args: |
+            INSTALL_FIRECRACKER=false
           # Layer cache — dramatically speeds up repeat runs
           cache-from: type=gha
           cache-to:   type=gha,mode=max

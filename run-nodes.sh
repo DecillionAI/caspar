@@ -811,7 +811,12 @@ if $USE_DOCKER; then
       info "Docker image $DOCKER_IMAGE not present — building (runs build-dist.sh + docker build)…"
       bash "$REPO_DIR/build-dist.sh"
     fi
-    docker build -f "$REPO_DIR/node/Dockerfile" -t "$DOCKER_IMAGE" "$REPO_DIR"
+    # Pass --no-firecracker flag through to the Dockerfile so the image build
+    # skips the Firecracker binary + kernel downloads when they are not needed.
+    _fc_build_arg="true"; $SETUP_FIRECRACKER || _fc_build_arg="false"
+    docker build -f "$REPO_DIR/node/Dockerfile" \
+      --build-arg "INSTALL_FIRECRACKER=${_fc_build_arg}" \
+      -t "$DOCKER_IMAGE" "$REPO_DIR"
   fi
   ok "Docker image ready: $DOCKER_IMAGE"
 else
