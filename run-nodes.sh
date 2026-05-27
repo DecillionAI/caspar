@@ -745,7 +745,7 @@ finally:
 }
 
 _wait_nodes_app_ready() {
-  local max_wait=90
+  local max_wait=180
   info "Waiting for node(s) to be application-ready (up to ${max_wait}s)…"
   for n in "${NODES[@]}"; do
     local port=${NODE_TCP[$n]}
@@ -1233,7 +1233,7 @@ info "Waiting for node(s) to accept connections…"
 all_up=true
 for n in "${NODES[@]}"; do
   port=${NODE_TCP[$n]}
-  if wait_for_port localhost "$port" "node$n" 30; then
+  if wait_for_port localhost "$port" "node$n" 120; then
     ok "node$n up on TCP port $port"
   else
     $USE_DOCKER \
@@ -1247,21 +1247,28 @@ done
 # run-nodes.sh owns the full setup so the cluster is ready for benchmarking
 # the moment the script exits. bench-all.sh auto-detects this and skips the
 # deploy step when deployment_report.json already contains successful entries.
+#
+# The TCP-port check above is a fast initial probe; some nodes (especially
+# on a freshly-built Docker image) take longer than that to accept connections.
+# We therefore always proceed with the clone/build/deploy pipeline and rely on
+# _wait_nodes_app_ready (180 s) as the definitive readiness gate right before
+# creatures are pushed to the nodes.
 if $DEPLOY_CREATURES; then
-  if $all_up; then
-    if _ensure_decillionai_server; then
-      _as_root _install_tinygo
-      _as_root _install_python_deps
-      # Make Go 1.23 / TinyGo visible in the current shell after root install
-      export PATH="/usr/local/go123/bin:/usr/local/tinygo/bin:${PATH}"
-      export GOROOT="/usr/local/go123"
-      if _build_creatures "$DECILLIONAI_SERVER_DIR"; then
-        _wait_nodes_app_ready
-        _deploy_creatures "$DECILLIONAI_SERVER_DIR"
-      fi
+  if ! $all_up; then
+    warn "One or more node(s) did not respond on TCP within the initial 120 s window."
+    warn "Proceeding with creature build — node(s) may still be initialising."
+    warn "_wait_nodes_app_ready will verify readiness (up to 180 s) before deploying."
+  fi
+  if _ensure_decillionai_server; then
+    _as_root _install_tinygo
+    _as_root _install_python_deps
+    # Make Go 1.23 / TinyGo visible in the current shell after root install
+    export PATH="/usr/local/go123/bin:/usr/local/tinygo/bin:${PATH}"
+    export GOROOT="/usr/local/go123"
+    if _build_creatures "$DECILLIONAI_SERVER_DIR"; then
+      _wait_nodes_app_ready
+      _deploy_creatures "$DECILLIONAI_SERVER_DIR"
     fi
-  else
-    warn "Skipping creature deployment — not all nodes came up cleanly"
   fi
 else
   info "Skipping creature build/deploy (--skip-deploy)"
