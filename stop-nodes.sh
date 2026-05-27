@@ -69,7 +69,24 @@ else
   warn "docker not installed — skipping container shutdown"
 fi
 
-# ─── 3. Local caspar-node processes ──────────────────────────────────────────
+# ─── 3. Firecracker microVM processes ────────────────────────────────────────
+# Any firecracker processes caspar-node spawned must be killed before we
+# declare shutdown complete (they hold /opt/firecracker/vms/*.sock fds).
+fc_pids=$(ps -eo pid,cmd 2>/dev/null | awk '/[f]irecracker/ && !/awk/ && !/grep/ {print $1}')
+if [[ -n "$fc_pids" ]]; then
+  info "Stopping Firecracker microVM processes: $fc_pids"
+  for p in $fc_pids; do kill "$p" 2>/dev/null || true; done
+  sleep 2
+  still=$(ps -eo pid,cmd 2>/dev/null | awk '/[f]irecracker/ && !/awk/ && !/grep/ {print $1}')
+  [[ -n "$still" ]] && { for p in $still; do kill -9 "$p" 2>/dev/null || true; done; }
+  # Remove stale API sockets
+  rm -f /opt/firecracker/vms/fc.*.sock 2>/dev/null || true
+  ok "Firecracker processes stopped, sockets cleaned"
+else
+  info "No Firecracker processes running"
+fi
+
+# ─── 4. Local caspar-node processes ──────────────────────────────────────────
 pids=$(ps -eo pid,cmd 2>/dev/null \
   | awk '/caspar-node/ && !/awk/ && !/grep/ && !/run-nodes/ && !/stop-nodes/ {print $1}')
 if [[ -n "$pids" ]]; then
@@ -111,6 +128,15 @@ fi
 if $PURGE; then
   warn "--purge: wiping $DATA_ROOT entirely (including .env keys)"
   rm -rf "$DATA_ROOT"
+  # Tear down the Firecracker host bridge and NAT rules
+  FCVMM_NET="$(dirname "$0")/node/scripts/setup-fcvmm-network.sh"
+  if [[ -f "$FCVMM_NET" ]]; then
+    if [[ "$EUID" -eq 0 ]]; then
+      bash "$FCVMM_NET" --teardown 2>/dev/null || true
+    elif command -v sudo &>/dev/null; then
+      sudo bash "$FCVMM_NET" --teardown 2>/dev/null || true
+    fi
+  fi
   ok "All state purged"
 elif $CLEAN; then
   warn "--clean: wiping per-node state (keeping .env / keys)"

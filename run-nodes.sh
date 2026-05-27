@@ -17,6 +17,9 @@
 #   --no-gvisor      Skip gVisor (runsc) install / configuration. By default
 #                    gVisor is installed and registered with Docker so all
 #                    caspar VMs run sandboxed.
+#   --no-firecracker Skip Firecracker install and network setup. By default
+#                    Firecracker is installed and its host bridge is configured
+#                    so microVM-backed workloads can run immediately.
 #   --rebuild-image  Force rebuild of the caspar-node:latest docker image
 #                    (runs build-dist.sh + docker build)
 #   --foreground     (docker mode) keep tailing container logs until Ctrl-C
@@ -49,19 +52,21 @@ USE_DOCKER=true
 START_QUESTDB=true
 FRESH=false
 SETUP_GVISOR=true
+SETUP_FIRECRACKER=true
 REBUILD_IMAGE=false
 FOREGROUND=false
 
 for arg in "$@"; do
   case "$arg" in
-    single)          MODE="single" ;;
-    triple)          MODE="triple" ;;
-    --no-docker)     USE_DOCKER=false ;;
-    --no-questdb)    START_QUESTDB=false ;;
-    --fresh)         FRESH=true ;;
-    --no-gvisor)     SETUP_GVISOR=false ;;
-    --rebuild-image) REBUILD_IMAGE=true ;;
-    --foreground)    FOREGROUND=true ;;
+    single)            MODE="single" ;;
+    triple)            MODE="triple" ;;
+    --no-docker)       USE_DOCKER=false ;;
+    --no-questdb)      START_QUESTDB=false ;;
+    --fresh)           FRESH=true ;;
+    --no-gvisor)       SETUP_GVISOR=false ;;
+    --no-firecracker)  SETUP_FIRECRACKER=false ;;
+    --rebuild-image)   REBUILD_IMAGE=true ;;
+    --foreground)      FOREGROUND=true ;;
     --help|-h)
       sed -n '2,27p' "$0" | sed 's/^# \{0,1\}//'
       exit 0
@@ -135,6 +140,39 @@ else
   else
     warn "Cannot install gVisor: need root. Re-run as root, or pass --no-gvisor to skip."
   fi
+fi
+
+# ─── Firecracker (microVM runtime) check / install (default ON) ──────────────
+# caspar-node's fire_vm_controller spawns /usr/local/bin/firecracker for
+# microVM workloads. We also run setup-fcvmm-network.sh to ensure the host
+# bridge (br0) and NAT rules are in place before the node starts.
+_run_privileged() {
+  if [[ "$EUID" -eq 0 ]]; then
+    bash "$@"
+  elif command -v sudo &>/dev/null; then
+    sudo bash "$@"
+  else
+    warn "Cannot run '$*': need root (no sudo). Pass --no-firecracker to skip."
+    return 1
+  fi
+}
+
+if ! $SETUP_FIRECRACKER; then
+  info "Skipping Firecracker setup (--no-firecracker)"
+else
+  # Install binary + kernel + rootfs if missing
+  if command -v firecracker &>/dev/null && [[ -f /opt/firecracker/kernel/vmlinux ]]; then
+    ok "Firecracker installed: $(firecracker --version 2>&1 | head -1)"
+  else
+    info "Installing Firecracker…"
+    _run_privileged "$REPO_DIR/node/scripts/install-fcvmm.sh"
+  fi
+
+  # Configure host bridge + NAT (idempotent, needed on every boot)
+  info "Configuring Firecracker host network (bridge + NAT)…"
+  _run_privileged "$REPO_DIR/node/scripts/setup-fcvmm-network.sh" \
+    && ok "Firecracker network ready" \
+    || warn "Firecracker network setup failed — microVM networking may not work"
 fi
 
 ok "All dependency checks passed"

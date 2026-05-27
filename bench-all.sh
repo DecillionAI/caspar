@@ -30,6 +30,8 @@
 #   --no-gvisor      Skip gVisor (runsc) install / configuration. By default
 #                    gVisor is installed and registered with Docker so all
 #                    caspar VMs run sandboxed. No-op when Docker is absent.
+#   --no-firecracker Skip Firecracker install and network setup. By default
+#                    Firecracker is installed and its host bridge is configured.
 #   --help           Show this help
 #
 # Output:
@@ -72,17 +74,19 @@ SKIP_BUILD=false
 SKIP_DEPLOY=false
 SKIP_BENCH=false
 SETUP_GVISOR=true
+SETUP_FIRECRACKER=true
 
 for arg in "$@"; do
   case "$arg" in
-    single)        MODE="single" ;;
-    triple)        MODE="triple" ;;
-    --no-questdb)  START_QUESTDB=false ;;
-    --fresh)       FRESH=true ;;
-    --skip-build)  SKIP_BUILD=true ;;
-    --skip-deploy) SKIP_DEPLOY=true ;;
+    single)            MODE="single" ;;
+    triple)            MODE="triple" ;;
+    --no-questdb)      START_QUESTDB=false ;;
+    --fresh)           FRESH=true ;;
+    --skip-build)      SKIP_BUILD=true ;;
+    --skip-deploy)     SKIP_DEPLOY=true ;;
     --skip-bench|--deploy-only) SKIP_BENCH=true ;;
-    --no-gvisor)   SETUP_GVISOR=false ;;
+    --no-gvisor)       SETUP_GVISOR=false ;;
+    --no-firecracker)  SETUP_FIRECRACKER=false ;;
     --help|-h)
       sed -n '2,37p' "$0" | sed 's/^# \{0,1\}//'
       exit 0
@@ -169,6 +173,18 @@ ok "deploy.py at $DEPLOY_SCRIPT"
 [[ -f "$BENCH_SCRIPT" ]] || die "workflow_tests.py not found at $BENCH_SCRIPT"
 ok "workflow_tests.py at $BENCH_SCRIPT"
 
+# Shared helper for privileged script execution
+_run_privileged() {
+  if [[ "$EUID" -eq 0 ]]; then
+    bash "$@"
+  elif command -v sudo &>/dev/null; then
+    sudo bash "$@"
+  else
+    warn "Cannot run '$*': need root (no sudo). Pass the corresponding --no-* flag to skip."
+    return 1
+  fi
+}
+
 # gVisor (runsc) — installed by default so Docker-backed VMs run sandboxed.
 # Pass --no-gvisor to skip. No-op when Docker is not installed.
 if ! $SETUP_GVISOR; then
@@ -179,13 +195,24 @@ elif command -v runsc &>/dev/null && docker info 2>/dev/null | grep -q runsc; th
   ok "gVisor (runsc) registered with Docker"
 else
   info "Installing gVisor (runsc)…"
-  if [[ "$EUID" -eq 0 ]]; then
-    bash "$REPO_DIR/node/scripts/install-gvisor.sh"
-  elif command -v sudo &>/dev/null; then
-    sudo bash "$REPO_DIR/node/scripts/install-gvisor.sh"
+  _run_privileged "$REPO_DIR/node/scripts/install-gvisor.sh"
+fi
+
+# Firecracker — installed by default for microVM-backed workloads.
+# Pass --no-firecracker to skip.
+if ! $SETUP_FIRECRACKER; then
+  info "Skipping Firecracker setup (--no-firecracker)"
+else
+  if command -v firecracker &>/dev/null && [[ -f /opt/firecracker/kernel/vmlinux ]]; then
+    ok "Firecracker installed: $(firecracker --version 2>&1 | head -1)"
   else
-    warn "Cannot install gVisor: need root. Re-run as root, or pass --no-gvisor to skip."
+    info "Installing Firecracker…"
+    _run_privileged "$REPO_DIR/node/scripts/install-fcvmm.sh"
   fi
+  info "Configuring Firecracker host network (bridge + NAT)…"
+  _run_privileged "$REPO_DIR/node/scripts/setup-fcvmm-network.sh" \
+    && ok "Firecracker network ready" \
+    || warn "Firecracker network setup failed — microVM networking may not work"
 fi
 
 # =============================================================================

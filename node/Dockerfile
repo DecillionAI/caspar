@@ -60,12 +60,14 @@ RUN apt-get update -y && apt-get install -y --no-install-recommends \
 COPY dist/questdb/questdb.jar /opt/questdb/questdb.jar
 
 # ─── Firecracker microVM manager ────────────────────────────────────────────
-COPY node/scripts/install-fcvmm.sh /tmp/install-fcvmm.sh
-RUN apt-get update -y && apt-get install -y --no-install-recommends \
-    make git gcc libelf-dev pkg-config lsof screen net-tools \
-    && bash /tmp/install-fcvmm.sh \
-    && apt-get clean && rm -rf /var/lib/apt/lists/* \
-    && rm /tmp/install-fcvmm.sh
+# install-fcvmm.sh fetches the binary, kernel, and rootfs.
+# setup-fcvmm-network.sh is NOT run at build time — it configures the host
+# network bridge at container-start time and requires the real network stack.
+COPY node/scripts/install-fcvmm.sh node/scripts/setup-fcvmm-network.sh /tmp/fcvmm/
+RUN bash /tmp/fcvmm/install-fcvmm.sh \
+    && cp /tmp/fcvmm/setup-fcvmm-network.sh /usr/local/bin/setup-fcvmm-network.sh \
+    && chmod +x /usr/local/bin/setup-fcvmm-network.sh \
+    && rm -rf /tmp/fcvmm
 
 # ─── Entrypoint ─────────────────────────────────────────────────────────────
 COPY node/scripts/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
