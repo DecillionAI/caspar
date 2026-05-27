@@ -27,8 +27,9 @@
 #   --skip-deploy    Skip creature deployment (use existing deployment)
 #   --skip-bench     Start nodes + deploy only, do not run benchmark
 #   --deploy-only    Start nodes + deploy only (same as --skip-bench)
-#   --with-gvisor    Install + configure gVisor (runsc) for Docker VM sandboxing
-#                    (no-op if Docker is not installed; needs sudo)
+#   --no-gvisor      Skip gVisor (runsc) install / configuration. By default
+#                    gVisor is installed and registered with Docker so all
+#                    caspar VMs run sandboxed. No-op when Docker is absent.
 #   --help           Show this help
 #
 # Output:
@@ -70,7 +71,7 @@ FRESH=false
 SKIP_BUILD=false
 SKIP_DEPLOY=false
 SKIP_BENCH=false
-WITH_GVISOR=false
+SETUP_GVISOR=true
 
 for arg in "$@"; do
   case "$arg" in
@@ -81,7 +82,7 @@ for arg in "$@"; do
     --skip-build)  SKIP_BUILD=true ;;
     --skip-deploy) SKIP_DEPLOY=true ;;
     --skip-bench|--deploy-only) SKIP_BENCH=true ;;
-    --with-gvisor) WITH_GVISOR=true ;;
+    --no-gvisor)   SETUP_GVISOR=false ;;
     --help|-h)
       sed -n '2,37p' "$0" | sed 's/^# \{0,1\}//'
       exit 0
@@ -168,23 +169,22 @@ ok "deploy.py at $DEPLOY_SCRIPT"
 [[ -f "$BENCH_SCRIPT" ]] || die "workflow_tests.py not found at $BENCH_SCRIPT"
 ok "workflow_tests.py at $BENCH_SCRIPT"
 
-# gVisor (runsc) — required for sandboxed Docker-backed VMs.
-# Auto-install with --with-gvisor when Docker is present; otherwise warn.
-if command -v docker &>/dev/null; then
-  if command -v runsc &>/dev/null && docker info 2>/dev/null | grep -q runsc; then
-    ok "gVisor (runsc) registered with Docker"
-  elif $WITH_GVISOR; then
-    info "Installing gVisor (runsc)…"
-    if [[ "$EUID" -eq 0 ]]; then
-      bash "$REPO_DIR/node/scripts/install-gvisor.sh"
-    elif command -v sudo &>/dev/null; then
-      sudo bash "$REPO_DIR/node/scripts/install-gvisor.sh"
-    else
-      warn "Cannot install gVisor: need root. Re-run as root with --with-gvisor"
-    fi
+# gVisor (runsc) — installed by default so Docker-backed VMs run sandboxed.
+# Pass --no-gvisor to skip. No-op when Docker is not installed.
+if ! $SETUP_GVISOR; then
+  info "Skipping gVisor setup (--no-gvisor)"
+elif ! command -v docker &>/dev/null; then
+  warn "Docker not installed — skipping gVisor setup"
+elif command -v runsc &>/dev/null && docker info 2>/dev/null | grep -q runsc; then
+  ok "gVisor (runsc) registered with Docker"
+else
+  info "Installing gVisor (runsc)…"
+  if [[ "$EUID" -eq 0 ]]; then
+    bash "$REPO_DIR/node/scripts/install-gvisor.sh"
+  elif command -v sudo &>/dev/null; then
+    sudo bash "$REPO_DIR/node/scripts/install-gvisor.sh"
   else
-    warn "gVisor (runsc) not installed — Docker-backed VM workflows will fall back to runc"
-    warn "  Enable with: $0 $* --with-gvisor    (or: sudo $REPO_DIR/node/scripts/install-gvisor.sh)"
+    warn "Cannot install gVisor: need root. Re-run as root, or pass --no-gvisor to skip."
   fi
 fi
 
