@@ -1,58 +1,76 @@
+# =============================================================================
+# Caspar Node — pre-built image
+#
+# IMPORTANT: Run `./build-dist.sh` at the repo root BEFORE `docker build`.
+# That script compiles caspar-node, casparctl, and copies all native libraries
+# into dist/.  This Dockerfile copies those artifacts directly, so the build
+# takes ~30s instead of ~45 min.
+#
+# Build:
+#   ./build-dist.sh
+#   docker build -f node/Dockerfile -t caspar-node:latest .
+#
+# Run (single node, minimal):
+#   docker run -d \
+#     --env-file /tmp/caspar/node1/.env \
+#     -e BABBLE_DIR=/app/data/babble \
+#     -p 8074:8074 -p 8076:8076 -p 8077:8077 \
+#     caspar-node:latest
+# =============================================================================
+
 FROM ubuntu:24.04
 WORKDIR /app
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-RUN apt-get update -y && apt-get upgrade -y && \
-    apt-get install -y curl dpkg-dev g++ gcc git ninja-build \
-    software-properties-common wget zlib1g-dev imagemagick valgrind && \
-    apt-get install -y cmake && \
-    apt-get install -y clang-17 liblld-17-dev libpolly-17-dev llvm-17-dev && \
-    apt-get clean && \
-    update-alternatives --install /usr/bin/clang clang /usr/bin/clang-17 100 && \
-    update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-17 100 && \
-    update-alternatives --install /usr/bin/llvm-strip llvm-strip /usr/bin/llvm-strip-17 100
+# ─── Runtime dependencies only (no compiler, no Rust) ───────────────────────
+# Everything else is statically linked into caspar-node.
+RUN apt-get update -y && apt-get install -y --no-install-recommends \
+    libstdc++6 \
+    zlib1g \
+    libtinfo6 \
+    ca-certificates \
+    curl \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
 
-ENV CC=/usr/bin/clang-17
-ENV CXX=/usr/bin/clang++-17
+# ─── WasmEdge runtime library (pre-built, from dist/lib/wasmedge/) ──────────
+COPY dist/lib/wasmedge/ /usr/local/lib/wasmedge/
 
-RUN curl -sSf https://raw.githubusercontent.com/WasmEdge/WasmEdge/master/utils/install.sh | bash -s -- -v 0.14.0
+RUN echo "/usr/local/lib/wasmedge" > /etc/ld.so.conf.d/wasmedge.conf \
+ && ldconfig
 
-ENV PATH="/root/.wasmedge/bin:$PATH"
-ENV LD_LIBRARY_PATH="/root/.wasmedge/lib:$LD_LIBRARY_PATH"
-ENV LIBRARY_PATH="/root/.wasmedge/lib:$LIBRARY_PATH"
-ENV C_INCLUDE_PATH="/root/.wasmedge/include:$C_INCLUDE_PATH"
-ENV CPLUS_INCLUDE_PATH="/root/.wasmedge/include:$CPLUS_INCLUDE_PATH"
-ENV WASMEDGE_LIB_DIR="/root/.wasmedge/lib"
+ENV LD_LIBRARY_PATH="/usr/local/lib/wasmedge"
+ENV WASMEDGE_LIB_DIR="/usr/local/lib/wasmedge"
 
-RUN apt install -y libgflags-dev libsnappy-dev libbz2-dev liblz4-dev libnuma-dev libzmq3-dev
+# ─── Node binaries (pre-built, from dist/bin/) ──────────────────────────────
+COPY dist/bin/caspar-node   /usr/local/bin/caspar-node
+COPY dist/bin/caspar-keygen /usr/local/bin/caspar-keygen
+COPY dist/bin/casparctl      /usr/local/bin/casparctl
 
-RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
-ENV PATH="/root/.cargo/bin:$PATH"
+RUN chmod +x /usr/local/bin/caspar-node \
+             /usr/local/bin/caspar-keygen \
+             /usr/local/bin/casparctl
 
-COPY . /app
+# ─── Java (for QuestDB telemetry process) ───────────────────────────────────
+RUN apt-get update -y && apt-get install -y --no-install-recommends \
+    openjdk-17-jre-headless \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
 
-RUN mkdir -p /app/storage
+# ─── QuestDB telemetry server (pre-fetched, from dist/questdb/) ─────────────
+COPY dist/questdb/questdb.jar /opt/questdb/questdb.jar
 
-RUN bash node/scripts/install-fcvmm.sh
+# ─── Firecracker microVM manager ────────────────────────────────────────────
+COPY node/scripts/install-fcvmm.sh /tmp/install-fcvmm.sh
+RUN apt-get update -y && apt-get install -y --no-install-recommends \
+    make git gcc libelf-dev pkg-config lsof screen net-tools \
+    && bash /tmp/install-fcvmm.sh \
+    && apt-get clean && rm -rf /var/lib/apt/lists/* \
+    && rm /tmp/install-fcvmm.sh
 
-RUN apt install -y openjdk-17-jdk openjdk-17-jre
-ENV JAVA_HOME="/usr/lib/jvm/java-17-openjdk-arm64"
-ENV PATH=$JAVA_HOME/bin:$PATH
+# ─── Entrypoint ─────────────────────────────────────────────────────────────
+COPY node/scripts/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
-RUN bash node/scripts/install-questdb.sh
-ENV PKG_CONFIG_PATH="$PKG_CONFIG_PATH:/usr/local/lib/pkgconfig"
+RUN mkdir -p /app/data
 
-# Build the Rust appengine that the vmm driver bridges to over ZMQ.
-WORKDIR /app/node/crates/appengine
-RUN cargo build --release
-
-# Build the node binary, the keygen helper, and the casparctl CLI.
-WORKDIR /app
-RUN cargo build --release --manifest-path node/Cargo.toml
-RUN cargo build --release --manifest-path cmd/casparctl/Cargo.toml
-RUN cp node/target/release/caspar-node    /app/kasper
-RUN cp node/target/release/caspar-keygen  /app/caspar-keygen
-RUN cp cmd/casparctl/target/release/casparctl /app/casparctl
-
-ENTRYPOINT ["bash", "/app/node/scripts/run.sh"]
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
