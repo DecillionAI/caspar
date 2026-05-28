@@ -620,12 +620,18 @@ TINYGO_VERSION="0.34.0"
 
 _install_tinygo() {
   set -e
+  # _as_root re-invokes this function under `sudo bash` after dumping only
+  # function definitions, so top-level scalars like TINYGO_VERSION are NOT
+  # carried into that subshell. Default at function entry to keep the
+  # download URL correct in both direct and via-sudo call paths.
+  local tinygo_version="${TINYGO_VERSION:-0.34.0}"
+
   command -v tinygo &>/dev/null && {
     ok "TinyGo already installed: $(tinygo version 2>&1 | head -1)"
     return 0
   }
 
-  info "Installing TinyGo ${TINYGO_VERSION}…"
+  info "Installing TinyGo ${tinygo_version}…"
   local hw_arch; hw_arch=$(uname -m)
   local tg_arch
   case "$hw_arch" in
@@ -650,9 +656,9 @@ _install_tinygo() {
   fi
 
   # ── TinyGo binary ─────────────────────────────────────────────────────────
-  local tg_tgz="tinygo${TINYGO_VERSION}.linux-${tg_arch}.tar.gz"
+  local tg_tgz="tinygo${tinygo_version}.linux-${tg_arch}.tar.gz"
   curl -fsSL \
-    "https://github.com/tinygo-org/tinygo/releases/download/v${TINYGO_VERSION}/${tg_tgz}" \
+    "https://github.com/tinygo-org/tinygo/releases/download/v${tinygo_version}/${tg_tgz}" \
     -o "/tmp/${tg_tgz}"
   tar -xzf "/tmp/${tg_tgz}" -C /usr/local
   rm -f "/tmp/${tg_tgz}"
