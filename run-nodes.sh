@@ -130,7 +130,7 @@ for arg in "$@"; do
     single)            MODE="single" ;;
     triple)            MODE="triple" ;;
     --no-docker)       USE_DOCKER=false ;;
-    --no-questdb)      START_QUESTDB=false ;;
+    --no-questdb)      warn "--no-questdb is ignored: nodes require QuestDB on port 8812 to start" ;;
     --fresh)           FRESH=true ;;
     --no-gvisor)       SETUP_GVISOR=false ;;
     --no-firecracker)  SETUP_FIRECRACKER=false ;;
@@ -862,41 +862,6 @@ else
   check_dep "Rust/cargo" "cargo" "curl https://sh.rustup.rs -sSf | sh"
 fi
 
-if $START_QUESTDB; then
-  _java_hint() {
-    case "$(_pkg_mgr)" in
-      apt)    echo "apt-get install -y default-jre" ;;
-      dnf|yum) echo "dnf install -y java-11-openjdk" ;;
-      pacman) echo "pacman -S jre-openjdk" ;;
-      *)      echo "install Java 11+ for your distro" ;;
-    esac
-  }
-  check_dep "java" "java" "$(_java_hint)"
-  if [[ ! -f "$QUESTDB_JAR" ]]; then
-    if command -v curl &>/dev/null; then
-      warn "QuestDB jar not found at $QUESTDB_JAR — downloading…"
-      mkdir -p /opt/questdb
-      QDB_VER="8.3.1"
-      curl -fsSL \
-        "https://github.com/questdb/questdb/releases/download/$QDB_VER/questdb-$QDB_VER-no-jre-bin.tar.gz" \
-        -o /tmp/questdb.tar.gz
-      tar -xzf /tmp/questdb.tar.gz -C /opt/questdb --strip-components=1
-      mv /opt/questdb/questdb.jar "$QUESTDB_JAR" 2>/dev/null || true
-      rm -f /tmp/questdb.tar.gz
-      ok "QuestDB downloaded to $QUESTDB_JAR"
-    else
-      die "QuestDB jar not found: $QUESTDB_JAR"
-    fi
-  fi
-
-  jver=$(java -version 2>&1 | grep -oP '(?<=version ")[0-9]+' | head -1)
-  [[ -z "$jver" ]] && jver=$(java -version 2>&1 | grep -oP '"[0-9]+\.' | grep -oP '[0-9]+')
-  if [[ "${jver:-0}" -lt 11 ]]; then
-    warn "Java $jver found but QuestDB needs Java 11+. Skipping QuestDB."
-    START_QUESTDB=false
-  fi
-fi
-
 # ─── gVisor (runsc) — default ON ──────────────────────────────────────────────
 if ! $SETUP_GVISOR; then
   info "Skipping gVisor setup (--no-gvisor)"
@@ -962,7 +927,8 @@ stop_existing() {
   fi
 
   local jpids
-  jpids=$(ps -eo pid,cmd 2>/dev/null | awk '/questdb/ && !/awk/ && !/grep/ {print $1}')
+  # Match 'questdb' as a standalone word (not in flags like --no-questdb or --skip-questdb).
+  jpids=$(ps -eo pid,cmd 2>/dev/null | awk '/[^-]questdb/ && !/awk/ && !/grep/ && !/run-nodes/ {print $1}')
   if [[ -n "$jpids" ]]; then
     info "Stopping existing QuestDB processes: $jpids"
     for p in $jpids; do kill "$p" 2>/dev/null || true; done
@@ -970,6 +936,56 @@ stop_existing() {
   fi
 }
 stop_existing
+
+# ─── Start QuestDB (mandatory) ───────────────────────────────────────────────
+# caspar nodes hardcode a connection to localhost:8812; they cannot start
+# without QuestDB running. We start it here, after stop_existing has cleaned
+# up stale processes, so a fresh QuestDB always backs each cluster run.
+_java_hint() {
+  case "$(_pkg_mgr)" in
+    apt)    echo "apt-get install -y default-jre" ;;
+    dnf|yum) echo "dnf install -y java-11-openjdk" ;;
+    pacman) echo "pacman -S jre-openjdk" ;;
+    *)      echo "install Java 11+ for your distro" ;;
+  esac
+}
+
+QUESTDB_PID=""
+if python3 -c "import socket; s=socket.socket(); s.settimeout(1); s.connect(('127.0.0.1',$QUESTDB_PORT)); s.close()" 2>/dev/null; then
+  ok "QuestDB already running on port $QUESTDB_PORT"
+else
+  check_dep "java" "java" "$(_java_hint)"
+  if [[ ! -f "$QUESTDB_JAR" ]]; then
+    if command -v curl &>/dev/null; then
+      warn "QuestDB jar not found at $QUESTDB_JAR — downloading…"
+      mkdir -p "$(dirname "$QUESTDB_JAR")"
+      QDB_VER="8.3.1"
+      curl -fsSL \
+        "https://github.com/questdb/questdb/releases/download/$QDB_VER/questdb-$QDB_VER-no-jre-bin.tar.gz" \
+        -o /tmp/questdb.tar.gz
+      tar -xzf /tmp/questdb.tar.gz -C "$(dirname "$QUESTDB_JAR")" --strip-components=1
+      rm -f /tmp/questdb.tar.gz
+      ok "QuestDB downloaded to $QUESTDB_JAR"
+    else
+      die "QuestDB jar not found: $QUESTDB_JAR — caspar nodes cannot start without it"
+    fi
+  fi
+  jver=$(java -version 2>&1 | grep -oP '(?<=version ")[0-9]+' | head -1)
+  [[ -z "$jver" ]] && jver=$(java -version 2>&1 | grep -oP '"[0-9]+\.' | grep -oP '[0-9]+')
+  if [[ "${jver:-0}" -lt 11 ]]; then
+    die "Java $jver found but QuestDB needs Java 11+ — caspar nodes cannot start without QuestDB"
+  fi
+  mkdir -p "$QUESTDB_DATA"
+  info "Starting QuestDB on port $QUESTDB_PORT…"
+  java -jar "$QUESTDB_JAR" -m io.questdb/io.questdb.ServerMain \
+       -d "$QUESTDB_DATA" >> "$DATA_ROOT/questdb.log" 2>&1 &
+  QUESTDB_PID=$!
+  if wait_for_port localhost $QUESTDB_PORT QuestDB 300; then
+    ok "QuestDB ready (pid $QUESTDB_PID)"
+  else
+    die "QuestDB did not start within 300s — check $DATA_ROOT/questdb.log"
+  fi
+fi
 
 # ─── Build / fetch the artifact we need ──────────────────────────────────────
 # Ensure ~/.cargo/bin is in PATH so build-dist.sh can find cargo if needed
@@ -1038,20 +1054,6 @@ wait_for_port() {
   return 0
 }
 
-# ─── Start QuestDB ───────────────────────────────────────────────────────────
-QUESTDB_PID=""
-if $START_QUESTDB; then
-  mkdir -p "$QUESTDB_DATA"
-  info "Starting QuestDB on port $QUESTDB_PORT…"
-  java -jar "$QUESTDB_JAR" -m io.questdb/io.questdb.ServerMain \
-       -d "$QUESTDB_DATA" >> "$DATA_ROOT/questdb.log" 2>&1 &
-  QUESTDB_PID=$!
-  if wait_for_port localhost $QUESTDB_PORT QuestDB 45; then
-    ok "QuestDB ready (pid $QUESTDB_PID)"
-  else
-    warn "QuestDB did not come up within 45s — nodes may log telemetry errors but will function"
-  fi
-fi
 
 # ─── Per-node config ──────────────────────────────────────────────────────────
 # NODE LAYOUT:
@@ -1208,9 +1210,65 @@ docker_start_node() {
   )
   [[ -S /var/run/docker.sock ]] \
     && docker_args+=( -v /var/run/docker.sock:/var/run/docker.sock )
+  # Mount the shardchain.sh script so the node can bootstrap babble shards.
+  local scripts_dir="$REPO_DIR/node/scripts"
+  [[ -d "$scripts_dir" ]] \
+    && docker_args+=( -v "$scripts_dir":/app/scripts:ro )
 
   docker run -d "${docker_args[@]}" "$DOCKER_IMAGE" >/dev/null
   echo "$container"
+}
+
+# ─── Generate babble peers.genesis.json for all nodes ────────────────────────
+# The caspar node calls shardchain.sh to bootstrap each new babble shard.
+# shardchain.sh copies BABBLE_DATA_DIR/{priv_key,key.pub,peers.genesis.json}
+# into the shard directory.  We pre-generate the peer list here — before any
+# node starts — so every node can find it on first boot without a network call.
+_gen_peers_genesis() {
+  info "Generating babble peers.genesis.json for all nodes…"
+  # Derive secp256k1 public key from each node's private key.
+  local pub_keys=()
+  for n in "${NODES[@]}"; do
+    local priv_file="$DATA_ROOT/node${n}/babble/priv_key"
+    if [[ ! -f "$priv_file" ]]; then
+      warn "babble priv_key missing for node$n — peers.genesis.json skipped"
+      return 1
+    fi
+    local pub_hex
+    pub_hex=$(python3 - "$priv_file" << 'PYEOF'
+import sys
+from cryptography.hazmat.primitives.asymmetric.ec import derive_private_key, SECP256K1
+from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
+from cryptography.hazmat.backends import default_backend
+priv_hex = open(sys.argv[1]).read().strip()
+key = derive_private_key(int(priv_hex, 16), SECP256K1(), default_backend())
+pub = key.public_key().public_bytes(Encoding.X962, PublicFormat.UncompressedPoint)
+print(pub.hex())
+PYEOF
+) || { warn "Failed to derive babble pubkey for node$n"; return 1; }
+    pub_keys+=("$pub_hex")
+    # Also write key.pub so shardchain.sh can copy it.
+    echo "$pub_hex" > "$DATA_ROOT/node${n}/babble/key.pub"
+  done
+
+  # Build the peers JSON array.
+  local peers_json="["
+  local sep=""
+  local i=0
+  for n in "${NODES[@]}"; do
+    local chain_port=$((NODE_TCP[$n] + 4))   # 8078 / 8178 / 8278
+    local pub_upper; pub_upper=$(echo "${pub_keys[$i]}" | tr '[:lower:]' '[:upper:]')
+    peers_json+="${sep}{\"NetAddr\":\"127.0.0.1:${chain_port}\",\"PubKeyHex\":\"0X${pub_upper}\",\"Moniker\":\"node${n}\"}"
+    sep=","
+    i=$((i+1))
+  done
+  peers_json+="]"
+
+  # Write to every node's babble directory.
+  for n in "${NODES[@]}"; do
+    echo "$peers_json" > "$DATA_ROOT/node${n}/babble/peers.genesis.json"
+  done
+  ok "Babble peers.genesis.json written for ${#NODES[@]} node(s)"
 }
 
 # ─── Launch nodes ────────────────────────────────────────────────────────────
@@ -1219,6 +1277,11 @@ declare -a STARTED_CONTAINERS=()
 
 for n in "${NODES[@]}"; do
   ensure_node_config "$n"
+done
+
+_gen_peers_genesis || warn "Babble peer bootstrap skipped — chains/registerNode may fail"
+
+for n in "${NODES[@]}"; do
   if $USE_DOCKER; then
     container=$(docker_start_node "$n")
     STARTED_CONTAINERS+=("$container")
