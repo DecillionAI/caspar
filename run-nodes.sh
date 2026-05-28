@@ -1000,6 +1000,7 @@ else
   for n in "${NODES[@]}"; do
     local_pg=$((8812 + (n - 1) * 100))
     local_http=$((9000 + (n - 1) * 100))
+    local_http_min=$((9003 + (n - 1) * 100))
     local_ilp=$((9009 + (n - 1) * 100))
     local_data="$DATA_ROOT/node${n}/questdb"
     if python3 -c "import socket; s=socket.socket(); s.settimeout(1); s.connect(('127.0.0.1',$local_pg)); s.close()" 2>/dev/null; then
@@ -1007,10 +1008,16 @@ else
       continue
     fi
     mkdir -p "$local_data"
-    info "Starting QuestDB for node$n (PG=$local_pg, HTTP=$local_http, ILP=$local_ilp)…"
+    info "Starting QuestDB for node$n (PG=$local_pg, HTTP=$local_http, MIN=$local_http_min, ILP=$local_ilp)…"
+    # Override every listener QuestDB opens. The min HTTP server and the
+    # UDP line-protocol listener default to 9003 / 9009 — without these
+    # overrides a second QuestDB instance on the same host network would
+    # crash on bind().
     QDB_PG_NET_BIND_TO="0.0.0.0:${local_pg}" \
     QDB_HTTP_NET_BIND_TO="0.0.0.0:${local_http}" \
+    QDB_HTTP_MIN_NET_BIND_TO="0.0.0.0:${local_http_min}" \
     QDB_LINE_TCP_NET_BIND_TO="0.0.0.0:${local_ilp}" \
+    QDB_LINE_UDP_ENABLED=false \
     java -jar "$QUESTDB_JAR" -m io.questdb/io.questdb.ServerMain \
          -d "$local_data" >> "$DATA_ROOT/node${n}/questdb.log" 2>&1 &
     QUESTDB_PIDS+=("$!")
@@ -1145,10 +1152,13 @@ print(RSA.generate(2048).export_key().decode(), end='')
 
   # Per-node QuestDB ports — each node gets its own QuestDB instance so
   # docker containers (which share host net via --network host) do not
-  # collide on the default 8812.
-  local qdb_pg_port=$((8812 + (n - 1) * 100))    # 8812 / 8912 / 9012
-  local qdb_http_port=$((9000 + (n - 1) * 100))  # 9000 / 9100 / 9200
-  local qdb_ilp_port=$((9009 + (n - 1) * 100))   # 9009 / 9109 / 9209
+  # collide on the default 8812. Every listener QuestDB opens must be
+  # remapped, otherwise the second/third JVM crashes on bind() and the
+  # entrypoint exits before caspar-node ever starts.
+  local qdb_pg_port=$((8812 + (n - 1) * 100))        # 8812 / 8912 / 9012
+  local qdb_http_port=$((9000 + (n - 1) * 100))      # 9000 / 9100 / 9200
+  local qdb_http_min_port=$((9003 + (n - 1) * 100))  # 9003 / 9103 / 9203
+  local qdb_ilp_port=$((9009 + (n - 1) * 100))       # 9009 / 9109 / 9209
 
   local is_head root_node
   [[ $n -eq 1 ]] && is_head="true" || is_head="false"
@@ -1186,6 +1196,7 @@ BABBLE_DIR=/app/data/babble
 BABBLE_DATA_DIR=/app/data/babble
 QUESTDB_PORT=${qdb_pg_port}
 QUESTDB_HTTP_PORT=${qdb_http_port}
+QUESTDB_HTTP_MIN_PORT=${qdb_http_min_port}
 QUESTDB_ILP_PORT=${qdb_ilp_port}
 QUESTDB_DATA_DIR=/app/data/questdb
 EOF
