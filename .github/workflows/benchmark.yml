@@ -130,25 +130,30 @@ jobs:
           cache-to:   type=gha,mode=max
 
       # ═══════════════════════════════════════════════════════════════════════
-      # 5. START CLUSTER
+      # 5. START CLUSTER  +  CREATURE BUILD/DEPLOY
       #    run-nodes.sh owns the full bootstrap: per-node RSA + babble keys,
-      #    .env files (including QUESTDB_PORT / QUESTDB_HTTP_PORT /
-      #    QUESTDB_ILP_PORT / QUESTDB_DATA_DIR — required for the per-container
-      #    QuestDB layout), peers.genesis.json, container startup, creature
-      #    build and deploy.  --skip-deploy here so the benchmark step (which
-      #    runs bench-all.sh) controls deployment and can collect its own logs.
+      #    .env files (including the per-container QuestDB port set),
+      #    peers.genesis.json, container startup, tinygo install, WASM
+      #    creature build via decillionai-server/build-all.sh, and the
+      #    deploy.py push that writes ~/deployment_report.json.  The
+      #    DECILLIONAI_SERVER env tells run-nodes.sh to reuse the checkout
+      #    above instead of cloning a second copy.
       # ═══════════════════════════════════════════════════════════════════════
 
-      - name: Start ${{ env.MODE }}-node cluster  (run-nodes.sh)
-        run: bash run-nodes.sh "$MODE" --no-gvisor --no-firecracker --skip-deploy
-        timeout-minutes: 15
+      - name: Start ${{ env.MODE }}-node cluster + deploy WASM creatures  (run-nodes.sh)
+        run: bash run-nodes.sh "$MODE" --no-gvisor --no-firecracker
+        env:
+          DECILLIONAI_SERVER: ${{ github.workspace }}/_decillionai-server
+        timeout-minutes: 30
 
       # ═══════════════════════════════════════════════════════════════════════
       # 6. BENCHMARK
+      #    --skip-deploy because run-nodes.sh already deployed and produced
+      #    ~/deployment_report.json; bench-all.sh runs only workflow_tests.py.
       # ═══════════════════════════════════════════════════════════════════════
 
-      - name: Deploy WASM creatures + run benchmark suite  (bench-all.sh)
-        run: bash bench-all.sh "$MODE"
+      - name: Run benchmark suite  (bench-all.sh)
+        run: bash bench-all.sh "$MODE" --skip-deploy
         env:
           DECILLIONAI_SERVER: ${{ github.workspace }}/_decillionai-server
         timeout-minutes: 60
