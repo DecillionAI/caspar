@@ -159,7 +159,28 @@ jobs:
         timeout-minutes: 60
 
       # ═══════════════════════════════════════════════════════════════════════
-      # 7. TEARDOWN  (always runs so logs are always collected)
+      # 7. CAPTURE CONTAINER LOGS  (must run BEFORE stop-nodes.sh tears them
+      # down — once the container is gone, `docker logs` is gone too)
+      # ═══════════════════════════════════════════════════════════════════════
+
+      - name: Capture container logs
+        if: always()
+        run: |
+          mkdir -p /tmp/caspar
+          for n in 1 2 3; do
+            if docker inspect "caspar-node${n}" >/dev/null 2>&1; then
+              docker logs "caspar-node${n}" \
+                > "/tmp/caspar/node${n}.docker.log" 2>&1 || true
+              docker inspect "caspar-node${n}" \
+                > "/tmp/caspar/node${n}.docker.inspect.json" 2>&1 || true
+              echo "captured caspar-node${n}: $(wc -l < /tmp/caspar/node${n}.docker.log) lines"
+            else
+              echo "caspar-node${n}: container not present"
+            fi
+          done
+
+      # ═══════════════════════════════════════════════════════════════════════
+      # 8. TEARDOWN  (always runs so logs are always collected)
       # ═══════════════════════════════════════════════════════════════════════
 
       - name: Stop cluster  (stop-nodes.sh)
@@ -167,7 +188,7 @@ jobs:
         run: bash stop-nodes.sh
 
       # ═══════════════════════════════════════════════════════════════════════
-      # 8. COLLECT & PUBLISH REPORTS
+      # 9. COLLECT & PUBLISH REPORTS
       # ═══════════════════════════════════════════════════════════════════════
 
       - name: Collect report files
@@ -193,22 +214,33 @@ jobs:
 
           echo "=== Node logs ==="
           for n in 1 2 3; do
-            # Local-mode log lives on the host; docker-mode logs live inside
-            # the container — pull both so post-mortems work regardless of
-            # which mode the run used.
+            # Local-mode log lives on the host; docker-mode logs were captured
+            # in the previous step (before stop-nodes.sh tore the container
+            # down) — pull both so post-mortems work regardless of which mode
+            # the run used.
             log="/tmp/caspar/node${n}/node.log"
             if [[ -f "$log" ]]; then
               cp "$log" "${DEST}/node${n}.log"
               echo "  + node${n}.log  ($(wc -l < "$log") lines)"
             fi
-            if docker inspect "caspar-node${n}" >/dev/null 2>&1; then
-              docker logs "caspar-node${n}" > "${DEST}/node${n}.docker.log" 2>&1 || true
-              echo "  + node${n}.docker.log  ($(wc -l < "${DEST}/node${n}.docker.log") lines)"
+            dlog="/tmp/caspar/node${n}.docker.log"
+            if [[ -f "$dlog" ]]; then
+              cp "$dlog" "${DEST}/node${n}.docker.log"
+              echo "  + node${n}.docker.log  ($(wc -l < "$dlog") lines)"
             fi
+            dinsp="/tmp/caspar/node${n}.docker.inspect.json"
+            [[ -f "$dinsp" ]] && cp "$dinsp" "${DEST}/node${n}.docker.inspect.json"
             qdb="/tmp/caspar/node${n}/questdb.log"
             if [[ -f "$qdb" ]]; then
               cp "$qdb" "${DEST}/node${n}.questdb.log"
               echo "  + node${n}.questdb.log  ($(wc -l < "$qdb") lines)"
+            fi
+            env_file="/tmp/caspar/node${n}/.env"
+            if [[ -f "$env_file" ]]; then
+              # Strip the OWNER_PRIVATE_KEY block before publishing.
+              awk '/^OWNER_PRIVATE_KEY=/{skip=1} skip && /"$/{skip=0; next} !skip' \
+                "$env_file" > "${DEST}/node${n}.env"
+              echo "  + node${n}.env  ($(wc -l < "${DEST}/node${n}.env") lines)"
             fi
           done
 
