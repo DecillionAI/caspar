@@ -1,0 +1,10 @@
+======================================================================
+  Caspar DecillionAI — Complex Creature Workflow Tests
+======================================================================
+  Nodes: ['node1', 'node2', 'node3']
+  MASM:  ['fib.masm', 'hash.masm', 'hello.masm']
+
+  [node1] No deployment manifest — skipping
+  [node2] No deployment manifest — skipping
+  [node3] No deployment manifest — skipping
+ERROR: No nodes reachable. Aborting.
