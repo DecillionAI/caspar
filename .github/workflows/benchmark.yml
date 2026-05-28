@@ -130,89 +130,21 @@ jobs:
           cache-to:   type=gha,mode=max
 
       # ═══════════════════════════════════════════════════════════════════════
-      # 5. NODE KEY GENERATION
-      #    caspar-keygen produces OWNER_ID + OWNER_PRIVATE_KEY.
-      #    Each node gets its own identity; node2/3 peer to node1.
-      # ═══════════════════════════════════════════════════════════════════════
-
-      - name: Generate per-node key pairs and .env files
-        run: |
-          KEYGEN="./dist/bin/caspar-keygen"
-          DATA="/tmp/caspar"
-          chmod +x "$KEYGEN"
-
-          # Discover caspar-keygen's output format
-          echo "=== caspar-keygen --help ===" && "$KEYGEN" --help 2>&1 || true
-
-          declare -A TCP=([1]=8074 [2]=8174 [3]=8274)
-          declare -A WS=( [1]=8076 [2]=8176 [3]=8276)
-          declare -A FED=([1]=8077 [2]=8177 [3]=8277)
-          declare -A CHN=([1]=8078 [2]=8178 [3]=8278)
-          declare -A ENT=([1]=8079 [2]=8179 [3]=8279)
-          declare -A VM=( [1]=8080 [2]=8180 [3]=8280)
-          declare -A TEL=([1]=9099 [2]=9199 [3]=9299)
-
-          for n in 1 2 3; do
-            NODE_DIR="${DATA}/node${n}"
-            mkdir -p "${NODE_DIR}"/{storage,db,applet,search,store_logs,telemetry,babble}
-
-            # Run keygen — try common output patterns
-            KEY_OUTPUT=$("$KEYGEN" 2>&1) || KEY_OUTPUT=""
-            OWNER_ID=$(echo "$KEY_OUTPUT"       | grep -i 'owner_id\|id:'      | head -1 | awk '{print $NF}')
-            OWNER_KEY=$(echo "$KEY_OUTPUT"      | grep -i 'private_key\|key:'  | head -1 | awk '{print $NF}')
-
-            # Fallback: try JSON output
-            if [[ -z "$OWNER_ID" ]]; then
-              OWNER_ID=$(echo "$KEY_OUTPUT"  | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('owner_id',d.get('id','')))" 2>/dev/null || true)
-              OWNER_KEY=$(echo "$KEY_OUTPUT" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('owner_private_key',d.get('private_key','')))" 2>/dev/null || true)
-            fi
-
-            # Last-resort: use the raw output as the key (adjust if format differs)
-            [[ -z "$OWNER_ID"  ]] && OWNER_ID="ci-node${n}-$(openssl rand -hex 8)"
-            [[ -z "$OWNER_KEY" ]] && OWNER_KEY=$(echo "$KEY_OUTPUT" | head -1 | tr -d '[:space:]')
-
-            IS_HEAD="false"; [[ $n -eq 1 ]] && IS_HEAD="true"
-
-            cat > "${NODE_DIR}/.env" <<EOF
-          OWNER_ID="${OWNER_ID}"
-          OWNER_PRIVATE_KEY="${OWNER_KEY}"
-          STORAGE_ROOT_PATH="${NODE_DIR}/storage"
-          BASE_DB_PATH="${NODE_DIR}/db"
-          APPLET_DB_PATH="${NODE_DIR}/applet"
-          SEARCH_INDEX_PATH="${NODE_DIR}/search"
-          STORE_LOGS_DB="${NODE_DIR}/store_logs"
-          TELEMETRY_DB_PATH="${NODE_DIR}/telemetry"
-          BABBLE_DIR="${NODE_DIR}/babble"
-          CLIENT_TCP_API_PORT="${TCP[$n]}"
-          CLIENT_WS_API_PORT="${WS[$n]}"
-          FEDERATION_API_PORT="${FED[$n]}"
-          BLOCKCHAIN_API_PORT="${CHN[$n]}"
-          ENTITY_API_PORT="${ENT[$n]}"
-          VM_API_PORT="${VM[$n]}"
-          TELEMETRY_API_PORT="${TEL[$n]}"
-          ORIGIN="127.0.0.1"
-          IPADDR="127.0.0.1"
-          ROOT_NODE="127.0.0.1:8074"
-          IS_HEAD="${IS_HEAD}"
-          AdminPassword="ci-admin-$(openssl rand -hex 6)"
-          VM_EXEC_COST_PER_SECOND="0"
-          VM_RAM_COST_PER_MB_PER_MINUTE="0"
-          VM_CPU_CORE_COST_PER_MINUTE="0"
-          VM_DISK_COST_PER_GB_PER_MINUTE="0"
-          EOF
-            echo "Generated .env for node${n} (TCP=${TCP[$n]})"
-          done
-
-      # ═══════════════════════════════════════════════════════════════════════
-      # 6. START CLUSTER
+      # 5. START CLUSTER
+      #    run-nodes.sh owns the full bootstrap: per-node RSA + babble keys,
+      #    .env files (including QUESTDB_PORT / QUESTDB_HTTP_PORT /
+      #    QUESTDB_ILP_PORT / QUESTDB_DATA_DIR — required for the per-container
+      #    QuestDB layout), peers.genesis.json, container startup, creature
+      #    build and deploy.  --skip-deploy here so the benchmark step (which
+      #    runs bench-all.sh) controls deployment and can collect its own logs.
       # ═══════════════════════════════════════════════════════════════════════
 
       - name: Start ${{ env.MODE }}-node cluster  (run-nodes.sh)
-        run: bash run-nodes.sh "$MODE" --no-gvisor --no-firecracker
+        run: bash run-nodes.sh "$MODE" --no-gvisor --no-firecracker --skip-deploy
         timeout-minutes: 15
 
       # ═══════════════════════════════════════════════════════════════════════
-      # 7. BENCHMARK
+      # 6. BENCHMARK
       # ═══════════════════════════════════════════════════════════════════════
 
       - name: Deploy WASM creatures + run benchmark suite  (bench-all.sh)
@@ -222,7 +154,7 @@ jobs:
         timeout-minutes: 60
 
       # ═══════════════════════════════════════════════════════════════════════
-      # 8. TEARDOWN  (always runs so logs are always collected)
+      # 7. TEARDOWN  (always runs so logs are always collected)
       # ═══════════════════════════════════════════════════════════════════════
 
       - name: Stop cluster  (stop-nodes.sh)
@@ -230,7 +162,7 @@ jobs:
         run: bash stop-nodes.sh
 
       # ═══════════════════════════════════════════════════════════════════════
-      # 9. COLLECT & PUBLISH REPORTS
+      # 8. COLLECT & PUBLISH REPORTS
       # ═══════════════════════════════════════════════════════════════════════
 
       - name: Collect report files
