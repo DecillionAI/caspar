@@ -193,10 +193,22 @@ jobs:
 
           echo "=== Node logs ==="
           for n in 1 2 3; do
+            # Local-mode log lives on the host; docker-mode logs live inside
+            # the container — pull both so post-mortems work regardless of
+            # which mode the run used.
             log="/tmp/caspar/node${n}/node.log"
             if [[ -f "$log" ]]; then
               cp "$log" "${DEST}/node${n}.log"
               echo "  + node${n}.log  ($(wc -l < "$log") lines)"
+            fi
+            if docker inspect "caspar-node${n}" >/dev/null 2>&1; then
+              docker logs "caspar-node${n}" > "${DEST}/node${n}.docker.log" 2>&1 || true
+              echo "  + node${n}.docker.log  ($(wc -l < "${DEST}/node${n}.docker.log") lines)"
+            fi
+            qdb="/tmp/caspar/node${n}/questdb.log"
+            if [[ -f "$qdb" ]]; then
+              cp "$qdb" "${DEST}/node${n}.questdb.log"
+              echo "  + node${n}.questdb.log  ($(wc -l < "$qdb") lines)"
             fi
           done
 
