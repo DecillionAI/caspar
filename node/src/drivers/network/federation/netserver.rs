@@ -159,15 +159,40 @@ impl Tcp {
                     .to_string();
             }
         }
-        let stream = match dial(dest_address, cfg.as_ref()) {
-            Ok(s) => s,
-            Err(e) => {
-                eprintln!("federation dial {}: {}", dest_address, e);
-                return None;
+        // Bounded retry with exponential back-off. Federation peers may be
+        // briefly unreachable during container restart / cluster bootstrap;
+        // a single hard failure here would propagate as a dropped request,
+        // which the higher-level caller treats as a peer-down event and
+        // never retries. The retry is bounded so a genuinely-dead peer
+        // does not block the federation worker indefinitely — the
+        // remaining peers can still make progress while this one heals.
+        const MAX_DIAL_ATTEMPTS: u32 = 4;
+        let mut last_err: Option<anyhow::Error> = None;
+        for attempt in 0..MAX_DIAL_ATTEMPTS {
+            match dial(dest_address, cfg.as_ref()) {
+                Ok(stream) => {
+                    let socket = self.register_inbound(stream);
+                    return Some(socket);
+                }
+                Err(e) => {
+                    last_err = Some(e);
+                    if attempt + 1 >= MAX_DIAL_ATTEMPTS {
+                        break;
+                    }
+                    let backoff_ms = 250u64 * (1u64 << attempt); // 250, 500, 1000ms
+                    std::thread::sleep(std::time::Duration::from_millis(backoff_ms));
+                }
             }
-        };
-        let socket = self.register_inbound(stream);
-        Some(socket)
+        }
+        eprintln!(
+            "federation dial {}: giving up after {} attempts ({})",
+            dest_address,
+            MAX_DIAL_ATTEMPTS,
+            last_err
+                .map(|e| e.to_string())
+                .unwrap_or_else(|| "no error captured".into()),
+        );
+        None
     }
 
     fn register_inbound(self: &Arc<Self>, stream: TlsStream) -> Arc<Socket> {
