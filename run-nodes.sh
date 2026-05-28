@@ -117,7 +117,6 @@ _pkg_update() {
 # ─── Arg parsing ─────────────────────────────────────────────────────────────
 MODE="triple"
 USE_DOCKER=true
-START_QUESTDB=true
 FRESH=false
 SETUP_GVISOR=true
 SETUP_FIRECRACKER=true
@@ -130,7 +129,7 @@ for arg in "$@"; do
     single)            MODE="single" ;;
     triple)            MODE="triple" ;;
     --no-docker)       USE_DOCKER=false ;;
-    --no-questdb)      warn "--no-questdb is ignored: nodes require QuestDB on port 8812 to start" ;;
+    --no-questdb)      warn "--no-questdb is ignored: each node requires its own QuestDB instance to start" ;;
     --fresh)           FRESH=true ;;
     --no-gvisor)       SETUP_GVISOR=false ;;
     --no-firecracker)  SETUP_FIRECRACKER=false ;;
@@ -937,6 +936,17 @@ stop_existing() {
 }
 stop_existing
 
+# ─── Helper: wait for a TCP port ────────────────────────────────────────────
+wait_for_port() {
+  local host="$1" port="$2" name="$3" timeout="${4:-30}"
+  local elapsed=0
+  while ! python3 -c "import socket; s=socket.socket(); s.settimeout(1); s.connect(('$host',$port)); s.close()" 2>/dev/null; do
+    sleep 1; elapsed=$((elapsed+1))
+    [[ $elapsed -ge $timeout ]] && return 1
+  done
+  return 0
+}
+
 # ─── Start QuestDB (mandatory) ───────────────────────────────────────────────
 # caspar nodes hardcode a connection to localhost:8812; they cannot start
 # without QuestDB running. We start it here, after stop_existing has cleaned
@@ -950,41 +960,66 @@ _java_hint() {
   esac
 }
 
-QUESTDB_PID=""
-if python3 -c "import socket; s=socket.socket(); s.settimeout(1); s.connect(('127.0.0.1',$QUESTDB_PORT)); s.close()" 2>/dev/null; then
-  ok "QuestDB already running on port $QUESTDB_PORT"
+# In docker mode each container starts its own QuestDB (see
+# node/scripts/docker-entrypoint.sh) so it has an isolated tsdb on the
+# host-network port assigned to that node. The host does not run QuestDB
+# at all in docker mode.
+#
+# In non-docker (local) mode we start one QuestDB per node on the host,
+# bound to the per-node ports (8812/8912/9012 for PG, plus matching HTTP
+# and ILP ports) with separate data directories. Single-node runs use
+# only node1's ports, so the layout is identical between single and triple.
+declare -a QUESTDB_PIDS=()
+_ensure_questdb_jar() {
+  if [[ -f "$QUESTDB_JAR" ]]; then
+    return 0
+  fi
+  command -v curl &>/dev/null \
+    || die "QuestDB jar not found: $QUESTDB_JAR — caspar nodes cannot start without it"
+  warn "QuestDB jar not found at $QUESTDB_JAR — downloading…"
+  mkdir -p "$(dirname "$QUESTDB_JAR")"
+  local QDB_VER="8.3.1"
+  curl -fsSL \
+    "https://github.com/questdb/questdb/releases/download/$QDB_VER/questdb-$QDB_VER-no-jre-bin.tar.gz" \
+    -o /tmp/questdb.tar.gz
+  tar -xzf /tmp/questdb.tar.gz -C "$(dirname "$QUESTDB_JAR")" --strip-components=1
+  rm -f /tmp/questdb.tar.gz
+  ok "QuestDB downloaded to $QUESTDB_JAR"
+}
+
+if $USE_DOCKER; then
+  info "Docker mode: each node container will run its own QuestDB inside it (skipping host QuestDB)"
 else
   check_dep "java" "java" "$(_java_hint)"
-  if [[ ! -f "$QUESTDB_JAR" ]]; then
-    if command -v curl &>/dev/null; then
-      warn "QuestDB jar not found at $QUESTDB_JAR — downloading…"
-      mkdir -p "$(dirname "$QUESTDB_JAR")"
-      QDB_VER="8.3.1"
-      curl -fsSL \
-        "https://github.com/questdb/questdb/releases/download/$QDB_VER/questdb-$QDB_VER-no-jre-bin.tar.gz" \
-        -o /tmp/questdb.tar.gz
-      tar -xzf /tmp/questdb.tar.gz -C "$(dirname "$QUESTDB_JAR")" --strip-components=1
-      rm -f /tmp/questdb.tar.gz
-      ok "QuestDB downloaded to $QUESTDB_JAR"
-    else
-      die "QuestDB jar not found: $QUESTDB_JAR — caspar nodes cannot start without it"
-    fi
-  fi
+  _ensure_questdb_jar
   jver=$(java -version 2>&1 | grep -oP '(?<=version ")[0-9]+' | head -1)
   [[ -z "$jver" ]] && jver=$(java -version 2>&1 | grep -oP '"[0-9]+\.' | grep -oP '[0-9]+')
   if [[ "${jver:-0}" -lt 11 ]]; then
     die "Java $jver found but QuestDB needs Java 11+ — caspar nodes cannot start without QuestDB"
   fi
-  mkdir -p "$QUESTDB_DATA"
-  info "Starting QuestDB on port $QUESTDB_PORT…"
-  java -jar "$QUESTDB_JAR" -m io.questdb/io.questdb.ServerMain \
-       -d "$QUESTDB_DATA" >> "$DATA_ROOT/questdb.log" 2>&1 &
-  QUESTDB_PID=$!
-  if wait_for_port localhost $QUESTDB_PORT QuestDB 300; then
-    ok "QuestDB ready (pid $QUESTDB_PID)"
-  else
-    die "QuestDB did not start within 300s — check $DATA_ROOT/questdb.log"
-  fi
+  for n in "${NODES[@]}"; do
+    local_pg=$((8812 + (n - 1) * 100))
+    local_http=$((9000 + (n - 1) * 100))
+    local_ilp=$((9009 + (n - 1) * 100))
+    local_data="$DATA_ROOT/node${n}/questdb"
+    if python3 -c "import socket; s=socket.socket(); s.settimeout(1); s.connect(('127.0.0.1',$local_pg)); s.close()" 2>/dev/null; then
+      ok "QuestDB for node$n already running on port $local_pg"
+      continue
+    fi
+    mkdir -p "$local_data"
+    info "Starting QuestDB for node$n (PG=$local_pg, HTTP=$local_http, ILP=$local_ilp)…"
+    QDB_PG_NET_BIND_TO="0.0.0.0:${local_pg}" \
+    QDB_HTTP_NET_BIND_TO="0.0.0.0:${local_http}" \
+    QDB_LINE_TCP_NET_BIND_TO="0.0.0.0:${local_ilp}" \
+    java -jar "$QUESTDB_JAR" -m io.questdb/io.questdb.ServerMain \
+         -d "$local_data" >> "$DATA_ROOT/node${n}/questdb.log" 2>&1 &
+    QUESTDB_PIDS+=("$!")
+    if wait_for_port localhost "$local_pg" "QuestDB(node$n)" 300; then
+      ok "QuestDB for node$n ready on port $local_pg (pid $!)"
+    else
+      die "QuestDB for node$n did not start within 300s — check $DATA_ROOT/node${n}/questdb.log"
+    fi
+  done
 fi
 
 # ─── Build / fetch the artifact we need ──────────────────────────────────────
@@ -1042,18 +1077,6 @@ else
   [[ -f "$BINARY" ]] || die "Build failed: binary not found at $BINARY"
   ok "Binary ready: $BINARY ($(ls -lh "$BINARY" | awk '{print $5}'))"
 fi
-
-# ─── Helper: wait for a TCP port ────────────────────────────────────────────
-wait_for_port() {
-  local host="$1" port="$2" name="$3" timeout="${4:-30}"
-  local elapsed=0
-  while ! python3 -c "import socket; s=socket.socket(); s.settimeout(1); s.connect(('$host',$port)); s.close()" 2>/dev/null; do
-    sleep 1; elapsed=$((elapsed+1))
-    [[ $elapsed -ge $timeout ]] && return 1
-  done
-  return 0
-}
-
 
 # ─── Per-node config ──────────────────────────────────────────────────────────
 # NODE LAYOUT:
@@ -1120,6 +1143,13 @@ print(RSA.generate(2048).export_key().decode(), end='')
   local vm_port=$((tcp_port + 6))           # 8080 / 8180 / 8280
   local tel_port=$((9099 + (n - 1) * 100))  # 9099 / 9199 / 9299
 
+  # Per-node QuestDB ports — each node gets its own QuestDB instance so
+  # docker containers (which share host net via --network host) do not
+  # collide on the default 8812.
+  local qdb_pg_port=$((8812 + (n - 1) * 100))    # 8812 / 8912 / 9012
+  local qdb_http_port=$((9000 + (n - 1) * 100))  # 9000 / 9100 / 9200
+  local qdb_ilp_port=$((9009 + (n - 1) * 100))   # 9009 / 9109 / 9209
+
   local is_head root_node
   [[ $n -eq 1 ]] && is_head="true" || is_head="false"
   root_node="localhost:${NODE_TCP[1]}"
@@ -1154,6 +1184,10 @@ TELEMETRY_API_PORT=${tel_port}
 TELEMETRY_DB_PATH=/app/data/telemetry
 BABBLE_DIR=/app/data/babble
 BABBLE_DATA_DIR=/app/data/babble
+QUESTDB_PORT=${qdb_pg_port}
+QUESTDB_HTTP_PORT=${qdb_http_port}
+QUESTDB_ILP_PORT=${qdb_ilp_port}
+QUESTDB_DATA_DIR=/app/data/questdb
 EOF
 
   ok "node${n} config generated (TCP=${tcp_port}, IS_HEAD=${is_head})"
@@ -1346,7 +1380,15 @@ echo "  Mode:    $MODE (${#NODES[@]} node(s)) — $($USE_DOCKER && echo 'docker'
 $USE_DOCKER  && echo "  Image:   $DOCKER_IMAGE"
 $USE_DOCKER  || echo "  Binary:  $BINARY"
 echo "  Data:    $DATA_ROOT"
-$START_QUESTDB && echo "  QuestDB: localhost:$QUESTDB_PORT (http: localhost:9000)"
+if $USE_DOCKER; then
+  echo "  QuestDB: one instance inside each node container (PG 8812/8912/9012 on host net)"
+else
+  qdb_summary=""
+  for n in "${NODES[@]}"; do
+    qdb_summary+="node${n}=localhost:$((8812 + (n - 1) * 100)) "
+  done
+  echo "  QuestDB: ${qdb_summary}"
+fi
 echo ""
 if $USE_DOCKER; then
   echo "  Containers:"
@@ -1372,7 +1414,7 @@ cleanup() {
   info "Shutting down…"
   for p in "${STARTED_PIDS[@]:-}";      do [[ -n "$p" ]] && kill "$p" 2>/dev/null || true; done
   for c in "${STARTED_CONTAINERS[@]:-}"; do [[ -n "$c" ]] && docker stop --time 10 "$c" >/dev/null 2>&1 || true; done
-  [[ -n "$QUESTDB_PID" ]] && kill "$QUESTDB_PID" 2>/dev/null || true
+  for p in "${QUESTDB_PIDS[@]:-}"; do [[ -n "$p" ]] && kill "$p" 2>/dev/null || true; done
   exit 0
 }
 trap cleanup INT TERM
