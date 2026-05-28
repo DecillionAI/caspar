@@ -7,3 +7,7 @@ Cargo.lock.bak
 # Stray RocksDB dirs that caspar-node creates if it's launched from the
 # repo root without STORAGE_ROOT_PATH / TELEMETRY_DB_PATH set
 telemetry-rocks/
+
+# Python bytecode cache from running the sitecustomize hook locally
+__pycache__/
+*.pyc
