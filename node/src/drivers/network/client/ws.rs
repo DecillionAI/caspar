@@ -39,7 +39,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Sender, TryRecvError};
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use dashmap::DashMap;
 use serde_json::Value;
@@ -344,6 +344,15 @@ impl Ws {
         let mut ack_ready = true;
         let mut shutting_down = false;
         let mut shutdown_requested = false;
+        // App-level WebSocket ping. Browsers, proxies and CDNs frequently
+        // strip TCP keep-alive but always respect WS Ping frames, so the
+        // belt-and-braces complement keeps the connection alive through
+        // every kind of middlebox between client and node. The peer's Pong
+        // is handled below the same way as Ping (no-op for our purposes —
+        // tungstenite has already woken the read loop, which is what we
+        // need).
+        let ping_interval = Duration::from_secs(crate::util::keepalive::WS_PING_INTERVAL_SECS);
+        let mut last_ping = Instant::now();
 
         'io: loop {
             // 1) Pull any newly queued outbound frames onto the local FIFO.
@@ -384,6 +393,15 @@ impl Ws {
 
             if shutting_down {
                 break 'io;
+            }
+
+            // 2b) Periodic keep-alive ping. Done before the read so an
+            // idle connection still produces a wake-up on the peer side.
+            if last_ping.elapsed() >= ping_interval {
+                if ws.send(Message::Ping(Vec::new().into())).is_err() {
+                    break 'io;
+                }
+                last_ping = Instant::now();
             }
 
             // 3) Read whatever the client sent (with timeout).
