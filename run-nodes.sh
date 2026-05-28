@@ -1120,27 +1120,23 @@ _generate_node_config() {
   mkdir -p "$node_dir"/{storage,db,applet,search,store_logs,telemetry,babble}
 
   # ── Babble secp256k1 consensus key ──────────────────────────────────────────
-  # caspar-keygen writes to $HOME/.babble/{priv_key,key.pub}.
-  # We override HOME so each node gets its own key.
+  # caspar-keygen writes to $HOME/.babble/{priv_key,key.pub}.  We override HOME
+  # so each node gets its own key, and we copy BOTH files so _gen_peers_genesis
+  # can build peers.genesis.json from the SEC1-encoded key.pub directly —
+  # without re-deriving the pubkey in Python (which would require the
+  # `cryptography` package to be installed at runtime).
   local keygen_bin="$REPO_DIR/dist/bin/caspar-keygen"
-  if [[ -x "$keygen_bin" ]]; then
-    local tmp_home; tmp_home=$(mktemp -d)
-    HOME="$tmp_home" "$keygen_bin" >/dev/null 2>&1 || true
-    if [[ -f "$tmp_home/.babble/priv_key" ]]; then
-      cp "$tmp_home/.babble/priv_key" "$node_dir/babble/priv_key"
-    else
-      # keygen failed (race on $HOME/.babble?) — fall back to random key
-      python3 -c "import secrets; print(secrets.token_hex(32), end='')" \
-        > "$node_dir/babble/priv_key" 2>/dev/null \
-        || dd if=/dev/urandom bs=32 count=1 2>/dev/null | xxd -p | tr -d '\n' \
-           > "$node_dir/babble/priv_key"
-    fi
+  [[ -x "$keygen_bin" ]] \
+    || die "caspar-keygen not found at $keygen_bin — run build-dist.sh first"
+  local tmp_home; tmp_home=$(mktemp -d)
+  HOME="$tmp_home" "$keygen_bin" >/dev/null 2>&1 || true
+  if [[ ! -f "$tmp_home/.babble/priv_key" || ! -f "$tmp_home/.babble/key.pub" ]]; then
     rm -rf "$tmp_home"
-  else
-    warn "caspar-keygen not found at $keygen_bin — generating random babble key"
-    python3 -c "import secrets; print(secrets.token_hex(32), end='')" \
-      > "$node_dir/babble/priv_key"
+    die "caspar-keygen did not produce priv_key + key.pub for node${n}"
   fi
+  cp "$tmp_home/.babble/priv_key" "$node_dir/babble/priv_key"
+  cp "$tmp_home/.babble/key.pub"  "$node_dir/babble/key.pub"
+  rm -rf "$tmp_home"
 
   # ── RSA identity key (OWNER_PRIVATE_KEY, PKCS#8 PEM) ───────────────────────
   # Prefer openssl (always present) over pycryptodome.
@@ -1285,31 +1281,28 @@ docker_start_node() {
 # shardchain.sh copies BABBLE_DATA_DIR/{priv_key,key.pub,peers.genesis.json}
 # into the shard directory.  We pre-generate the peer list here — before any
 # node starts — so every node can find it on first boot without a network call.
+#
+# The pubkey is read from each node's already-written key.pub (produced by
+# caspar-keygen as SEC1-encoded uncompressed-point hex — exactly the format
+# babble's PeerSet expects after upper-casing and a "0X" prefix). Doing it
+# this way means peers.genesis.json generation has no Python crypto
+# dependency, so it works in any CI environment where the build artefacts
+# are available.
 _gen_peers_genesis() {
   info "Generating babble peers.genesis.json for all nodes…"
-  # Derive secp256k1 public key from each node's private key.
   local pub_keys=()
   for n in "${NODES[@]}"; do
-    local priv_file="$DATA_ROOT/node${n}/babble/priv_key"
-    if [[ ! -f "$priv_file" ]]; then
-      warn "babble priv_key missing for node$n — peers.genesis.json skipped"
+    local pub_file="$DATA_ROOT/node${n}/babble/key.pub"
+    if [[ ! -f "$pub_file" ]]; then
+      warn "babble key.pub missing for node$n — peers.genesis.json skipped"
       return 1
     fi
-    local pub_hex
-    pub_hex=$(python3 - "$priv_file" << 'PYEOF'
-import sys
-from cryptography.hazmat.primitives.asymmetric.ec import derive_private_key, SECP256K1
-from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
-from cryptography.hazmat.backends import default_backend
-priv_hex = open(sys.argv[1]).read().strip()
-key = derive_private_key(int(priv_hex, 16), SECP256K1(), default_backend())
-pub = key.public_key().public_bytes(Encoding.X962, PublicFormat.UncompressedPoint)
-print(pub.hex())
-PYEOF
-) || { warn "Failed to derive babble pubkey for node$n"; return 1; }
+    local pub_hex; pub_hex=$(tr -d '[:space:]' < "$pub_file")
+    if [[ -z "$pub_hex" ]]; then
+      warn "babble key.pub empty for node$n — peers.genesis.json skipped"
+      return 1
+    fi
     pub_keys+=("$pub_hex")
-    # Also write key.pub so shardchain.sh can copy it.
-    echo "$pub_hex" > "$DATA_ROOT/node${n}/babble/key.pub"
   done
 
   # Build the peers JSON array.
@@ -1340,7 +1333,8 @@ for n in "${NODES[@]}"; do
   ensure_node_config "$n"
 done
 
-_gen_peers_genesis || warn "Babble peer bootstrap skipped — chains/registerNode may fail"
+_gen_peers_genesis \
+  || die "Babble peer bootstrap failed — refusing to start cluster (followers can't bootstrap shards, head can't reach consensus on chains/registerNode)"
 
 for n in "${NODES[@]}"; do
   if $USE_DOCKER; then
