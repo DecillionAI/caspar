@@ -50,8 +50,13 @@ impl Storage {
                 .map_err(|e| anyhow!("open kvdb {}: {}", base_db_path, e))?,
         );
 
+        let questdb_port = std::env::var("QUESTDB_PORT").unwrap_or_else(|_| "8812".to_string());
+        let conn_str = format!(
+            "host=localhost port={} user=admin password=quest dbname=qdb sslmode=disable",
+            questdb_port
+        );
         let manager = PostgresConnectionManager::new(
-            "host=localhost port=8812 user=admin password=quest dbname=qdb sslmode=disable"
+            conn_str
                 .parse()
                 .map_err(|e| anyhow!("parse pg config: {}", e))?,
             NoTls,
