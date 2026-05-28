@@ -34,8 +34,14 @@ mkdir -p \
 export BABBLE_DIR="${BABBLE_DIR:-/app/data/babble}"
 
 # ─── Start QuestDB inside this container ────────────────────────────────────
+# Every QuestDB listener must be bound to a per-node port — the JVM crashes
+# on bind() the moment any default port (8812 / 9000 / 9003 / 9009) collides
+# with another container under --network host, so a partial override is not
+# enough. The UDP line-protocol listener is disabled outright (caspar-node
+# only uses the PG wire).
 QDB_PG_PORT="${QUESTDB_PORT:-8812}"
 QDB_HTTP_PORT="${QUESTDB_HTTP_PORT:-9000}"
+QDB_HTTP_MIN_PORT="${QUESTDB_HTTP_MIN_PORT:-9003}"
 QDB_ILP_PORT="${QUESTDB_ILP_PORT:-9009}"
 QDB_DATA="${QUESTDB_DATA_DIR:-/app/data/questdb}"
 QDB_LOG="/app/data/questdb.log"
@@ -45,10 +51,12 @@ if [[ ! -f /opt/questdb/questdb.jar ]]; then
   exit 1
 fi
 
-echo "[entrypoint] Starting QuestDB (PG=${QDB_PG_PORT} HTTP=${QDB_HTTP_PORT} ILP=${QDB_ILP_PORT}, data=${QDB_DATA})"
+echo "[entrypoint] Starting QuestDB (PG=${QDB_PG_PORT} HTTP=${QDB_HTTP_PORT} MIN=${QDB_HTTP_MIN_PORT} ILP=${QDB_ILP_PORT}, data=${QDB_DATA})"
 QDB_PG_NET_BIND_TO="0.0.0.0:${QDB_PG_PORT}" \
 QDB_HTTP_NET_BIND_TO="0.0.0.0:${QDB_HTTP_PORT}" \
+QDB_HTTP_MIN_NET_BIND_TO="0.0.0.0:${QDB_HTTP_MIN_PORT}" \
 QDB_LINE_TCP_NET_BIND_TO="0.0.0.0:${QDB_ILP_PORT}" \
+QDB_LINE_UDP_ENABLED=false \
 java -jar /opt/questdb/questdb.jar -m io.questdb/io.questdb.ServerMain \
      -d "${QDB_DATA}" >> "${QDB_LOG}" 2>&1 &
 QDB_PID=$!
