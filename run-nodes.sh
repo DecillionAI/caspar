@@ -673,7 +673,17 @@ _install_python_deps() {
 # Sets global DECILLIONAI_SERVER_DIR.  Returns 1 on failure.
 DECILLIONAI_SERVER_DIR=""
 _ensure_decillionai_server() {
-  local server_dir; server_dir="$(dirname "$REPO_DIR")/decillionai-server"
+  local server_dir
+  # Honour an explicit override (the benchmark workflow sets this to the
+  # checkout it already performed, which avoids a redundant clone and
+  # guarantees both run-nodes.sh and bench-all.sh use the same commit).
+  if [[ -n "${DECILLIONAI_SERVER:-}" ]] && [[ -d "${DECILLIONAI_SERVER}/.git" ]]; then
+    server_dir="$DECILLIONAI_SERVER"
+    ok "decillionai-server present (DECILLIONAI_SERVER): $server_dir"
+    DECILLIONAI_SERVER_DIR="$server_dir"
+    return 0
+  fi
+  server_dir="$(dirname "$REPO_DIR")/decillionai-server"
   if [[ ! -d "$server_dir/.git" ]]; then
     info "Cloning decillionai-server…"
     git clone --depth=1 \
