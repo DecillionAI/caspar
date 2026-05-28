@@ -329,15 +329,35 @@ pub fn load_key_for_config(config: &mut Config) -> Result<()> {
         keyfile.write_key(&new_key)
             .map_err(|e| anyhow!("write generated key to {}: {}", keyfile_path, e))?;
 
-        // Mirror the key to BABBLE_DATA_DIR so shardchain.sh can copy it on
-        // subsequent shard bootstraps.
+        // Also write key.pub next to the shard's priv_key. Without it,
+        // anything that reads the shard directory to rebuild a peer set
+        // (other follower nodes, `casparctl peers`, etc.) has no way to
+        // know which PubKeyHex this validator owns.
+        let derived_pub = crate::drivers::network::chain::crypto::keys::public_key_hex(
+            new_key.verifying_key(),
+        );
+        if let Some(parent) = std::path::Path::new(&keyfile_path).parent() {
+            let _ = fs::write(parent.join("key.pub"), derived_pub.as_bytes());
+        }
+
+        // Mirror the key pair to BABBLE_DATA_DIR so shardchain.sh can copy
+        // it on subsequent shard bootstraps. We must mirror BOTH priv_key
+        // and key.pub — mirroring priv_key alone silently invalidates any
+        // peers.genesis.json that was pre-built from the old key.pub, and
+        // every node downstream then sees a validator id that doesn't match
+        // its own peer entry, gets stuck in JOINING forever, and never
+        // opens its TCP API listener.
         if let Ok(babble_dir) = std::env::var("BABBLE_DATA_DIR") {
             if !babble_dir.is_empty() {
                 let _ = fs::create_dir_all(&babble_dir);
-                let mirror = SimpleKeyfile::new(
+                let mirror_priv = SimpleKeyfile::new(
                     &format!("{}/priv_key", babble_dir),
                 );
-                let _ = mirror.write_key(&new_key);
+                let _ = mirror_priv.write_key(&new_key);
+                let _ = fs::write(
+                    format!("{}/key.pub", babble_dir),
+                    derived_pub.as_bytes(),
+                );
             }
         }
 

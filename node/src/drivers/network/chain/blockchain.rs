@@ -182,13 +182,33 @@ impl Blockchain {
         };
 
         // Invoke the shardchain bootstrap script (matches Go behaviour).
-        let _ = Command::new("bash")
+        // If it fails we surface the error and abort the shard setup: a
+        // silent failure here leaves the shard directory without
+        // peers.json / priv_key, which causes load_key_for_config to
+        // generate a fresh key, mirror it back over BABBLE_DATA_DIR's
+        // priv_key, and silently invalidate the cluster-wide
+        // peers.genesis.json — the node then never matches any peer entry,
+        // stays in JOINING forever, and never opens its TCP API listener.
+        match Command::new("bash")
             .arg("/app/scripts/shardchain.sh")
             .arg(&self.storage_root)
             .arg(&wchain.id)
             .arg(chain_id)
             .arg(peers_list_mode)
-            .status();
+            .status()
+        {
+            Ok(s) if s.success() => {}
+            Ok(s) => eprintln!(
+                "shardchain.sh exited with status {} for {}/{} (mode={}) — \
+                 babble bootstrap will likely fail",
+                s, wchain.id, chain_id, peers_list_mode
+            ),
+            Err(e) => eprintln!(
+                "shardchain.sh failed to spawn for {}/{}: {} — \
+                 babble bootstrap will likely fail",
+                wchain.id, chain_id, e
+            ),
+        }
 
         let blockchain_port = env::var("BLOCKCHAIN_API_PORT").unwrap_or_else(|_| "1337".to_string());
         let mut config = Config::new_default_config(&format!(

@@ -88,7 +88,14 @@ _term() {
 }
 trap _term TERM INT
 
-/usr/local/bin/caspar-node "$@" &
+# Mirror caspar-node's stdout/stderr to /app/data/node.log AND the container
+# stdout (so `docker logs` still works). Logs end up on the host bind mount,
+# which means they survive container removal — without that, `stop-nodes.sh`
+# wipes the only copy before the report-collection step runs.
+NODE_LOG="/app/data/node.log"
+: > "${NODE_LOG}" 2>/dev/null || true
+echo "[entrypoint] Starting caspar-node (logs → ${NODE_LOG})"
+/usr/local/bin/caspar-node "$@" > >(tee -a "${NODE_LOG}") 2> >(tee -a "${NODE_LOG}" >&2) &
 NODE_PID=$!
 wait "${NODE_PID}"
 NODE_EXIT=$?
