@@ -384,8 +384,16 @@ impl Ws {
                     msg.extend_from_slice(frame);
                     match ws.send(Message::Binary(msg.into())) {
                         Ok(()) => {
+                            last_activity = Instant::now();
                             ack_ready = false;
                         }
+                        Err(_) => break 'io,
+                    }
+                } else if last_activity.elapsed() >= KEEPALIVE_IDLE {
+                    // Idle keepalive: WebSocket Ping so the OS detects
+                    // half-open connections and clients can implement pong.
+                    match ws.send(Message::Ping(vec![].into())) {
+                        Ok(()) => last_activity = Instant::now(),
                         Err(_) => break 'io,
                     }
                 }
@@ -407,6 +415,7 @@ impl Ws {
             // 3) Read whatever the client sent (with timeout).
             match ws.read() {
                 Ok(Message::Binary(bytes)) => {
+                    last_activity = Instant::now();
                     let body = bytes.to_vec();
                     // The Go (gws) client wraps every payload in its own
                     // 4-byte length prefix, mirroring the TCP framing. Strip
@@ -424,6 +433,10 @@ impl Ws {
                 }
                 Ok(Message::Ping(payload)) => {
                     let _ = ws.send(Message::Pong(payload));
+                    last_activity = Instant::now();
+                }
+                Ok(Message::Pong(_)) => {
+                    last_activity = Instant::now();
                 }
                 Ok(Message::Close(_)) => break 'io,
                 Ok(_) => {}

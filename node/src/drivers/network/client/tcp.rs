@@ -22,7 +22,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Sender, TryRecvError};
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use dashmap::DashMap;
 use serde_json::Value;
@@ -330,6 +330,9 @@ impl Tcp {
         let mut buffered: VecDeque<Vec<u8>> = VecDeque::new();
         let mut ack_ready = true;
         let mut shutdown_requested = false;
+        // Keepalive: send an empty update frame if idle for more than 30 s.
+        const KEEPALIVE_IDLE: Duration = Duration::from_secs(30);
+        let mut last_activity = Instant::now();
 
         'io: loop {
             // 1) Drain outbound channel.
@@ -359,6 +362,7 @@ impl Tcp {
                     let is_update = frame.first().copied() == Some(0x01);
                     match write_length_prefixed_frame(&mut stream, frame) {
                         Ok(()) => {
+                            last_activity = Instant::now();
                             if is_update {
                                 buffered.pop_front();
                                 // ack_ready stays true — no ACK coming for updates
@@ -366,6 +370,15 @@ impl Tcp {
                                 ack_ready = false;
                             }
                         }
+                        Err(_) => break 'io,
+                    }
+                } else if last_activity.elapsed() >= KEEPALIVE_IDLE {
+                    // Idle keepalive: send an empty update frame so the OS can
+                    // detect half-open TCP connections.  Clients that see an
+                    // unknown key will just discard it.
+                    let ping = encode_client_update_body("__ping", b"");
+                    match write_length_prefixed_frame(&mut stream, &ping) {
+                        Ok(()) => last_activity = Instant::now(),
                         Err(_) => break 'io,
                     }
                 }
