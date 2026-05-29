@@ -432,8 +432,14 @@ class CasparClient:
             try:
                 tag, body = _read_frame(sock)
             except OSError as e:
-                if e.errno in (None,) or "timed out" in str(e).lower() or "would block" in str(e).lower():
-                    # Normal idle tick.
+                # SSL timeouts surface as OSError with errno=None; plain socket
+                # timeouts use EAGAIN/EWOULDBLOCK. Both are normal idle ticks.
+                if (
+                    e.errno is None
+                    or e.errno in (11, 35)  # EAGAIN / EWOULDBLOCK
+                    or "timed out" in str(e).lower()
+                    or "would block" in str(e).lower()
+                ):
                     continue
                 raise ConnectionError(f"recv: {e}") from e
             except (ConnectionError, ValueError):
