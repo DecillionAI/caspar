@@ -77,6 +77,84 @@ pub mod keepalive {
     pub const WS_PING_INTERVAL_SECS: u64 = 25;
 }
 
+/// Bounded exponential-back-off retry primitive. Used by every outbound
+/// dial / connect site in the node so the policy is consistent: short
+/// transient outages (peer container restart, listener race with
+/// accept) are absorbed without disturbing higher-level callers, but a
+/// genuinely-dead peer still surfaces within a couple of seconds.
+pub mod retry {
+    use std::thread;
+    use std::time::Duration;
+
+    /// Run `f` up to `attempts` times, sleeping `base * 2^attempt`
+    /// between attempts. Returns the first `Ok` value, or the final
+    /// `Err` if every attempt fails. `attempts == 0` returns the final
+    /// `Err` from a synthetic exhausted-attempts run; callers should
+    /// pass at least 1.
+    pub fn retry_backoff<T, E, F>(attempts: u32, base: Duration, mut f: F) -> Result<T, E>
+    where
+        F: FnMut() -> Result<T, E>,
+    {
+        let mut last_err: Option<E> = None;
+        for attempt in 0..attempts.max(1) {
+            match f() {
+                Ok(v) => return Ok(v),
+                Err(e) => {
+                    last_err = Some(e);
+                    if attempt + 1 >= attempts {
+                        break;
+                    }
+                    thread::sleep(base.saturating_mul(1u32 << attempt));
+                }
+            }
+        }
+        Err(last_err.expect("attempts >= 1 guarantees at least one Err"))
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use std::sync::atomic::{AtomicU32, Ordering};
+
+        #[test]
+        fn succeeds_on_first_attempt() {
+            let calls = AtomicU32::new(0);
+            let result: Result<i32, &str> = retry_backoff(3, Duration::from_millis(1), || {
+                calls.fetch_add(1, Ordering::SeqCst);
+                Ok(42)
+            });
+            assert_eq!(result, Ok(42));
+            assert_eq!(calls.load(Ordering::SeqCst), 1);
+        }
+
+        #[test]
+        fn succeeds_after_two_failures() {
+            let calls = AtomicU32::new(0);
+            let result: Result<i32, &str> = retry_backoff(3, Duration::from_millis(1), || {
+                let n = calls.fetch_add(1, Ordering::SeqCst);
+                if n < 2 {
+                    Err("not yet")
+                } else {
+                    Ok(99)
+                }
+            });
+            assert_eq!(result, Ok(99));
+            assert_eq!(calls.load(Ordering::SeqCst), 3);
+        }
+
+        #[test]
+        fn returns_final_err_after_exhausting_attempts() {
+            let calls = AtomicU32::new(0);
+            let result: Result<i32, &str> = retry_backoff(3, Duration::from_millis(1), || {
+                calls.fetch_add(1, Ordering::SeqCst);
+                Err("always fails")
+            });
+            assert_eq!(result, Err("always fails"));
+            assert_eq!(calls.load(Ordering::SeqCst), 3);
+        }
+    }
+}
+
 
 /// Serde helpers that (de)serialize `Vec<u8>` as a standard base64 string,
 /// matching Go's `encoding/json` behaviour for `[]byte` fields.

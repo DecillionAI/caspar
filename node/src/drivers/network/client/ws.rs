@@ -484,7 +484,23 @@ impl IWs for Ws {
                     }
                 };
                 let trans = trans_self.clone();
-                thread::spawn(move || trans.handle_connection(stream));
+                thread::spawn(move || {
+                    // See tcp::listen for rationale on catch_unwind here.
+                    let peer = stream.peer_addr();
+                    let result = std::panic::catch_unwind(
+                        std::panic::AssertUnwindSafe(|| trans.handle_connection(stream)),
+                    );
+                    if let Err(payload) = result {
+                        let msg = if let Some(s) = payload.downcast_ref::<&str>() {
+                            s.to_string()
+                        } else if let Some(s) = payload.downcast_ref::<String>() {
+                            s.clone()
+                        } else {
+                            "<non-string panic>".to_string()
+                        };
+                        eprintln!("[ws] handler panic for {}: {}", peer, msg);
+                    }
+                });
             }
         });
     }

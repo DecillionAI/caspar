@@ -203,7 +203,27 @@ impl Tcp {
         }
         let trans = self.clone();
         let sock = socket.clone();
-        thread::spawn(move || trans.listen_for_packets(sock));
+        thread::spawn(move || {
+            // catch_unwind so a panic in the per-socket reader can't take
+            // the federation listener thread down quietly. The match-arm
+            // logging makes a panic in the federation path diagnosable
+            // through docker logs the same way TCP / WS handler panics now
+            // are.
+            let peer_ip = sock.peer_ip();
+            let result = std::panic::catch_unwind(
+                std::panic::AssertUnwindSafe(|| trans.listen_for_packets(sock)),
+            );
+            if let Err(payload) = result {
+                let msg = if let Some(s) = payload.downcast_ref::<&str>() {
+                    s.to_string()
+                } else if let Some(s) = payload.downcast_ref::<String>() {
+                    s.clone()
+                } else {
+                    "<non-string panic>".to_string()
+                };
+                eprintln!("[fed] listen_for_packets panic for {}: {}", peer_ip, msg);
+            }
+        });
         socket
     }
 
