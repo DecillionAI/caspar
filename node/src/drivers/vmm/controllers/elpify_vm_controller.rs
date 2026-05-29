@@ -1,6 +1,6 @@
 use crate::drivers::vmm::prelude::*;
 use crate::drivers::vmm::controllers::vm_controller::VmController;
-use crate::drivers::vmm::models::vm_runtime::{ElpifyManagedVm, ElpifyTask, GLOBAL_ELPIFY_VMS, terminate_managed_vm, parse_vm_resource_limits};
+use crate::drivers::vmm::models::vm_runtime::{enqueue_elpify_task, parse_vm_resource_limits, terminate_managed_vm};
 
 pub(crate) struct ElpifyVmController;
 
@@ -26,20 +26,11 @@ impl VmController for ElpifyVmController {
         let masm_path = packet["astPath"].as_str().unwrap_or("").to_string();
         let input_raw = packet["input"].as_str().unwrap_or("{}").to_string();
         let limits = parse_vm_resource_limits(packet);
-        let vm_handle = {
-            let mut map = GLOBAL_ELPIFY_VMS.lock().unwrap();
-            Arc::clone(
-                map.entry(machine_id.clone())
-                    .or_insert_with(|| Arc::new(ElpifyManagedVm::new(machine_id.clone()))),
-            )
-        };
-        vm_handle.enqueue(ElpifyTask {
-            masm_path,
-            input_raw,
-            vm_id,
-            limits,
-        })?;
-        Ok(json!({"ok": true, "runtime": "elpify", "machineId": machine_id}))
+        // Route into the per-program-entity batch queue. The transaction is
+        // collected into a 500ms window and executed as one loop-wrapped,
+        // single-proof batch; results are delivered asynchronously via vmOutput.
+        enqueue_elpify_task(&machine_id, masm_path, input_raw, vm_id, limits)?;
+        Ok(json!({"ok": true, "runtime": "elpify", "machineId": machine_id, "queued": true}))
     }
 
     fn stop(packet: &JsonValue) -> Result<JsonValue, String> {

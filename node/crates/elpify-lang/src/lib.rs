@@ -10,9 +10,11 @@ pub mod executor;
 
 pub use compiler::{transpile_js_to_masm, CompilerError};
 pub use executor::{
-    assemble_program, execute_masm_file_with_proof, execute_with_proof, stack_outputs_from_ints,
-    verify_execution, EngineError, EngineEvent, EventKind, ExecutionArtifacts, ExecutionEngine,
-    ExecutorError, ProgramId, TaskInput, TaskResult,
+    assemble_program, execute_batch_with_proof, execute_masm_file_batch_with_proof,
+    execute_masm_file_with_proof, execute_with_proof, stack_outputs_from_ints, verify_execution,
+    wrap_masm_in_batch_loop, BatchArtifacts, EngineError, EngineEvent, EventKind,
+    ExecutionArtifacts, ExecutionEngine, ExecutorError, ProgramId, TaskInput, TaskResult,
+    BATCH_MAX_EXPOSED_OUTPUTS,
 };
 
 #[cfg(test)]
