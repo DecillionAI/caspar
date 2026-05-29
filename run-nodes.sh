@@ -1208,12 +1208,15 @@ local_start_node() {
   local env_file="$node_dir/.env"
   local log_file="$node_dir/node.log"
 
+  # Load all vars from .env (keys, ports, etc.), then override the /app/data
+  # container paths with real per-node host paths so nodes don't collide.
+  [[ -f "$env_file" ]] && { set -a; source "$env_file"; set +a; }
+
   info "Starting node$n locally (TCP=${NODE_TCP[$n]})…"
   # Ensure dist/lib/wasmedge is on the dynamic linker path so libwasmedge.so.0 is found.
   local wasmedge_lib_dir="$REPO_DIR/dist/lib/wasmedge"
   local launch_ld_path="${wasmedge_lib_dir}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
-  # .env uses /app/data container paths; translate them to per-node host paths.
-  # Also expose node/scripts/ so shardchain.sh is found by the babble bootstrap.
+  # Override container paths and expose node/scripts/ for shardchain.sh.
   LD_LIBRARY_PATH="$launch_ld_path" \
   PATH="$REPO_DIR/node/scripts:${PATH}" \
   BABBLE_DIR="$node_dir/babble" \
