@@ -3,83 +3,110 @@
 //! Listening side of the federation channel — accept TLS TCP connections,
 //! parse `OriginPacket`s from the framed wire format, and dispatch them to
 //! a `FedApi` bridge supplied by [`crate::drivers::network::federation::FedNet`].
+//!
+//! ## Concurrency model — MPSC outbound queue
+//!
+//! Each federation connection is pinned to a single dedicated I/O thread that
+//! directly owns the `TlsStream`.  External writers push encoded frames onto a
+//! per-socket `mpsc::Sender`; the I/O thread drains that queue on every loop
+//! iteration, interleaved with short-timeout reads.
+//!
+//! This eliminates the critical deadlock present in the original design, where
+//! `listen_for_packets` held `socket.inner` (a `Mutex<SocketInner>`) while
+//! blocking on `read_length_prefixed_frame`, making it impossible for any
+//! concurrent write (originating from a different thread) to acquire the same
+//! lock — the TCP connection could neither send its first request nor receive
+//! a response.
+//!
+//! ## Error recovery
+//!
+//! * Accept-loop: any individual `accept` error is logged and retried; the
+//!   listener itself is never abandoned.
+//! * Per-connection I/O: any read or write error terminates that connection
+//!   cleanly; the socket is removed from the sockets registry; subsequent
+//!   calls to `enqueue` are silent no-ops.
+//! * Outbound dial: up to 3 retries with exponential backoff (150 ms →
+//!   300 ms → 600 ms) before returning `None`.
 
+use std::collections::VecDeque;
+use std::io::ErrorKind;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
 use std::sync::{Arc, Mutex};
 use std::thread;
+use std::time::Duration;
 
 use anyhow::Result;
 use dashmap::DashMap;
 
-use crate::models::ports::network::TlsConfig;
-use crate::models::core::ICore;
-use crate::models::packet::OriginPacket;
 use crate::drivers::network::framing::{
     accept, bind_tls, decode_request_body, decode_response_body, decode_update_body, dial,
     encode_fed_response_body, encode_fed_update_body, encode_request_body,
-    read_length_prefixed_frame, write_length_prefixed_frame, TlsStream,
+    write_length_prefixed_frame, TlsStream,
 };
+use crate::models::core::ICore;
+use crate::models::packet::OriginPacket;
+use crate::models::ports::network::TlsConfig;
 use crate::shell::utils::crypto::secure_unique_string;
 
-/// Per-connection socket. Each `Socket` is owned by one read loop and shared
-/// with whatever writer (federation request / response / update) needs to
-/// push a frame down it.
-pub struct Socket {
-    pub id: String,
-    inner: Mutex<SocketInner>,
+// ── Per-connection socket ──────────────────────────────────────────────────
+
+/// Frames the I/O thread accepts from external writers.
+enum OutboundFrame {
+    Body(Vec<u8>),
+    Shutdown,
 }
 
-struct SocketInner {
-    stream: Option<TlsStream>,
-    buffer: Vec<Vec<u8>>,
-    ack: bool,
+/// Per-connection state.  The owning `TlsStream` lives inside the I/O thread;
+/// everything reachable through this struct is safe to call from any thread.
+pub struct Socket {
+    pub id: String,
     peer: String,
+    disconnected: AtomicBool,
+    outbound: Mutex<Option<Sender<OutboundFrame>>>,
 }
 
 impl Socket {
-    fn new(stream: TlsStream) -> Arc<Socket> {
+    fn new(peer: String, outbound: Sender<OutboundFrame>) -> Arc<Socket> {
         Arc::new(Socket {
             id: secure_unique_string(),
-            inner: Mutex::new(SocketInner {
-                peer: stream.peer_addr(),
-                stream: Some(stream),
-                buffer: Vec::new(),
-                ack: true,
-            }),
+            peer,
+            disconnected: AtomicBool::new(false),
+            outbound: Mutex::new(Some(outbound)),
         })
     }
 
-    fn peer_ip(&self) -> String {
-        let inner = self.inner.lock().unwrap();
-        inner
-            .peer
+    pub fn peer_ip(&self) -> String {
+        self.peer
             .rsplit_once(':')
             .map(|(a, _)| a.to_string())
-            .unwrap_or(inner.peer.clone())
+            .unwrap_or_else(|| self.peer.clone())
     }
 
-    fn push_buffer(&self, inner: &mut SocketInner) {
-        if !inner.ack {
-            return;
-        }
-        let Some(stream) = inner.stream.as_mut() else {
-            return;
-        };
-        let Some(frame) = inner.buffer.first().cloned() else {
-            return;
-        };
-        inner.ack = false;
-        if write_length_prefixed_frame(stream, &frame).is_err() {
-            inner.ack = true;
-        }
-    }
-
+    /// Queue a frame for the I/O thread.  Silent no-op if disconnected.
     fn enqueue(&self, frame: Vec<u8>) {
-        let mut inner = self.inner.lock().unwrap();
-        inner.buffer.push(frame);
-        self.push_buffer(&mut inner);
+        if self.disconnected.load(Ordering::Acquire) {
+            return;
+        }
+        let guard = self.outbound.lock().unwrap();
+        if let Some(tx) = guard.as_ref() {
+            let _ = tx.send(OutboundFrame::Body(frame));
+        }
     }
 
-    /// Public outbound encoders — used by `FedNet` and tests.
+    /// Idempotent cooperative shutdown.
+    fn shutdown(&self) {
+        if self.disconnected.swap(true, Ordering::AcqRel) {
+            return;
+        }
+        let mut guard = self.outbound.lock().unwrap();
+        if let Some(tx) = guard.take() {
+            let _ = tx.send(OutboundFrame::Shutdown);
+        }
+    }
+
+    // ── Public outbound encoders ──────────────────────────────────────────
+
     pub fn write_request(
         &self,
         request_id: &str,
@@ -118,9 +145,10 @@ impl Socket {
     }
 }
 
-/// Bridge callback signature: `func(socket, srcIp, OriginPacket)`.
-pub type FedApi =
-    Arc<dyn Fn(Arc<Socket>, String, OriginPacket) + Send + Sync>;
+// ── Federation TCP server ──────────────────────────────────────────────────
+
+/// Bridge callback signature: `fn(socket, srcIp, OriginPacket)`.
+pub type FedApi = Arc<dyn Fn(Arc<Socket>, String, OriginPacket) + Send + Sync>;
 
 /// Federation TLS-TCP server.
 pub struct Tcp {
@@ -142,8 +170,10 @@ impl Tcp {
         *self.bridge.lock().unwrap() = Some(bridge);
     }
 
-    /// Open a new outbound socket toward `dest_address`. Returns `None` if
-    /// the TLS handshake fails.
+    /// Open a new outbound socket toward `dest_address`.
+    ///
+    /// Retries up to 3 times with exponential backoff (150 ms → 300 ms →
+    /// 600 ms) before returning `None`.
     pub fn new_outbound_socket(
         self: &Arc<Self>,
         dest_address: &str,
@@ -159,71 +189,166 @@ impl Tcp {
                     .to_string();
             }
         }
-        let stream = match dial(dest_address, cfg.as_ref()) {
-            Ok(s) => s,
-            Err(e) => {
-                eprintln!("federation dial {}: {}", dest_address, e);
-                return None;
+
+        let mut delay = Duration::from_millis(150);
+        for attempt in 0..3u32 {
+            match dial(dest_address, cfg.as_ref()) {
+                Ok(stream) => {
+                    return Some(self.register_connection(stream));
+                }
+                Err(e) => {
+                    if attempt < 2 {
+                        eprintln!(
+                            "federation dial {} (attempt {}): {} — retrying in {:?}",
+                            dest_address,
+                            attempt + 1,
+                            e,
+                            delay
+                        );
+                        thread::sleep(delay);
+                        delay *= 2;
+                    } else {
+                        eprintln!("federation dial {}: {} — giving up", dest_address, e);
+                    }
+                }
             }
-        };
-        let socket = self.register_inbound(stream);
-        Some(socket)
+        }
+        None
     }
 
-    fn register_inbound(self: &Arc<Self>, stream: TlsStream) -> Arc<Socket> {
-        let socket = Socket::new(stream);
+    /// Register an already-established connection (inbound or outbound),
+    /// spawn its I/O thread, and return the `Arc<Socket>`.
+    fn register_connection(self: &Arc<Self>, stream: TlsStream) -> Arc<Socket> {
+        let peer = stream.peer_addr();
+        let (tx, rx) = mpsc::channel::<OutboundFrame>();
+        let socket = Socket::new(peer, tx);
+
         let ip = socket.peer_ip();
         if !ip.is_empty() {
             self.sockets.insert(ip, socket.clone());
         }
+
         let trans = self.clone();
         let sock = socket.clone();
-        thread::spawn(move || trans.listen_for_packets(sock));
+        thread::spawn(move || trans.run_io_loop(sock, stream, rx));
+
         socket
     }
 
-    fn listen_for_packets(self: Arc<Self>, socket: Arc<Socket>) {
-        loop {
-            let frame = {
-                let mut inner = socket.inner.lock().unwrap();
-                let s = match inner.stream.as_mut() {
-                    Some(s) => s,
-                    None => break,
-                };
-                match read_length_prefixed_frame(s) {
-                    Ok(Some(b)) => b,
-                    Ok(None) | Err(_) => break,
+    /// Per-connection I/O loop.  Owns the `TlsStream` for the lifetime of the
+    /// connection.
+    ///
+    /// A 20 ms read timeout lets the loop drain outbound frames without ever
+    /// blocking writers.  Frames are written immediately as they arrive on the
+    /// MPSC channel (no ACK gate needed at the federation level — each
+    /// federation socket typically carries one request per session, and
+    /// response traffic flows on a separate connection).
+    fn run_io_loop(
+        self: Arc<Self>,
+        socket: Arc<Socket>,
+        mut stream: TlsStream,
+        rx: Receiver<OutboundFrame>,
+    ) {
+        let _ = stream.set_read_timeout(Some(Duration::from_millis(20)));
+
+        let mut outbound: VecDeque<Vec<u8>> = VecDeque::new();
+        let mut shutdown_requested = false;
+
+        // Resumable length-prefix accumulator — same as tcp.rs.
+        let mut len_buf = [0u8; 4];
+        let mut len_filled = 0usize;
+        let mut body_buf: Vec<u8> = Vec::new();
+        let mut body_filled = 0usize;
+        let mut expected_len: Option<u32> = None;
+        const MAX_FRAME: u32 = 20 * 1024 * 1024;
+
+        'io: loop {
+            // 1) Drain outbound MPSC channel into local VecDeque.
+            loop {
+                match rx.try_recv() {
+                    Ok(OutboundFrame::Body(b)) => outbound.push_back(b),
+                    Ok(OutboundFrame::Shutdown) => shutdown_requested = true,
+                    Err(TryRecvError::Empty) => break,
+                    Err(TryRecvError::Disconnected) => {
+                        shutdown_requested = true;
+                        break;
+                    }
                 }
+            }
+
+            if shutdown_requested && outbound.is_empty() {
+                break 'io;
+            }
+
+            // 2) Send all pending outbound frames eagerly — no ACK gate needed
+            //    at the federation level.
+            while let Some(frame) = outbound.front() {
+                match write_length_prefixed_frame(&mut stream, frame) {
+                    Ok(()) => {
+                        outbound.pop_front();
+                    }
+                    Err(_) => break 'io,
+                }
+            }
+
+            // 3) Try to read inbound bytes (non-blocking with 20 ms timeout).
+            let read_outcome = if expected_len.is_none() {
+                let target = &mut len_buf[len_filled..];
+                fed_read_into(&mut stream, target)
+            } else {
+                let target = &mut body_buf[body_filled..];
+                fed_read_into(&mut stream, target)
             };
-            let trans = self.clone();
-            let sock = socket.clone();
-            trans.process_packet(sock, frame);
+
+            match read_outcome {
+                FedReadOutcome::Bytes(n) => {
+                    if expected_len.is_none() {
+                        len_filled += n;
+                        if len_filled == 4 {
+                            let len = u32::from_be_bytes(len_buf);
+                            if len > MAX_FRAME {
+                                break 'io;
+                            }
+                            expected_len = Some(len);
+                            body_buf = vec![0u8; len as usize];
+                            body_filled = 0;
+                            len_filled = 0;
+                            if len == 0 {
+                                expected_len = None;
+                                // Zero-length frame — no-op for federation.
+                            }
+                        }
+                    } else {
+                        body_filled += n;
+                        if body_filled == body_buf.len() {
+                            let frame = std::mem::take(&mut body_buf);
+                            expected_len = None;
+                            body_filled = 0;
+                            self.dispatch_frame(&socket, frame);
+                        }
+                    }
+                }
+                FedReadOutcome::Idle => {
+                    // Short-timeout expiry — loop back to outbound drain.
+                }
+                FedReadOutcome::Closed | FedReadOutcome::Error => break 'io,
+            }
         }
-        let mut inner = socket.inner.lock().unwrap();
-        if let Some(s) = inner.stream.as_mut() {
-            s.shutdown();
+
+        // Cleanup.
+        socket.shutdown();
+        let ip = socket.peer_ip();
+        if !ip.is_empty() {
+            self.sockets.remove(&ip);
         }
-        let id_ip = inner
-            .peer
-            .rsplit_once(':')
-            .map(|(a, _)| a.to_string())
-            .unwrap_or(inner.peer.clone());
-        self.sockets.remove(&id_ip);
     }
 
-    fn process_packet(self: Arc<Self>, socket: Arc<Socket>, body: Vec<u8>) {
-        if body == b"packet_received" {
-            let mut inner = socket.inner.lock().unwrap();
-            inner.ack = true;
-            if !inner.buffer.is_empty() {
-                inner.buffer.remove(0);
-                socket.push_buffer(&mut inner);
-            }
-            return;
-        }
+    /// Decode and dispatch a fully-read inbound frame.
+    fn dispatch_frame(self: &Arc<Self>, socket: &Arc<Socket>, body: Vec<u8>) {
         if body.is_empty() {
             return;
         }
+
         let pack = match body[0] {
             0x01 => {
                 let frame = match decode_update_body(&body[1..], true) {
@@ -309,16 +434,40 @@ impl Tcp {
                     Ok(s) => s,
                     Err(e) => {
                         eprintln!("federation accept: {}", e);
-                        continue;
+                        continue; // retry — don't abandon the listener
                     }
                 };
-                trans.register_inbound(stream);
+                trans.register_connection(stream);
             }
         });
     }
 }
 
-// Suppress unused-results lint helper.
+// ── Non-blocking read helper ───────────────────────────────────────────────
+
+enum FedReadOutcome {
+    Bytes(usize),
+    Idle,
+    Closed,
+    Error,
+}
+
+fn fed_read_into(stream: &mut TlsStream, buf: &mut [u8]) -> FedReadOutcome {
+    use std::io::Read;
+    if buf.is_empty() {
+        return FedReadOutcome::Idle;
+    }
+    match stream.read(buf) {
+        Ok(0) => FedReadOutcome::Closed,
+        Ok(n) => FedReadOutcome::Bytes(n),
+        Err(e) if e.kind() == ErrorKind::WouldBlock || e.kind() == ErrorKind::TimedOut => {
+            FedReadOutcome::Idle
+        }
+        Err(e) if e.kind() == ErrorKind::Interrupted => FedReadOutcome::Idle,
+        Err(_) => FedReadOutcome::Error,
+    }
+}
+
 #[allow(dead_code)]
 fn _force_use() -> Result<()> {
     Ok(())

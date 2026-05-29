@@ -375,6 +375,11 @@ impl NetworkTransport {
     }
 
     /// Generic single request / single response RPC.
+    ///
+    /// Retries on connection or I/O errors up to 3 times total with
+    /// exponential backoff (100 ms → 200 ms → 400 ms).  Pooled connections
+    /// that have gone stale are released on first use and replaced by a fresh
+    /// dial on the retry.
     fn generic_rpc<Req, Resp>(
         &self,
         target: &str,
@@ -386,51 +391,89 @@ impl NetworkTransport {
         Req: Serialize,
         Resp: DeserializeOwned,
     {
-        let mut conn = self.get_conn(target, _timeout)?;
-
-        // Encode the request body: [1B type][JSON].
         let body = serde_json::to_vec(args)?;
         let mut frame = Vec::with_capacity(1 + body.len());
         frame.push(rpc_type);
         frame.extend_from_slice(&body);
 
-        if let Err(e) = write_frame(conn.conn.as_mut(), &frame) {
-            conn.release();
-            return Err(e);
-        }
+        let mut last_err = anyhow!("rpc: no attempts made");
+        let mut delay = Duration::from_millis(100);
 
-        // Read the response.
-        let resp_frame = match read_frame(conn.conn.as_mut()) {
-            Ok(f) => f,
-            Err(e) => {
+        for attempt in 0..3u32 {
+            if self.is_shutdown() {
+                return Err(anyhow!("transport shutdown"));
+            }
+
+            let mut conn = match self.get_conn(target, _timeout) {
+                Ok(c) => c,
+                Err(e) => {
+                    last_err = e;
+                    if attempt < 2 {
+                        thread::sleep(delay);
+                        delay *= 2;
+                    }
+                    continue;
+                }
+            };
+
+            // Write the request frame.
+            if let Err(e) = write_frame(conn.conn.as_mut(), &frame) {
                 conn.release();
-                return Err(e);
+                last_err = e;
+                if attempt < 2 {
+                    thread::sleep(delay);
+                    delay *= 2;
+                }
+                continue;
             }
-        };
 
-        if resp_frame.is_empty() {
-            conn.release();
-            return Err(anyhow!("empty response frame"));
-        }
-        let status = resp_frame[0];
-        let body = &resp_frame[1..];
+            // Read the response frame.
+            let resp_frame = match read_frame(conn.conn.as_mut()) {
+                Ok(f) => f,
+                Err(e) => {
+                    conn.release();
+                    last_err = e;
+                    if attempt < 2 {
+                        thread::sleep(delay);
+                        delay *= 2;
+                    }
+                    continue;
+                }
+            };
 
-        match status {
-            RESP_OK => {
-                let resp: Resp = serde_json::from_slice(body)?;
-                self.return_conn(conn);
-                Ok(resp)
-            }
-            RESP_ERR => {
-                let msg: String = serde_json::from_slice(body)?;
-                self.return_conn(conn);
-                Err(anyhow!("{}", msg))
-            }
-            other => {
+            if resp_frame.is_empty() {
                 conn.release();
-                Err(anyhow!("unknown response status {}", other))
+                last_err = anyhow!("empty response frame");
+                if attempt < 2 {
+                    thread::sleep(delay);
+                    delay *= 2;
+                }
+                continue;
             }
+
+            let status = resp_frame[0];
+            let resp_body = &resp_frame[1..];
+
+            return match status {
+                RESP_OK => {
+                    let resp: Resp = serde_json::from_slice(resp_body)?;
+                    self.return_conn(conn);
+                    Ok(resp)
+                }
+                RESP_ERR => {
+                    let msg: String = serde_json::from_slice(resp_body)
+                        .unwrap_or_else(|_| "unknown error".into());
+                    self.return_conn(conn);
+                    Err(anyhow!("{}", msg))
+                }
+                other => {
+                    conn.release();
+                    Err(anyhow!("unknown response status {}", other))
+                }
+            };
         }
+
+        Err(last_err)
     }
 }
 

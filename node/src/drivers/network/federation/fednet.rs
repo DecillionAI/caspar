@@ -483,7 +483,16 @@ impl IFederation for FedNet {
         });
         let _ = cb;
 
+        // If we can't open the socket the callback will never be called via
+        // the normal response path.  Remove it from the map and invoke it
+        // immediately so callers don't silently block until the 120 s timeout.
         let Some(socket) = self.open_socket(&address) else {
+            if let Some((_, pending)) = self.packet_callbacks.remove(&callback_id) {
+                let mut slot = pending.callback.lock().unwrap();
+                if let Some(cb) = slot.take() {
+                    cb(Vec::new(), 0, Some(anyhow::anyhow!("federation: could not open socket to {}", address)));
+                }
+            }
             return;
         };
         socket.write_request(&callback_id, user_id, path, &payload, signature);
