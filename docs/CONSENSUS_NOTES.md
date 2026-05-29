@@ -1,5 +1,10 @@
 # Consensus throughput & quiet-state behaviour
 
+> Updated: **2026-05-29** — verified against the current Rust Babble port
+> (`Node::babble`, `monologue`, `core.busy`). Measured consensus-round latency
+> and throughput are in [`BENCHMARKS.md`](BENCHMARKS.md) (≈95 ms median round,
+> 10.5 ops/s peak).
+
 When a fresh node boots and then sits without any consensus-bound
 client traffic, the babble log goes completely silent after the
 `BABBLING` banner. No `Self-Event`, no `Decided Round`, no `Commit`.
