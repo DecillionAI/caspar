@@ -1208,13 +1208,24 @@ local_start_node() {
   local env_file="$node_dir/.env"
   local log_file="$node_dir/node.log"
 
-  [[ -f "$env_file" ]] && { set -a; source "$env_file"; set +a; }
-
   info "Starting node$n locally (TCP=${NODE_TCP[$n]})…"
   # Ensure dist/lib/wasmedge is on the dynamic linker path so libwasmedge.so.0 is found.
   local wasmedge_lib_dir="$REPO_DIR/dist/lib/wasmedge"
   local launch_ld_path="${wasmedge_lib_dir}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
-  LD_LIBRARY_PATH="$launch_ld_path" BABBLE_DIR="$node_dir/babble" "$BINARY" >> "$log_file" 2>&1 &
+  # .env uses /app/data container paths; translate them to per-node host paths.
+  # Also expose node/scripts/ so shardchain.sh is found by the babble bootstrap.
+  LD_LIBRARY_PATH="$launch_ld_path" \
+  PATH="$REPO_DIR/node/scripts:${PATH}" \
+  BABBLE_DIR="$node_dir/babble" \
+  BABBLE_DATA_DIR="$node_dir/babble" \
+  STORAGE_ROOT_PATH="$node_dir/storage" \
+  BASE_DB_PATH="$node_dir/db" \
+  APPLET_DB_PATH="$node_dir/applet" \
+  SEARCH_INDEX_PATH="$node_dir/search" \
+  STORE_LOGS_DB="$node_dir/store_logs" \
+  TELEMETRY_DB_PATH="$node_dir/telemetry" \
+  QUESTDB_DATA_DIR="$node_dir/questdb" \
+  "$BINARY" >> "$log_file" 2>&1 &
   echo $! > "$node_dir/caspar.pid"
   echo $!
 }
