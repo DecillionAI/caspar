@@ -1138,6 +1138,10 @@ print(RSA.generate(2048).export_key().decode(), end='')
   local entity_port=$((tcp_port + 5))       # 8079 / 8179 / 8279
   local vm_port=$((tcp_port + 6))           # 8080 / 8180 / 8280
   local tel_port=$((9099 + (n - 1) * 100))  # 9099 / 9199 / 9299
+  # pprof profiling HTTP server. The node defaults PPROF_PORT to 9999 when
+  # unset; since both docker (--network host) and local triple-node runs
+  # share one host network, all three nodes would otherwise collide on 9999.
+  local pprof_port=$((9999 + (n - 1) * 100)) # 9999 / 10099 / 10199
 
   # Per-node QuestDB ports — each node gets its own QuestDB instance so
   # docker containers (which share host net via --network host) do not
@@ -1170,6 +1174,7 @@ FEDERATION_API_PORT=${fed_port}
 BLOCKCHAIN_API_PORT=${chain_port}
 ENTITY_API_PORT=${entity_port}
 VM_API_PORT=${vm_port}
+PPROF_PORT=${pprof_port}
 ORIGIN=http://localhost:${tcp_port}
 IPADDR=127.0.0.1
 ROOT_NODE=${root_node}
@@ -1216,9 +1221,11 @@ local_start_node() {
   # Ensure dist/lib/wasmedge is on the dynamic linker path so libwasmedge.so.0 is found.
   local wasmedge_lib_dir="$REPO_DIR/dist/lib/wasmedge"
   local launch_ld_path="${wasmedge_lib_dir}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
-  # Override container paths and expose node/scripts/ for shardchain.sh.
+  # Override the /app/data container paths with per-node host paths, and point
+  # SHARDCHAIN_SCRIPT at the in-repo copy (the node defaults to the Docker path
+  # /app/scripts/shardchain.sh, which does not exist in local/--no-docker runs).
   LD_LIBRARY_PATH="$launch_ld_path" \
-  PATH="$REPO_DIR/node/scripts:${PATH}" \
+  SHARDCHAIN_SCRIPT="$REPO_DIR/node/scripts/shardchain.sh" \
   BABBLE_DIR="$node_dir/babble" \
   BABBLE_DATA_DIR="$node_dir/babble" \
   STORAGE_ROOT_PATH="$node_dir/storage" \
