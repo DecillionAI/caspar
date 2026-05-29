@@ -34,7 +34,7 @@ pub const DEFAULT_ICE_USERNAME: &str = "";
 pub const DEFAULT_ICE_PASSWORD: &str = "";
 
 fn default_heartbeat_timeout() -> Duration {
-    Duration::from_millis(10)
+    Duration::from_millis(200)
 }
 fn default_slow_heartbeat_timeout() -> Duration {
     Duration::from_millis(1000)
