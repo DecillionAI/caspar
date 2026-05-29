@@ -57,6 +57,43 @@ _TRANSIENT_EXCEPTIONS = (
     OSError,  # generic "Errno 111", "Errno 104", etc.
 )
 
+# Methods we consider idempotent — safe to retry even if the previous
+# attempt may have flushed bytes to the wire. Anything outside this set
+# that fails after the socket opened (i.e. NOT ConnectionRefusedError)
+# is treated as "may have been processed once already" and the wrapper
+# refuses to retry, raising the original exception to the caller. This
+# is the conservative answer to a real concern: deploy.py and
+# workflow_tests.py issue chain-mutating calls (deploy register, create
+# store, etc.) whose duplicate execution would corrupt state under load.
+#
+# Keep this set deliberately small. Adding a method here is a promise
+# that it's either pure-read or has server-side idempotency keys.
+_IDEMPOTENT_METHODS = frozenset({
+    "connect",
+    "ping",
+    "recv",
+    "recv_response",
+    "get_status",
+    "get_state",
+    "list",
+    "get",
+    "fetch",
+})
+
+
+def _is_idempotent(method_name: str) -> bool:
+    """Match exact method name OR any prefix that ends in an underscore
+    (so `get_user`, `get_status`, `list_stores` all hit `get`/`list`).
+    This is heuristic but conservative — false-negative refuses to
+    retry, which is the right default for a method we can't classify."""
+    if method_name in _IDEMPOTENT_METHODS:
+        return True
+    # Common prefix patterns for read-only methods.
+    for prefix in ("get_", "list_", "fetch_", "is_", "has_", "recv_"):
+        if method_name.startswith(prefix):
+            return True
+    return False
+
 
 def _log(msg: str) -> None:
     """Stderr only — stdout belongs to deploy.py's report writer."""
@@ -109,7 +146,18 @@ def _retry_with_reconnect(method_name: str, fn, reconnect_method_name: str = "co
     underlying connection via `self.<reconnect_method_name>()`. Used for
     request/response calls that need a live socket — a stale FD or a
     mid-flight reset is the most common cause of the deploy script's
-    'socket closed while reading' errors."""
+    'socket closed while reading' errors.
+
+    Non-idempotent methods (anything not in `_IDEMPOTENT_METHODS` /
+    `_is_idempotent`) only retry on `ConnectionRefusedError` — that's
+    the one error where we KNOW the request never reached the server
+    (the kernel rejected the SYN). Any other transient error means
+    bytes may have been written and the server may have acted; retrying
+    risks duplicate side-effects (a second deploy registration, a
+    duplicate chain transaction, etc.) so we log and re-raise instead.
+    """
+
+    is_idempotent = _is_idempotent(method_name.rsplit(".", 1)[-1])
 
     @functools.wraps(fn)
     def wrapper(self, *args, **kwargs):
@@ -119,6 +167,16 @@ def _retry_with_reconnect(method_name: str, fn, reconnect_method_name: str = "co
                 return fn(self, *args, **kwargs)
             except _TRANSIENT_EXCEPTIONS as e:
                 last_err = e
+                # Idempotency gate: non-idempotent calls only retry the
+                # "no socket existed" case (ConnectionRefusedError);
+                # other errors (BrokenPipe, ConnectionReset, timeout,
+                # OSError) might mean the request already flushed.
+                if not is_idempotent and not isinstance(e, ConnectionRefusedError):
+                    _log(
+                        f"{method_name} mid-flight failure ({type(e).__name__}: {e}) — "
+                        f"not retrying (non-idempotent)"
+                    )
+                    raise
                 if attempt + 1 >= _MAX_ATTEMPTS:
                     break
                 delay = _backoff(attempt)
