@@ -94,14 +94,6 @@ impl StreamLayer for TcpStreamLayer {
             .listener
             .accept()
             .map_err(|e| anyhow!("accept: {}", e))?;
-        // Babble's gossip RPCs are short-lived in steady state but the
-        // pooled outbound connections in NetworkTransport are reused for
-        // minutes. Without keep-alive, a peer container restart leaves the
-        // pool with stale FDs that only fail on the next RPC attempt — by
-        // which point a consensus round has already missed its quorum
-        // deadline. Enable keep-alive on every accepted chain peer.
-        let _ = stream.set_nodelay(true);
-        crate::util::keepalive::apply(&stream);
         Ok(Box::new(TcpConn::new(stream)))
     }
 
@@ -113,8 +105,6 @@ impl StreamLayer for TcpStreamLayer {
             .ok_or_else(|| anyhow!("resolve {}: no result", address))?;
         let stream = TcpStream::connect_timeout(&addr, timeout)
             .map_err(|e| anyhow!("dial {}: {}", address, e))?;
-        let _ = stream.set_nodelay(true);
-        crate::util::keepalive::apply(&stream);
         Ok(Box::new(TcpConn::new(stream)))
     }
 

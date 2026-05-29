@@ -13,7 +13,7 @@ use std::collections::HashMap;
 use std::env;
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::{Duration, Instant, SystemTime};
+use std::time::{Duration, SystemTime};
 
 use anyhow::Result;
 use base64::{engine::general_purpose::STANDARD as B64, Engine};
@@ -64,22 +64,6 @@ use crate::util::GoError;
 const MAX_VALIDATOR_COUNT: usize = 50;
 const ELECTION_COMMIT_SECONDS: i64 = 120;
 const ELECTION_REVEAL_SECONDS: i64 = 120;
-/// Capacity of the chain submission queue. Sized for a comfortable burst
-/// (~one round at a few thousand TPS) but bounded so a stalled babble
-/// drain cannot grow this unboundedly and OOM the node — the failure
-/// mode the benchmark report keeps surfacing as silent node death after
-/// node1 wedges on chains/registerNode. Overflow is reported and the
-/// op is dropped: a blocking send would deadlock because
-/// `handle_chain_packet` (which runs on the drain thread) is itself a
-/// producer.
-const CHAIN_SUBMIT_QUEUE_CAP: usize = 4096;
-/// How long an outstanding `callbacks` / `message_callbacks` entry may
-/// live before the sweeper fails it with a timeout error. Chosen to be
-/// longer than every legitimate consensus round so a healthy in-flight
-/// op is never spuriously cancelled, but short enough that a leaked
-/// callback from a dropped federation socket does not pin its closure
-/// (and any captured Arcs) forever.
-const CHAIN_CALLBACK_TIMEOUT_SECS: u64 = 180;
 
 /// Tools — aggregates every driver behind a single `ITools` impl.
 pub struct Tools {
@@ -132,14 +116,8 @@ pub struct Core {
     globe: Mutex<Option<Arc<dyn IGlobe>>>,
     chain_tx: Mutex<Option<crossbeam_channel::Sender<ChainSubmission>>>,
     started: Mutex<bool>,
-    /// Pending chain-callback responses. The `Instant` is the wall-clock
-    /// moment the callback was registered; the periodic sweeper in the
-    /// election-tick loop uses it to expire callbacks whose chain submission
-    /// will never be answered (peer died, federation socket reset, babble
-    /// stall) — without it those Arcs leaked forever, pinning their captured
-    /// state.
-    callbacks: Mutex<HashMap<String, (Arc<ChainCallback>, Instant)>>,
-    message_callbacks: Mutex<HashMap<String, (Arc<MessageCallback>, Instant)>>,
+    callbacks: Mutex<HashMap<String, Arc<ChainCallback>>>,
+    message_callbacks: Mutex<HashMap<String, Arc<MessageCallback>>>,
 
     gods: Mutex<Vec<String>>,
     free_nodes: Mutex<HashMap<String, bool>>,
@@ -359,7 +337,7 @@ impl Core {
                         .lock()
                         .unwrap()
                         .get(&packet.reply_to)
-                        .map(|(cb, _)| cb.clone());
+                        .cloned();
                     if let Some(cb) = cb {
                         (cb.fn_)(packet.key.clone(), packet.payload.clone());
                     }
@@ -444,17 +422,13 @@ impl Core {
                 };
                 {
                     let mut cbs = self.callbacks.lock().unwrap();
-                    cbs.entry(packet.request_id.clone()).or_insert_with(|| {
-                        (
-                            Arc::new(ChainCallback {
-                                fn_: Arc::new(|_, _, _| {}),
-                                executors: HashMap::new(),
-                                responses: HashMap::new(),
-                                tag: String::new(),
-                            }),
-                            Instant::now(),
-                        )
-                    });
+                    cbs.entry(packet.request_id.clone())
+                        .or_insert_with(|| Arc::new(ChainCallback {
+                            fn_: Arc::new(|_, _, _| {}),
+                            executors: HashMap::new(),
+                            responses: HashMap::new(),
+                            tag: String::new(),
+                        }));
                 }
                 let user_id = packet
                     .author
@@ -498,12 +472,7 @@ impl Core {
                     &packet.tag,
                 );
                 if packet.submitter == self.id {
-                    let cb = self
-                        .callbacks
-                        .lock()
-                        .unwrap()
-                        .remove(&packet.request_id)
-                        .map(|(cb, _)| cb);
+                    let cb = self.callbacks.lock().unwrap().remove(&packet.request_id);
                     if let Some(cb) = cb {
                         match res {
                             Ok((status, value)) => {
@@ -524,13 +493,10 @@ impl Core {
 
     fn submit_chain_op(&self, chain_id: &str, op: ChainPacketOp) {
         if let Some(tx) = self.chain_tx.lock().unwrap().clone() {
-            try_send_chain_submission(
-                &tx,
-                ChainSubmission {
-                    chain_id: chain_id.to_string(),
-                    op,
-                },
-            );
+            let _ = tx.send(ChainSubmission {
+                chain_id: chain_id.to_string(),
+                op,
+            });
         }
     }
 }
@@ -888,10 +854,8 @@ impl Core {
         }
         drop(cost);
 
-        // Chain submission channel — bounded so a stalled drain doesn't
-        // OOM the node. See CHAIN_SUBMIT_QUEUE_CAP.
-        let (chain_tx, chain_rx) =
-            crossbeam_channel::bounded::<ChainSubmission>(CHAIN_SUBMIT_QUEUE_CAP);
+        // Chain submission channel.
+        let (chain_tx, chain_rx) = crossbeam_channel::unbounded::<ChainSubmission>();
         *self.chain_tx.lock().unwrap() = Some(chain_tx.clone());
 
         // Globe.
@@ -906,13 +870,10 @@ impl Core {
         let submit_fn: crate::core::globe::SubmitChainPacketFn = {
             let chain_tx_clone = chain_tx.clone();
             Arc::new(move |chain_id: &str, op: ChainPacketOp| {
-                try_send_chain_submission(
-                    &chain_tx_clone,
-                    ChainSubmission {
-                        chain_id: chain_id.to_string(),
-                        op,
-                    },
-                );
+                let _ = chain_tx_clone.send(ChainSubmission {
+                    chain_id: chain_id.to_string(),
+                    op,
+                });
             })
         };
         let set_chain_callback_fn: crate::core::globe::SetChainCallbackFn = {
@@ -922,7 +883,7 @@ impl Core {
                     .callbacks
                     .lock()
                     .unwrap()
-                    .insert(callback_id.to_string(), (Arc::new(cb), Instant::now()));
+                    .insert(callback_id.to_string(), Arc::new(cb));
             })
         };
         let set_message_cb_fn: crate::core::globe::SetMessageCbFn = {
@@ -932,7 +893,7 @@ impl Core {
                     .message_callbacks
                     .lock()
                     .unwrap()
-                    .insert(callback_id.to_string(), (Arc::new(cb), Instant::now()));
+                    .insert(callback_id.to_string(), Arc::new(cb));
             })
         };
         let globe = Globe::new(
@@ -1032,96 +993,17 @@ impl Core {
         });
 
         // Background: every second, ask the globe to start a scheduled
-        // election if the hour aligns AND sweep any callbacks whose chain
-        // submission will never be answered. Folding the sweep into the
-        // existing election tick avoids spawning a second long-lived
-        // thread purely for housekeeping.
+        // election if the hour aligns.
         let trans = self.clone();
-        thread::spawn(move || {
-            let callback_ttl = Duration::from_secs(CHAIN_CALLBACK_TIMEOUT_SECS);
-            loop {
-                thread::sleep(Duration::from_secs(1));
-                let globe = trans.globe.lock().unwrap().clone();
-                if let Some(g) = globe {
-                    g.try_start_scheduled_election(SystemTime::now());
-                }
-                trans.sweep_expired_callbacks(callback_ttl);
+        thread::spawn(move || loop {
+            thread::sleep(Duration::from_secs(1));
+            let globe = trans.globe.lock().unwrap().clone();
+            if let Some(g) = globe {
+                g.try_start_scheduled_election(SystemTime::now());
             }
         });
 
         Ok(())
-    }
-
-    /// Walks the chain / message callback maps and fails any entry older
-    /// than `ttl`. Held-lock window is the snapshot scan only; the
-    /// callbacks themselves are invoked without holding the map lock so a
-    /// reentrant submission from inside a callback (chain commit handlers
-    /// can re-enter `submit_chain_op`) cannot deadlock.
-    fn sweep_expired_callbacks(&self, ttl: Duration) {
-        let now = Instant::now();
-        let expired_chain: Vec<(String, Arc<ChainCallback>)> = {
-            let mut cbs = self.callbacks.lock().unwrap();
-            let ids: Vec<String> = cbs
-                .iter()
-                .filter(|(_, (_, ts))| now.duration_since(*ts) > ttl)
-                .map(|(k, _)| k.clone())
-                .collect();
-            ids.into_iter()
-                .filter_map(|id| cbs.remove(&id).map(|(cb, _)| (id, cb)))
-                .collect()
-        };
-        for (id, cb) in expired_chain {
-            (cb.fn_)(
-                b"{}".to_vec(),
-                504,
-                Some(anyhow::anyhow!(
-                    "chain callback {} timed out after {:?}",
-                    id,
-                    ttl
-                )),
-            );
-        }
-
-        let expired_msg: Vec<(String, Arc<MessageCallback>)> = {
-            let mut cbs = self.message_callbacks.lock().unwrap();
-            let ids: Vec<String> = cbs
-                .iter()
-                .filter(|(_, (_, ts))| now.duration_since(*ts) > ttl)
-                .map(|(k, _)| k.clone())
-                .collect();
-            ids.into_iter()
-                .filter_map(|id| cbs.remove(&id).map(|(cb, _)| (id, cb)))
-                .collect()
-        };
-        // Message callbacks have no error channel — invoking with empty
-        // payload signals "no answer arrived"; the registered closure is
-        // already idempotent on double-call (the map remove above
-        // guarantees we only fire once anyway).
-        for (_, cb) in expired_msg {
-            (cb.fn_)(String::new(), Vec::new());
-        }
-    }
-}
-
-/// Non-blocking submit onto the bounded chain channel. On overflow we log
-/// and drop: a blocking send would deadlock because `handle_chain_packet`
-/// itself produces, and `handle_chain_packet` runs on the drain thread.
-fn try_send_chain_submission(
-    tx: &crossbeam_channel::Sender<ChainSubmission>,
-    env: ChainSubmission,
-) {
-    use crossbeam_channel::TrySendError;
-    match tx.try_send(env) {
-        Ok(()) => {}
-        Err(TrySendError::Full(_)) => {
-            eprintln!(
-                "[chain_submit] queue full at capacity {}, dropping op",
-                CHAIN_SUBMIT_QUEUE_CAP
-            );
-        }
-        Err(TrySendError::Disconnected(_)) => {
-            // Pipeline shutting down — nothing to do.
-        }
     }
 }
 
