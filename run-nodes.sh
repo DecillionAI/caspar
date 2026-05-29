@@ -20,10 +20,10 @@
 #   --no-firecracker Skip Firecracker install and network setup. By default
 #                    Firecracker is installed and its host bridge is configured
 #                    so microVM-backed workloads can run immediately.
-#   --rebuild        Force rebuild even if binaries / image already exist.
-#                    Docker mode: re-runs build-dist.sh + docker build.
-#                    Local mode:  re-runs cargo build --release.
-#                    (alias: --rebuild-image)
+#   --no-rebuild     Skip all build steps and use the existing dist/ binaries/libs
+#                    (local mode) or existing Docker image as-is.  By default the
+#                    build is always run so the cluster reflects the latest source.
+#                    Errors out if the required artifact is missing.
 #   --foreground     (docker mode) keep tailing container logs until Ctrl-C
 #                    instead of returning immediately
 #   --skip-deploy    Skip WASM creature build & deployment. By default
@@ -56,7 +56,9 @@ _native_docker_exists() {
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 NODE_DIR="$REPO_DIR/node"
+# Prefer the pre-built dist binary; fall back to the cargo build output.
 BINARY="$NODE_DIR/target/release/caspar-node"
+[[ -x "$REPO_DIR/dist/bin/caspar-node" ]] && BINARY="$REPO_DIR/dist/bin/caspar-node"
 DATA_ROOT="/tmp/caspar"
 # Use the pre-built jar from dist/ if /opt/questdb/questdb.jar is absent
 QUESTDB_JAR="${QUESTDB_JAR:-}"
@@ -120,7 +122,7 @@ USE_DOCKER=true
 FRESH=false
 SETUP_GVISOR=true
 SETUP_FIRECRACKER=true
-REBUILD_IMAGE=false
+NO_REBUILD=false
 FOREGROUND=false
 DEPLOY_CREATURES=true
 
@@ -133,7 +135,7 @@ for arg in "$@"; do
     --fresh)           FRESH=true ;;
     --no-gvisor)       SETUP_GVISOR=false ;;
     --no-firecracker)  SETUP_FIRECRACKER=false ;;
-    --rebuild|--rebuild-image) REBUILD_IMAGE=true ;;
+    --no-rebuild)      NO_REBUILD=true ;;
     --foreground)      FOREGROUND=true ;;
     --skip-deploy)     DEPLOY_CREATURES=false ;;
     --help|-h)
@@ -1050,30 +1052,13 @@ fi
 [[ -d "$HOME/.cargo/bin" ]] && export PATH="$HOME/.cargo/bin:$PATH"
 
 if $USE_DOCKER; then
-  if $REBUILD_IMAGE || ! docker image inspect "$DOCKER_IMAGE" >/dev/null 2>&1; then
-    # dist/ pre-built check: if all required artifacts already exist and we're not
-    # doing a forced rebuild, skip the expensive build-dist.sh step (~45 min).
-    _dist_ready() {
-      [[ -f "$REPO_DIR/dist/bin/caspar-node"       ]] || return 1
-      [[ -f "$REPO_DIR/dist/bin/caspar-keygen"      ]] || return 1
-      [[ -f "$REPO_DIR/dist/bin/casparctl"           ]] || return 1
-      [[ -f "$REPO_DIR/dist/questdb/questdb.jar"    ]] || return 1
-      # At least one wasmedge .so file must be present
-      ls "$REPO_DIR/dist/lib/wasmedge/libwasmedge.so"* >/dev/null 2>&1 || return 1
-      return 0
-    }
-
-    if $REBUILD_IMAGE; then
-      info "--rebuild: force-rebuilding $DOCKER_IMAGE (build-dist.sh + docker build)…"
-      bash "$REPO_DIR/build-dist.sh"
-    elif _dist_ready; then
-      info "dist/ already populated — skipping build-dist.sh, running docker build…"
-    else
-      info "Docker image $DOCKER_IMAGE not present — building (runs build-dist.sh + docker build)…"
-      bash "$REPO_DIR/build-dist.sh"
-    fi
-    # Pass --no-firecracker flag through to the Dockerfile so the image build
-    # skips the Firecracker binary + kernel downloads when they are not needed.
+  if $NO_REBUILD; then
+    info "--no-rebuild: skipping build, using existing Docker image $DOCKER_IMAGE"
+    docker image inspect "$DOCKER_IMAGE" >/dev/null 2>&1 \
+      || die "--no-rebuild set but Docker image $DOCKER_IMAGE not found"
+  else
+    info "Building $DOCKER_IMAGE (build-dist.sh + docker build)…"
+    bash "$REPO_DIR/build-dist.sh"
     _fc_build_arg="true"; $SETUP_FIRECRACKER || _fc_build_arg="false"
     docker build -f "$REPO_DIR/node/Dockerfile" \
       --build-arg "INSTALL_FIRECRACKER=${_fc_build_arg}" \
@@ -1081,21 +1066,13 @@ if $USE_DOCKER; then
   fi
   ok "Docker image ready: $DOCKER_IMAGE"
 else
-  build_needed=false
-  if $REBUILD_IMAGE; then
-    build_needed=true
-    info "--rebuild: forcing cargo build --release…"
-  elif [[ ! -f "$BINARY" ]]; then
-    build_needed=true
-    info "Binary not found — building (this takes ~3 min first time)…"
-  elif [[ "$BINARY" -ot "$NODE_DIR/src/main.rs" ]]; then
-    build_needed=true
-    info "Source newer than binary — rebuilding…"
-  fi
-  if $build_needed; then
-    cd "$NODE_DIR"
-    cargo build --release 2>&1 | grep -E "^error|Compiling caspar|Finished" || true
-    cd "$REPO_DIR"
+  if $NO_REBUILD; then
+    info "--no-rebuild: skipping build, using existing dist/ binaries"
+    [[ -f "$BINARY" ]] || die "--no-rebuild set but binary not found at $BINARY"
+  else
+    info "Building caspar-node via build-dist.sh…"
+    bash "$REPO_DIR/build-dist.sh" --skip-ctl
+    [[ -x "$REPO_DIR/dist/bin/caspar-node" ]] && BINARY="$REPO_DIR/dist/bin/caspar-node"
   fi
   [[ -f "$BINARY" ]] || die "Build failed: binary not found at $BINARY"
   ok "Binary ready: $BINARY ($(ls -lh "$BINARY" | awk '{print $5}'))"
@@ -1161,6 +1138,10 @@ print(RSA.generate(2048).export_key().decode(), end='')
   local entity_port=$((tcp_port + 5))       # 8079 / 8179 / 8279
   local vm_port=$((tcp_port + 6))           # 8080 / 8180 / 8280
   local tel_port=$((9099 + (n - 1) * 100))  # 9099 / 9199 / 9299
+  # pprof profiling HTTP server. The node defaults PPROF_PORT to 9999 when
+  # unset; since both docker (--network host) and local triple-node runs
+  # share one host network, all three nodes would otherwise collide on 9999.
+  local pprof_port=$((9999 + (n - 1) * 100)) # 9999 / 10099 / 10199
 
   # Per-node QuestDB ports — each node gets its own QuestDB instance so
   # docker containers (which share host net via --network host) do not
@@ -1193,6 +1174,7 @@ FEDERATION_API_PORT=${fed_port}
 BLOCKCHAIN_API_PORT=${chain_port}
 ENTITY_API_PORT=${entity_port}
 VM_API_PORT=${vm_port}
+PPROF_PORT=${pprof_port}
 ORIGIN=http://localhost:${tcp_port}
 IPADDR=127.0.0.1
 ROOT_NODE=${root_node}
@@ -1231,10 +1213,29 @@ local_start_node() {
   local env_file="$node_dir/.env"
   local log_file="$node_dir/node.log"
 
+  # Load all vars from .env (keys, ports, etc.), then override the /app/data
+  # container paths with real per-node host paths so nodes don't collide.
   [[ -f "$env_file" ]] && { set -a; source "$env_file"; set +a; }
 
   info "Starting node$n locally (TCP=${NODE_TCP[$n]})…"
-  BABBLE_DIR="$node_dir/babble" "$BINARY" >> "$log_file" 2>&1 &
+  # Ensure dist/lib/wasmedge is on the dynamic linker path so libwasmedge.so.0 is found.
+  local wasmedge_lib_dir="$REPO_DIR/dist/lib/wasmedge"
+  local launch_ld_path="${wasmedge_lib_dir}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+  # Override the /app/data container paths with per-node host paths, and point
+  # SHARDCHAIN_SCRIPT at the in-repo copy (the node defaults to the Docker path
+  # /app/scripts/shardchain.sh, which does not exist in local/--no-docker runs).
+  LD_LIBRARY_PATH="$launch_ld_path" \
+  SHARDCHAIN_SCRIPT="$REPO_DIR/node/scripts/shardchain.sh" \
+  BABBLE_DIR="$node_dir/babble" \
+  BABBLE_DATA_DIR="$node_dir/babble" \
+  STORAGE_ROOT_PATH="$node_dir/storage" \
+  BASE_DB_PATH="$node_dir/db" \
+  APPLET_DB_PATH="$node_dir/applet" \
+  SEARCH_INDEX_PATH="$node_dir/search" \
+  STORE_LOGS_DB="$node_dir/store_logs" \
+  TELEMETRY_DB_PATH="$node_dir/telemetry" \
+  QUESTDB_DATA_DIR="$node_dir/questdb" \
+  "$BINARY" >> "$log_file" 2>&1 &
   echo $! > "$node_dir/caspar.pid"
   echo $!
 }

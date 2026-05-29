@@ -27,10 +27,19 @@ pub struct ControlTimer {
 impl ControlTimer {
     /// A `ControlTimer` factory method.
     pub fn new(timer_factory: TimerFactory) -> ControlTimer {
-        let (tick_tx, tick_rx) = bounded(0);
-        let (reset_tx, reset_rx) = bounded(0);
-        let (stop_tx, stop_rx) = bounded(0);
-        let (shutdown_tx, shutdown_rx) = bounded(0);
+        // NOTE: these were originally zero-capacity (rendezvous) channels.
+        // That allowed a two-party deadlock: the timer thread blocks in
+        // `tick_tx.send(())` waiting for the babble loop to receive a tick,
+        // while the babble loop — handling the *previous* tick — blocks in
+        // `reset_tx.send(t)` waiting for the timer thread to receive a reset.
+        // Neither thread is in its `select!`, so neither rendezvous can ever
+        // complete and consensus freezes. A 1-slot buffer makes every signal
+        // delivery non-blocking, so each thread always returns to its
+        // `select!` and can service the other's message.
+        let (tick_tx, tick_rx) = bounded(1);
+        let (reset_tx, reset_rx) = bounded(1);
+        let (stop_tx, stop_rx) = bounded(1);
+        let (shutdown_tx, shutdown_rx) = bounded(1);
         ControlTimer {
             timer_factory,
             tick_rx,
@@ -71,7 +80,12 @@ impl ControlTimer {
         loop {
             select! {
                 recv(timer) -> _ => {
-                    let _ = self.tick_tx.send(());
+                    // Non-blocking: if a prior tick is still buffered and
+                    // unconsumed, this one coalesces into it (the babble loop
+                    // only needs to learn "a tick happened"). Crucially this
+                    // never blocks the timer thread, so it always loops back
+                    // to `select!` and can service reset/stop/shutdown.
+                    let _ = self.tick_tx.try_send(());
                     self.is_set.store(false, Ordering::SeqCst);
                 }
                 recv(self.reset_rx) -> t => {
@@ -92,13 +106,19 @@ impl ControlTimer {
     }
 
     /// Resets the heartbeat timer to a new duration.
+    ///
+    /// Non-blocking: the babble loop calls this after every tick/gossip cycle,
+    /// and must never block here (blocking on a rendezvous send is what caused
+    /// the consensus-freeze deadlock). A buffered reset is consumed by the
+    /// timer thread on its next `select!`; if one is already pending, dropping
+    /// the duplicate is safe because `reset_timer` re-arms on the next cycle.
     pub fn reset(&self, t: Duration) {
-        let _ = self.reset_tx.send(t);
+        let _ = self.reset_tx.try_send(t);
     }
 
     /// Stops the heartbeat timer.
     pub fn stop(&self) {
-        let _ = self.stop_tx.send(());
+        let _ = self.stop_tx.try_send(());
     }
 
     /// Returns whether the timer is currently set.

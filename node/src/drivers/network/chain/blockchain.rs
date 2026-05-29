@@ -189,8 +189,17 @@ impl Blockchain {
         // priv_key, and silently invalidate the cluster-wide
         // peers.genesis.json — the node then never matches any peer entry,
         // stays in JOINING forever, and never opens its TCP API listener.
+        //
+        // The script location is configurable via SHARDCHAIN_SCRIPT so the
+        // node works both in Docker (where node/scripts is mounted at
+        // /app/scripts — the default below) and in local/--no-docker runs
+        // (where run-nodes.sh points this at the in-repo node/scripts copy).
+        let shardchain_script = env::var("SHARDCHAIN_SCRIPT")
+            .ok()
+            .filter(|p| !p.trim().is_empty())
+            .unwrap_or_else(|| "/app/scripts/shardchain.sh".to_string());
         match Command::new("bash")
-            .arg("/app/scripts/shardchain.sh")
+            .arg(&shardchain_script)
             .arg(&self.storage_root)
             .arg(&wchain.id)
             .arg(chain_id)
