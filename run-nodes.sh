@@ -1431,8 +1431,13 @@ fi
 echo ""
 
 # ─── Foreground vs detached ──────────────────────────────────────────────────
-if $USE_DOCKER && ! $FOREGROUND; then
-  info "Containers running detached. Run with --foreground to tail logs."
+# Both docker and local mode exit immediately unless --foreground is passed.
+# In local mode the node processes run as disowned background jobs; their PIDs
+# are saved to /tmp/caspar/nodeN/caspar.pid and can be stopped via stop-nodes.sh.
+if ! $FOREGROUND; then
+  $USE_DOCKER \
+    && info "Containers running detached. Run with --foreground to tail logs." \
+    || info "Nodes running detached. Run with --foreground to tail logs."
   exit 0
 fi
 

@@ -127,12 +127,12 @@ fi
 # ─── 3. Firecracker microVM processes ────────────────────────────────────────
 # Any firecracker processes caspar-node spawned must be killed before we
 # declare shutdown complete (they hold /opt/firecracker/vms/*.sock fds).
-fc_pids=$(ps -eo pid,cmd 2>/dev/null | awk '/[f]irecracker/ && !/awk/ && !/grep/ {print $1}')
+fc_pids=$(ps -eo pid,cmd 2>/dev/null | awk '$2 ~ /firecracker/ && !/awk/ && !/grep/ {print $1}')
 if [[ -n "$fc_pids" ]]; then
   info "Stopping Firecracker microVM processes: $fc_pids"
   for p in $fc_pids; do kill "$p" 2>/dev/null || true; done
   sleep 2
-  still=$(ps -eo pid,cmd 2>/dev/null | awk '/[f]irecracker/ && !/awk/ && !/grep/ {print $1}')
+  still=$(ps -eo pid,cmd 2>/dev/null | awk '$2 ~ /firecracker/ && !/awk/ && !/grep/ {print $1}')
   [[ -n "$still" ]] && { for p in $still; do kill -9 "$p" 2>/dev/null || true; done; }
   # Remove stale API sockets
   rm -f /opt/firecracker/vms/fc.*.sock 2>/dev/null || true
