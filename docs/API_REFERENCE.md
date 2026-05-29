@@ -1,17 +1,17 @@
 # API Reference 📡
 
-> Updated: **2026-04-14**
+> Updated: **2026-05-29**
 
 Caspar exposes:
 
-1. Signed binary action protocol (TLS TCP + TLS WS)
-2. HTTPS entity/stream endpoints
-3. Hashgraph service HTTP endpoints
-4. Telemetry snapshot HTTP endpoint
+1. Signed binary action protocol (mutual-TLS TCP + TLS WS)
+2. Entity / stream endpoints (`ENTITY_API_PORT`, `VM_API_PORT`)
+3. Hashgraph service HTTP endpoints (`BLOCKCHAIN_API_PORT`)
+4. Telemetry snapshot HTTP endpoint (`TELEMETRY_API_PORT`)
 
 ## 1) Binary Action Protocol
 
-### TCP framing
+### Framing
 
 ```text
 [4 bytes body_len (big-endian)]
@@ -28,11 +28,13 @@ Caspar exposes:
 [payload_json]
 ```
 
-### Frame bytes
+### Frame tag bytes
 
-- ACK: `0x01`
-- Response frame starts with: `0x02`
-- Update/signal frame starts with: `0x01`
+A single leading byte tags each frame:
+
+- `0x01` — asynchronous update / signal frame
+- `0x02` — synchronous response frame
+- `0x03` — request frame
 
 ### Status codes
 
@@ -41,6 +43,17 @@ Caspar exposes:
 - `2` parse/validation error
 - `3` execution error
 - `4` auth/authorization failure
+
+### Consensus routing
+
+Whether an action is ordered through the Babble chain is determined by its
+input's `origin` field, **not** by the route name:
+
+- `origin == "global"` → consensus-bound (e.g. `creatures.create`,
+  `creatures.createMachine`, `programs.create`, `programs.deploy`,
+  `chains/*`). Produces `Adding Transaction → Commit block=N`.
+- `origin == ""` → local (reads, `creatures.signal`, dev `login`). No chain
+  activity. See [`CONSENSUS_NOTES.md`](CONSENSUS_NOTES.md).
 
 ## 2) Route Groups
 
@@ -79,6 +92,11 @@ Caspar exposes:
 - `GET /api/hello`, `/api/time`, `/api/ping`
 
 ## 3) HTTPS APIs
+
+> **Note.** In the current build, binary blob I/O (user/store/app entities) is
+> exercised through the `storage/*` actions on the binary action protocol above.
+> `ENTITY_API_PORT` is reserved/configured for a dedicated entity endpoint; the
+> routes below describe that intended surface.
 
 ### Entity API (`ENTITY_API_PORT`)
 - `/storage/downloadUserEntity`
