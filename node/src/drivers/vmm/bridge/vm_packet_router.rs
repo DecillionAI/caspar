@@ -3,10 +3,10 @@ use crate::drivers::vmm::bridge::vm_packet_schema::{VmPacketKind, VmPacketContex
 use crate::drivers::vmm::bridge::gateway_control_api::handle_gateway_control_api;
 use crate::drivers::vmm::bridge::runtime_io::{wasm_send, set_log_vm_context, log};
 use crate::drivers::vmm::models::vm_runtime::{
-    VmRuntime, ElpifyTask, ElpifyManagedVm, WasmMac, ManagedVmHandle,
-    GLOBAL_MANAGED_VMS, GLOBAL_ELPIFY_VMS,
+    VmRuntime, WasmMac, ManagedVmHandle,
+    GLOBAL_MANAGED_VMS,
     detect_vm_runtime, parse_vm_resource_limits, terminate_managed_vm,
-    execute_elpian_task, verify_program_execution_from_packet,
+    enqueue_elpify_task, execute_elpian_task, verify_program_execution_from_packet,
     parse_u64_array_field, parse_u8_array_field,
 };
 use crate::drivers::vmm::host::vm_host_functions::{handle_unified_host_call, with_docker_controller, with_fire_controller};
@@ -100,18 +100,10 @@ fn dispatch_run_vm_packet(packet: &JsonValue, env: &VmPacketContext) -> String {
     let limits = parse_vm_resource_limits(packet);
 
     if runtime == VmRuntime::Elpify {
-        // Elpify programs run to completion and produce a STARK proof.
-        // There's nothing to "leave running", so the host fn returns
-        // {outputs, proof} synchronously instead of enqueuing into the
-        // async ElpifyManagedVm worker. The caller (a wasm creature,
-        // typically the elpify-chain miniapp) can then pipe the proof
-        // straight into elpifyProof / submitTrx for validator consensus.
-        let _ = vm_id;
-        let _ = limits;
         if ast_path.is_empty() {
             return json!({"ok": false, "runtime": "elpify", "error": "astPath (MASM file) is required"}).to_string();
         }
-        // Two ways to pass public inputs:
+        // Two ways to pass a transaction's public inputs (payload):
         //   1. `inputs` array directly on the packet (preferred for
         //      host-fn callers).
         //   2. `input` is a JSON string of `{"inputs":[...]}` (legacy
@@ -124,33 +116,74 @@ fn dispatch_run_vm_packet(packet: &JsonValue, env: &VmPacketContext) -> String {
                 Err(_) => Vec::new(),
             }
         };
-        return match elpify_lang::execute_masm_file_with_proof(&ast_path, &inputs) {
-            Ok(artifacts) => {
-                // Encode the (tens-of-KB) STARK proof as base64 rather than a
-                // JSON number array. wasm creatures round-trip this value
-                // several times (persist, broadcast, re-read); a number array
-                // costs seconds per pass under TinyGo's reflection-based JSON,
-                // while a base64 string is a single scalar. `parse_u8_array_field`
-                // (used by elpifyProof / verifyProgramExecution) decodes both.
-                use base64::Engine;
-                let proof_b64 = base64::engine::general_purpose::STANDARD
-                    .encode(&artifacts.proof_bytes);
-                json!({
-                    "ok": true,
+
+        // `sync: true` keeps the legacy single-shot path: run this one
+        // transaction to completion and return {outputs, proof} synchronously.
+        // Callers that need an immediate proof (e.g. an ad-hoc verification
+        // probe) opt in explicitly.
+        if packet["sync"].as_bool().unwrap_or(false) {
+            return match elpify_lang::execute_masm_file_with_proof(&ast_path, &inputs) {
+                Ok(artifacts) => {
+                    // Encode the (tens-of-KB) STARK proof as base64 rather than a
+                    // JSON number array. wasm creatures round-trip this value
+                    // several times (persist, broadcast, re-read); a number array
+                    // costs seconds per pass under TinyGo's reflection-based JSON,
+                    // while a base64 string is a single scalar. `parse_u8_array_field`
+                    // (used by elpifyProof / verifyProgramExecution) decodes both.
+                    let proof_b64 = BASE64_STANDARD.encode(&artifacts.proof_bytes);
+                    json!({
+                        "ok": true,
+                        "runtime": "elpify",
+                        "machineId": machine_id,
+                        "masmPath": ast_path,
+                        "inputs": inputs,
+                        "outputs": artifacts.stack_outputs,
+                        "proof": proof_b64,
+                        "sync": true,
+                    })
+                    .to_string()
+                }
+                Err(err) => json!({
+                    "ok": false,
                     "runtime": "elpify",
                     "machineId": machine_id,
-                    "masmPath": ast_path,
-                    "inputs": inputs,
-                    "outputs": artifacts.stack_outputs,
-                    "proof": proof_b64,
+                    "error": err.to_string(),
                 })
-                .to_string()
-            }
+                .to_string(),
+            };
+        }
+
+        // Default path: enqueue this transaction into the per-program-entity
+        // batch queue. The elpify scheduler collects it into a 500ms window and
+        // runs the window as ONE loop-wrapped, single-proof batch (one round per
+        // transaction, each fed its own payload). The batch's proof and
+        // per-transaction outputs are delivered asynchronously via a vmOutput
+        // packet — the same channel the wasm/elpian runtimes use.
+        let input_raw = if !packet["inputs"].is_null() {
+            json!({ "inputs": inputs }).to_string()
+        } else {
+            input.clone()
+        };
+        return match enqueue_elpify_task(
+            &machine_id,
+            ast_path.clone(),
+            input_raw,
+            vm_id.clone(),
+            limits.clone(),
+        ) {
+            Ok(()) => json!({
+                "ok": true,
+                "runtime": "elpify",
+                "machineId": machine_id,
+                "masmPath": ast_path,
+                "queued": true,
+            })
+            .to_string(),
             Err(err) => json!({
                 "ok": false,
                 "runtime": "elpify",
                 "machineId": machine_id,
-                "error": err.to_string(),
+                "error": err,
             })
             .to_string(),
         };

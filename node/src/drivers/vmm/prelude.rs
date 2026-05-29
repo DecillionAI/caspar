@@ -12,8 +12,9 @@ pub use bollard::models::HostConfig;
 pub use bollard::Docker;
 pub use elpian_vm::api as elpian_api;
 pub use elpify_lang::{
-    execute_masm_file_with_proof, stack_outputs_from_ints, transpile_js_to_masm, verify_execution,
-    ExecutionEngine, TaskInput,
+    execute_batch_with_proof, execute_masm_file_with_proof, stack_outputs_from_ints,
+    transpile_js_to_masm, verify_execution, BatchArtifacts, ExecutionEngine, TaskInput,
+    BATCH_MAX_EXPOSED_OUTPUTS,
 };
 pub use futures_util::stream::TryStreamExt;
 pub use once_cell::sync::Lazy;
