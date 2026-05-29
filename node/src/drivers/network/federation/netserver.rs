@@ -189,30 +189,39 @@ impl Tcp {
                     .to_string();
             }
         }
-
-        let mut delay = Duration::from_millis(150);
-        for attempt in 0..3u32 {
+        // Bounded retry with exponential back-off. Federation peers may be
+        // briefly unreachable during container restart / cluster bootstrap;
+        // a single hard failure here would propagate as a dropped request,
+        // which the higher-level caller treats as a peer-down event and
+        // never retries. The retry is bounded so a genuinely-dead peer
+        // does not block the federation worker indefinitely — the
+        // remaining peers can still make progress while this one heals.
+        const MAX_DIAL_ATTEMPTS: u32 = 4;
+        let mut last_err: Option<anyhow::Error> = None;
+        for attempt in 0..MAX_DIAL_ATTEMPTS {
             match dial(dest_address, cfg.as_ref()) {
                 Ok(stream) => {
-                    return Some(self.register_connection(stream));
+                    let socket = self.register_inbound(stream);
+                    return Some(socket);
                 }
                 Err(e) => {
-                    if attempt < 2 {
-                        eprintln!(
-                            "federation dial {} (attempt {}): {} — retrying in {:?}",
-                            dest_address,
-                            attempt + 1,
-                            e,
-                            delay
-                        );
-                        thread::sleep(delay);
-                        delay *= 2;
-                    } else {
-                        eprintln!("federation dial {}: {} — giving up", dest_address, e);
+                    last_err = Some(e);
+                    if attempt + 1 >= MAX_DIAL_ATTEMPTS {
+                        break;
                     }
+                    let backoff_ms = 250u64 * (1u64 << attempt); // 250, 500, 1000ms
+                    std::thread::sleep(std::time::Duration::from_millis(backoff_ms));
                 }
             }
         }
+        eprintln!(
+            "federation dial {}: giving up after {} attempts ({})",
+            dest_address,
+            MAX_DIAL_ATTEMPTS,
+            last_err
+                .map(|e| e.to_string())
+                .unwrap_or_else(|| "no error captured".into()),
+        );
         None
     }
 
@@ -230,8 +239,27 @@ impl Tcp {
 
         let trans = self.clone();
         let sock = socket.clone();
-        thread::spawn(move || trans.run_io_loop(sock, stream, rx));
-
+        thread::spawn(move || {
+            // catch_unwind so a panic in the per-socket reader can't take
+            // the federation listener thread down quietly. The match-arm
+            // logging makes a panic in the federation path diagnosable
+            // through docker logs the same way TCP / WS handler panics now
+            // are.
+            let peer_ip = sock.peer_ip();
+            let result = std::panic::catch_unwind(
+                std::panic::AssertUnwindSafe(|| trans.listen_for_packets(sock)),
+            );
+            if let Err(payload) = result {
+                let msg = if let Some(s) = payload.downcast_ref::<&str>() {
+                    s.to_string()
+                } else if let Some(s) = payload.downcast_ref::<String>() {
+                    s.clone()
+                } else {
+                    "<non-string panic>".to_string()
+                };
+                eprintln!("[fed] listen_for_packets panic for {}: {}", peer_ip, msg);
+            }
+        });
         socket
     }
 

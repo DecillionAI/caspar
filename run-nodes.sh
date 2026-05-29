@@ -787,7 +787,12 @@ _deploy_creatures() {
     || { warn "pycryptodome not available — skipping deployment"; return 1; }
   info "Deploying WASM creatures to node(s)…"
   mkdir -p "$DATA_ROOT"
-  python3 "$deploy_script" 2>&1 | tee "$DATA_ROOT/deploy.log"
+  # PYTHONPATH=tools/python_patches injects our sitecustomize.py, which
+  # patches caspar_client.CasparClient with bounded-retry / reconnect
+  # wrappers so a transient babble stall or container restart no longer
+  # aborts the entire deploy with one "Connection refused" error.
+  PYTHONPATH="$REPO_DIR/tools/python_patches:${PYTHONPATH:-}" \
+    python3 "$deploy_script" 2>&1 | tee "$DATA_ROOT/deploy.log"
   local report="${HOME:-/root}/deployment_report.json"
   if [[ -f "$report" ]]; then
     local ok_count

@@ -130,6 +130,10 @@ pub fn accept(
     stream
         .set_nodelay(true)
         .map_err(|e| anyhow!("set_nodelay: {}", e))?;
+    // Detect dead peers within ~60 s instead of the kernel default 2 h.
+    // Without this, a NAT box / container teardown leaves us with a
+    // half-open socket that only surfaces on the next write.
+    crate::util::keepalive::apply(&stream);
     match cfg {
         Some(c) => {
             let conn = ServerConnection::new(c.clone())
@@ -145,6 +149,7 @@ pub fn accept(
 pub fn dial(addr: &str, tls: Option<&TlsConfig>) -> Result<TlsStream> {
     let stream = TcpStream::connect(addr).map_err(|e| anyhow!("dial {}: {}", addr, e))?;
     stream.set_nodelay(true).ok();
+    crate::util::keepalive::apply(&stream);
     match tls {
         Some(cfg) => {
             let client_cfg = build_client_config(cfg)?;

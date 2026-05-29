@@ -175,7 +175,19 @@ impl NetworkTransport {
         if let Some(c) = self.get_pooled_conn(target) {
             return Ok(c);
         }
-        let conn = self.stream.dial(target, timeout)?;
+        // Bounded retry on the dial: 3 attempts with exponential
+        // back-off. Peers briefly down for restart, container
+        // teardown, or a chain bind that loses the race with the
+        // listener's accept loop would previously fail a whole RPC
+        // (and the caller has no retry of its own). Three attempts
+        // (~1.4 s total) absorbs the common transient without
+        // delaying a permanently-dead peer enough to disturb the
+        // gossip selection.
+        let conn = crate::util::retry::retry_backoff(
+            3,
+            std::time::Duration::from_millis(200),
+            || self.stream.dial(target, timeout),
+        )?;
         Ok(NetConn {
             target: target.to_string(),
             conn,
@@ -208,7 +220,25 @@ impl NetworkTransport {
                         return;
                     }
                     let trans = Arc::clone(&self);
-                    thread::spawn(move || trans.handle_conn(conn));
+                    thread::spawn(move || {
+                        // catch_unwind so a panic mid-frame can't kill the
+                        // per-peer reader silently — silent death is what
+                        // produces "missed gossip cycle" symptoms that
+                        // look like a babble bug at first glance.
+                        let result = std::panic::catch_unwind(
+                            std::panic::AssertUnwindSafe(|| trans.handle_conn(conn)),
+                        );
+                        if let Err(payload) = result {
+                            let msg = if let Some(s) = payload.downcast_ref::<&str>() {
+                                s.to_string()
+                            } else if let Some(s) = payload.downcast_ref::<String>() {
+                                s.clone()
+                            } else {
+                                "<non-string panic>".to_string()
+                            };
+                            eprintln!("[chain-net] handle_conn panic: {}", msg);
+                        }
+                    });
                 }
                 Err(e) => {
                     if self.is_shutdown() {

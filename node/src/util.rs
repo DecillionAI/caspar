@@ -1,5 +1,161 @@
 //! Shared low-level helpers used across the translated Caspar node.
 
+/// TCP keep-alive configuration applied to every long-lived stream owned by
+/// the Caspar node: client TCP, client WS, federation, and the babble chain
+/// transport. Without these settings the Linux kernel waits two hours before
+/// sending the first probe, so a peer (NAT box, container, idle deploy
+/// client) that goes silent leaves us with a half-open socket that only
+/// reveals itself the next time we try to write — by which point the
+/// outbound queue is already full and the deploy script has hit its own
+/// read timeout. With these settings the kernel notices a dead peer in
+/// roughly a minute and closes the socket so our accept / read loops can
+/// reclaim resources promptly.
+pub mod keepalive {
+    use std::net::TcpStream;
+    use std::os::unix::io::AsRawFd;
+
+    /// Idle period after which the first probe is sent, in seconds.
+    /// Short enough that a transient deploy stall (which is the failure mode
+    /// the benchmark workflow keeps tripping over) is visible quickly,
+    /// long enough that healthy idle connections (e.g. the WS-update bus)
+    /// are not woken up unnecessarily.
+    const IDLE_SECS: i32 = 30;
+    /// Spacing between probes, in seconds.
+    const INTVL_SECS: i32 = 10;
+    /// Number of unanswered probes before the kernel declares the socket
+    /// dead and surfaces an error from the next read/write.
+    const CNT: i32 = 3;
+
+    /// Enable SO_KEEPALIVE on the stream and install the per-socket idle /
+    /// interval / count overrides. Best-effort: a missing TCP_KEEPIDLE on
+    /// an exotic platform leaves SO_KEEPALIVE on with the kernel default,
+    /// which is still better than no keepalive at all.
+    pub fn apply(stream: &TcpStream) {
+        let fd = stream.as_raw_fd();
+        unsafe {
+            let one: libc::c_int = 1;
+            libc::setsockopt(
+                fd,
+                libc::SOL_SOCKET,
+                libc::SO_KEEPALIVE,
+                &one as *const _ as *const libc::c_void,
+                std::mem::size_of_val(&one) as libc::socklen_t,
+            );
+            let idle: libc::c_int = IDLE_SECS;
+            libc::setsockopt(
+                fd,
+                libc::IPPROTO_TCP,
+                libc::TCP_KEEPIDLE,
+                &idle as *const _ as *const libc::c_void,
+                std::mem::size_of_val(&idle) as libc::socklen_t,
+            );
+            let intvl: libc::c_int = INTVL_SECS;
+            libc::setsockopt(
+                fd,
+                libc::IPPROTO_TCP,
+                libc::TCP_KEEPINTVL,
+                &intvl as *const _ as *const libc::c_void,
+                std::mem::size_of_val(&intvl) as libc::socklen_t,
+            );
+            let cnt: libc::c_int = CNT;
+            libc::setsockopt(
+                fd,
+                libc::IPPROTO_TCP,
+                libc::TCP_KEEPCNT,
+                &cnt as *const _ as *const libc::c_void,
+                std::mem::size_of_val(&cnt) as libc::socklen_t,
+            );
+        }
+    }
+
+    /// Interval at which application-level WebSocket Ping frames are sent
+    /// when a connection has been idle. WebSocket has its own ping/pong
+    /// framing that lives above TCP keep-alive — proxies and middleboxes
+    /// that strip TCP keep-alive (or buffer it indefinitely) still respect
+    /// WS frames, so a higher-level ping is a useful belt-and-braces
+    /// complement on the WS driver.
+    pub const WS_PING_INTERVAL_SECS: u64 = 25;
+}
+
+/// Bounded exponential-back-off retry primitive. Used by every outbound
+/// dial / connect site in the node so the policy is consistent: short
+/// transient outages (peer container restart, listener race with
+/// accept) are absorbed without disturbing higher-level callers, but a
+/// genuinely-dead peer still surfaces within a couple of seconds.
+pub mod retry {
+    use std::thread;
+    use std::time::Duration;
+
+    /// Run `f` up to `attempts` times, sleeping `base * 2^attempt`
+    /// between attempts. Returns the first `Ok` value, or the final
+    /// `Err` if every attempt fails. `attempts == 0` returns the final
+    /// `Err` from a synthetic exhausted-attempts run; callers should
+    /// pass at least 1.
+    pub fn retry_backoff<T, E, F>(attempts: u32, base: Duration, mut f: F) -> Result<T, E>
+    where
+        F: FnMut() -> Result<T, E>,
+    {
+        let mut last_err: Option<E> = None;
+        for attempt in 0..attempts.max(1) {
+            match f() {
+                Ok(v) => return Ok(v),
+                Err(e) => {
+                    last_err = Some(e);
+                    if attempt + 1 >= attempts {
+                        break;
+                    }
+                    thread::sleep(base.saturating_mul(1u32 << attempt));
+                }
+            }
+        }
+        Err(last_err.expect("attempts >= 1 guarantees at least one Err"))
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use std::sync::atomic::{AtomicU32, Ordering};
+
+        #[test]
+        fn succeeds_on_first_attempt() {
+            let calls = AtomicU32::new(0);
+            let result: Result<i32, &str> = retry_backoff(3, Duration::from_millis(1), || {
+                calls.fetch_add(1, Ordering::SeqCst);
+                Ok(42)
+            });
+            assert_eq!(result, Ok(42));
+            assert_eq!(calls.load(Ordering::SeqCst), 1);
+        }
+
+        #[test]
+        fn succeeds_after_two_failures() {
+            let calls = AtomicU32::new(0);
+            let result: Result<i32, &str> = retry_backoff(3, Duration::from_millis(1), || {
+                let n = calls.fetch_add(1, Ordering::SeqCst);
+                if n < 2 {
+                    Err("not yet")
+                } else {
+                    Ok(99)
+                }
+            });
+            assert_eq!(result, Ok(99));
+            assert_eq!(calls.load(Ordering::SeqCst), 3);
+        }
+
+        #[test]
+        fn returns_final_err_after_exhausting_attempts() {
+            let calls = AtomicU32::new(0);
+            let result: Result<i32, &str> = retry_backoff(3, Duration::from_millis(1), || {
+                calls.fetch_add(1, Ordering::SeqCst);
+                Err("always fails")
+            });
+            assert_eq!(result, Err("always fails"));
+            assert_eq!(calls.load(Ordering::SeqCst), 3);
+        }
+    }
+}
+
+
 /// Serde helpers that (de)serialize `Vec<u8>` as a standard base64 string,
 /// matching Go's `encoding/json` behaviour for `[]byte` fields.
 pub mod bytes_base64 {
