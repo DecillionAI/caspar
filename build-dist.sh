@@ -145,9 +145,12 @@ done
 step "Step 4: Build casparctl"
 
 if $SKIP_CTL; then
-  [[ -f "$CTL_DIR/target/release/casparctl" ]] \
-    || die "--skip-ctl given but binary not found at $CTL_DIR/target/release/casparctl"
-  ok "Skipping casparctl build (--skip-ctl)"
+  if [[ -f "$CTL_DIR/target/release/casparctl" ]]; then
+    ok "Skipping casparctl build (--skip-ctl), binary already present"
+  else
+    warn "--skip-ctl given but casparctl binary not found — skipping casparctl entirely"
+    SKIP_CTL_COPY=true
+  fi
 else
   info "Running cargo build --release (casparctl)…"
   CTL_START=$SECONDS
@@ -155,9 +158,8 @@ else
   cargo build --release 2>&1 | grep -E "^error|Compiling casparctl|Finished" || true
   cd "$REPO_DIR"
   ok "casparctl built in $((SECONDS - CTL_START))s"
+  [[ -f "$CTL_DIR/target/release/casparctl" ]] || die "casparctl binary not found"
 fi
-
-[[ -f "$CTL_DIR/target/release/casparctl" ]] || die "casparctl binary not found"
 
 # =============================================================================
 # Step 5 — Obtain QuestDB jar
@@ -190,7 +192,9 @@ mkdir -p "$DIST_DIR/bin" "$DIST_DIR/lib/wasmedge" "$DIST_DIR/questdb"
 info "Copying binaries…"
 cp "$NODE_DIR/target/release/caspar-node"   "$DIST_DIR/bin/caspar-node"
 cp "$NODE_DIR/target/release/caspar-keygen" "$DIST_DIR/bin/caspar-keygen"
-cp "$CTL_DIR/target/release/casparctl"       "$DIST_DIR/bin/casparctl"
+if [[ "${SKIP_CTL_COPY:-false}" != "true" ]]; then
+  cp "$CTL_DIR/target/release/casparctl"     "$DIST_DIR/bin/casparctl"
+fi
 chmod +x "$DIST_DIR/bin/"*
 
 info "Copying WasmEdge library…"
