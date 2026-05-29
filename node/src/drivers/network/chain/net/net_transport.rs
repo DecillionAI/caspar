@@ -104,7 +104,7 @@ impl NetworkTransport {
     ) -> Arc<Self> {
         let logger = logger.unwrap_or_else(Entry::standalone);
 
-        let (consume_tx, consume_rx) = bounded::<Rpc>(0);
+        let (consume_tx, consume_rx) = bounded::<Rpc>(512);
         let (shutdown_tx, shutdown_rx) = unbounded::<()>();
 
         let trans = Arc::new(NetworkTransport {
@@ -310,7 +310,7 @@ impl Transport for NetworkTransport {
     fn consumer(&self, work_chain_id: &str, shard_chain_id: &str) -> Receiver<Rpc> {
         let key = format!("{}::{}", work_chain_id, shard_chain_id);
         let mut map = self.chain_inputs.lock().unwrap();
-        let entry = map.entry(key).or_insert_with(|| bounded::<Rpc>(0));
+        let entry = map.entry(key).or_insert_with(|| bounded::<Rpc>(512));
         entry.1.clone()
     }
 

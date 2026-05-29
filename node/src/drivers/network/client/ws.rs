@@ -373,13 +373,23 @@ impl Ws {
             // 2) Push the next frame if we're allowed to.
             if ack_ready {
                 if let Some(frame) = buffered.front() {
+                    // Update frames (tag 0x01) are fire-and-forget push
+                    // notifications; the client never ACKs them. Response
+                    // frames (tag 0x00) require an ACK before the next send.
+                    let is_update = frame.first().copied() == Some(0x01);
                     let mut msg = Vec::with_capacity(4 + frame.len());
                     msg.extend_from_slice(&(frame.len() as u32).to_be_bytes());
                     msg.extend_from_slice(frame);
                     match ws.send(Message::Binary(msg.into())) {
                         Ok(()) => {
                             last_activity = Instant::now();
-                            ack_ready = false;
+                            buffered.pop_front();
+                            if !is_update {
+                                // Wait for client ACK before sending the next frame.
+                                ack_ready = false;
+                            }
+                            // Update frames: ack_ready stays true, next frame
+                            // can be sent immediately on the next iteration.
                         }
                         Err(_) => break 'io,
                     }
@@ -407,11 +417,10 @@ impl Ws {
                     // it here so downstream handlers see a clean body.
                     let body = if body.len() >= 4 { body[4..].to_vec() } else { body };
                     if body.len() == 1 && body[0] == 0x01 {
-                        // Client ACK: previous frame delivered; advance.
+                        // Client ACK: the response frame was delivered.
+                        // The frame was already removed from buffered at send
+                        // time; just re-enable sending.
                         ack_ready = true;
-                        if !buffered.is_empty() {
-                            buffered.pop_front();
-                        }
                     } else {
                         self.process_inbound(&socket, body);
                     }

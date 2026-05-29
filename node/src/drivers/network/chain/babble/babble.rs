@@ -455,12 +455,20 @@ mod tests {
     }
 
     #[test]
-    fn load_key_for_config_errors_when_keyfile_missing() {
+    fn load_key_for_config_auto_generates_key_when_keyfile_missing() {
         let dir = tmp_data_dir("load-missing");
         let mut cfg = Config::new_default_config("127.0.0.1:1");
         cfg.data_dir = dir.to_string_lossy().into_owned();
-        let err = load_key_for_config(&mut cfg).expect_err("file missing");
-        assert!(format!("{}", err).contains("Error reading private key"));
+        // On first boot with no keyfile present, a key is auto-generated and
+        // written to disk so the node can start without manual provisioning.
+        load_key_for_config(&mut cfg).expect("auto-generation should succeed");
+        assert!(cfg.key.is_some(), "key should be set after auto-generation");
+        // The keyfile should now exist on disk.
+        let keyfile_path = cfg.keyfile();
+        assert!(
+            std::path::Path::new(&keyfile_path).exists(),
+            "keyfile should have been written to disk"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
