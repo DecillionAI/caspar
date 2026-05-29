@@ -789,7 +789,9 @@ _deploy_creatures() {
     || { warn "pycryptodome not available — skipping deployment"; return 1; }
   info "Deploying WASM creatures to node(s)…"
   mkdir -p "$DATA_ROOT"
-  python3 "$deploy_script" 2>&1 | tee "$DATA_ROOT/deploy.log"
+  python3 "$deploy_script" 2>&1 | tee "$DATA_ROOT/deploy.log" | \
+    grep --line-buffered -iE '(deploy|\.wasm|creature|module|install|register|upload)' | \
+    while IFS= read -r line; do info "  $line"; done
   local report="${HOME:-/root}/deployment_report.json"
   if [[ -f "$report" ]]; then
     local ok_count
