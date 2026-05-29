@@ -444,11 +444,18 @@ impl Tcp {
             if !socket_clone.is_disconnected() {
                 return;
             }
-            if let Some(current) = trans.sockets.get(&user_id) {
-                if Arc::ptr_eq(&socket_clone, current.value()) {
-                    trans.sockets.remove(&user_id);
-                    trans.app.tools().signaler().listeners().remove(&user_id);
-                }
+            // Remove the socket only if it is still the one we registered.
+            // `remove_if` evaluates the predicate atomically while holding the
+            // shard's write lock, so we never hold a read `Ref` (from `get`)
+            // across a `remove` on the same map — doing so deadlocks the shard,
+            // since DashMap's per-shard RwLock cannot grant the write lock while
+            // the same thread still holds the read guard.
+            let removed = trans
+                .sockets
+                .remove_if(&user_id, |_, current| Arc::ptr_eq(&socket_clone, current))
+                .is_some();
+            if removed {
+                trans.app.tools().signaler().listeners().remove(&user_id);
             }
         });
     }
