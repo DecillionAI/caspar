@@ -375,7 +375,7 @@ impl Ws {
                 if let Some(frame) = buffered.front() {
                     // Update frames (tag 0x01) are fire-and-forget push
                     // notifications; the client never ACKs them. Response
-                    // frames (tag 0x00) require an ACK before the next send.
+                    // frames (tag 0x02) require an ACK before the next send.
                     let is_update = frame.first().copied() == Some(0x01);
                     let mut msg = Vec::with_capacity(4 + frame.len());
                     msg.extend_from_slice(&(frame.len() as u32).to_be_bytes());
