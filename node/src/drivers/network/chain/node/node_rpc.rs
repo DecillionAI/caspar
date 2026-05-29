@@ -155,6 +155,15 @@ impl Node {
         if let Err(e) = &err {
             self.logger.with_error(e).error("sync()");
             success = false;
+        } else {
+            // Event-driven gossip: ingesting fresh events from a peer is
+            // exactly the condition the Go code relied on the next
+            // heartbeat tick to propagate. In this Rust port the babble
+            // loop sleeps until trigger_gossip() fires, so without this
+            // wake-up the just-ingested events would sit idle until the
+            // fallback timer ticked — silently slowing consensus
+            // propagation and, under load, occasionally missing rounds.
+            self.trigger_gossip();
         }
 
         let resp = EagerSyncResponse {
@@ -239,6 +248,16 @@ impl Node {
                     let mut core = self.core.lock().unwrap();
                     core.add_internal_transaction(cmd.internal_transaction.clone())
                 };
+                // The join InternalTransaction is now in our pool. It can
+                // only be accepted by consensus if our gossip carries it
+                // to the rest of the validator set; in this Rust port
+                // gossip is event-driven, so we must wake the babble loop
+                // explicitly. Without this the joiner sits in JOINING
+                // until our heartbeat fallback ticks — and if multiple
+                // joiners hit at once that delay compounds into the
+                // "Cannot join: Not in Babbling state" cascade we already
+                // see in node logs.
+                self.trigger_gossip();
                 match resp_rx.recv_timeout(self.conf.join_timeout) {
                     Ok(resp) => {
                         accepted = resp.accepted;
