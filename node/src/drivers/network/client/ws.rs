@@ -344,15 +344,9 @@ impl Ws {
         let mut ack_ready = true;
         let mut shutting_down = false;
         let mut shutdown_requested = false;
-        // App-level WebSocket ping. Browsers, proxies and CDNs frequently
-        // strip TCP keep-alive but always respect WS Ping frames, so the
-        // belt-and-braces complement keeps the connection alive through
-        // every kind of middlebox between client and node. The peer's Pong
-        // is handled below the same way as Ping (no-op for our purposes —
-        // tungstenite has already woken the read loop, which is what we
-        // need).
-        let ping_interval = Duration::from_secs(crate::util::keepalive::WS_PING_INTERVAL_SECS);
-        let mut last_ping = Instant::now();
+        // Keepalive: send a WS Ping every 30 s when the connection is idle.
+        const KEEPALIVE_IDLE: Duration = Duration::from_secs(30);
+        let mut last_activity = Instant::now();
 
         'io: loop {
             // 1) Pull any newly queued outbound frames onto the local FIFO.
@@ -411,15 +405,6 @@ impl Ws {
 
             if shutting_down {
                 break 'io;
-            }
-
-            // 2b) Periodic keep-alive ping. Done before the read so an
-            // idle connection still produces a wake-up on the peer side.
-            if last_ping.elapsed() >= ping_interval {
-                if ws.send(Message::Ping(Vec::new().into())).is_err() {
-                    break 'io;
-                }
-                last_ping = Instant::now();
             }
 
             // 3) Read whatever the client sent (with timeout).
@@ -506,23 +491,7 @@ impl IWs for Ws {
                     }
                 };
                 let trans = trans_self.clone();
-                thread::spawn(move || {
-                    // See tcp::listen for rationale on catch_unwind here.
-                    let peer = stream.peer_addr();
-                    let result = std::panic::catch_unwind(
-                        std::panic::AssertUnwindSafe(|| trans.handle_connection(stream)),
-                    );
-                    if let Err(payload) = result {
-                        let msg = if let Some(s) = payload.downcast_ref::<&str>() {
-                            s.to_string()
-                        } else if let Some(s) = payload.downcast_ref::<String>() {
-                            s.clone()
-                        } else {
-                            "<non-string panic>".to_string()
-                        };
-                        eprintln!("[ws] handler panic for {}: {}", peer, msg);
-                    }
-                });
+                thread::spawn(move || trans.handle_connection(stream));
             }
         });
     }

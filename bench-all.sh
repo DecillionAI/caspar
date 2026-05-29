@@ -219,9 +219,7 @@ else
   info "Expected duration: ~3 min (single node) to ~9 min (triple)…"
   echo ""
 
-  # See run-nodes.sh _deploy_creatures for why we inject our sitecustomize.
-  PYTHONPATH="$SCRIPT_DIR/tools/python_patches:${PYTHONPATH:-}" \
-    python3 "$DEPLOY_SCRIPT" 2>&1 | tee /tmp/caspar/deploy.log \
+  python3 "$DEPLOY_SCRIPT" 2>&1 | tee /tmp/caspar/deploy.log \
     || die "deploy.py exited with error — check /tmp/caspar/deploy.log"
 
   DEPLOY_ELAPSED=$((SECONDS - DEPLOY_START))
@@ -251,8 +249,7 @@ BENCH_START=$SECONDS
 info "Running workflow_tests.py — 9 creature workflows + TPS burst…"
 echo ""
 
-PYTHONPATH="$SCRIPT_DIR/tools/python_patches:${PYTHONPATH:-}" \
-  python3 "$BENCH_SCRIPT" 2>&1 | tee /tmp/caspar/bench.log \
+python3 "$BENCH_SCRIPT" 2>&1 | tee /tmp/caspar/bench.log \
   || warn "workflow_tests.py exited non-zero — check output above"
 
 BENCH_ELAPSED=$((SECONDS - BENCH_START))

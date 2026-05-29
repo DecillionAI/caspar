@@ -518,33 +518,9 @@ impl ITcp for Tcp {
                     }
                 };
                 let trans = trans_self.clone();
-                thread::spawn(move || {
-                    // catch_unwind so a panic in one handler can't take
-                    // the per-connection thread down silently and leak
-                    // the socket. Rust's drop semantics already release
-                    // the FD on unwind, but logging the panic payload
-                    // turns "node went quiet" into a diagnosable event.
-                    let peer = stream.peer_addr();
-                    let result = std::panic::catch_unwind(
-                        std::panic::AssertUnwindSafe(|| trans.handle_connection(stream)),
-                    );
-                    if let Err(payload) = result {
-                        let msg = panic_payload_to_string(&payload);
-                        eprintln!("[tcp] handler panic for {}: {}", peer, msg);
-                    }
-                });
+                thread::spawn(move || trans.handle_connection(stream));
             }
         });
-    }
-}
-
-fn panic_payload_to_string(payload: &Box<dyn std::any::Any + Send>) -> String {
-    if let Some(s) = payload.downcast_ref::<&str>() {
-        s.to_string()
-    } else if let Some(s) = payload.downcast_ref::<String>() {
-        s.clone()
-    } else {
-        "<non-string panic>".to_string()
     }
 }
 
