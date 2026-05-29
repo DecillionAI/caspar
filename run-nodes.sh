@@ -878,7 +878,10 @@ if $USE_DOCKER; then
   # and reconfigures the daemon to use 8.8.8.8 / 1.1.1.1 with an auto-restart.
   _ensure_docker_dns
 else
-  check_dep "Rust/cargo" "cargo" "curl https://sh.rustup.rs -sSf | sh"
+  # Skip cargo check when --no-rebuild is set and the binary already exists.
+  if ! $NO_REBUILD || [[ ! -f "$BINARY" ]]; then
+    check_dep "Rust/cargo" "cargo" "curl https://sh.rustup.rs -sSf | sh"
+  fi
 fi
 
 # ─── gVisor (runsc) — default ON ──────────────────────────────────────────────

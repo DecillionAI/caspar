@@ -94,6 +94,9 @@ WASMEDGE_LIB_FILE=""
 for search_dir in "$WASMEDGE_HOME/lib" "/usr/local/lib" "/usr/lib"; do
   found=$(find "$search_dir" -maxdepth 2 -name "libwasmedge.so.*.*" 2>/dev/null | head -1)
   if [[ -n "$found" ]]; then
+    # Verify the corresponding include dir exists — wasmedge-sys needs headers too.
+    found_inc="${search_dir%/lib*}/include"
+    [[ -d "$found_inc" ]] || continue
     WASMEDGE_LIB_FILE="$found"
     ok "Found WasmEdge library: $WASMEDGE_LIB_FILE ($(ls -lh "$WASMEDGE_LIB_FILE" | awk '{print $5}'))"
     break
