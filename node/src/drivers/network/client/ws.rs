@@ -151,6 +151,11 @@ impl Socket {
 pub struct Ws {
     app: Arc<dyn ICore>,
     sockets: Arc<DashMap<String, Arc<Socket>>>,
+    /// See `Tcp::user_sockets`: multiple concurrent connections may share one
+    /// user_id, but the signaler keeps a single listener per user. We fan
+    /// signal results out to every live socket of the user (`user_id ->
+    /// {socket.id -> socket}`); clients de-dupe by correlationId.
+    user_sockets: Arc<DashMap<String, Arc<DashMap<String, Arc<Socket>>>>>,
 }
 
 impl Ws {
@@ -159,6 +164,7 @@ impl Ws {
         Arc::new(Ws {
             app,
             sockets: Arc::new(DashMap::new()),
+            user_sockets: Arc::new(DashMap::new()),
         })
     }
 
@@ -280,7 +286,18 @@ impl Ws {
     }
 
     fn attach_user_listener(self: &Arc<Self>, socket: &Arc<Socket>, user_id: &str) {
-        let socket_clone = socket.clone();
+        // Track every live socket for this user so signal results fan out to all
+        // of the user's connections, not just the most recent (the signaler
+        // keeps a single listener per user_id). See `Tcp::attach_user_listener`.
+        let user_set = self
+            .user_sockets
+            .entry(user_id.to_string())
+            .or_insert_with(|| Arc::new(DashMap::new()))
+            .value()
+            .clone();
+        user_set.insert(socket.id.clone(), socket.clone());
+
+        let broadcast_set = user_set.clone();
         let listener = Arc::new(Listener {
             id: user_id.to_string(),
             paused: false,
@@ -289,7 +306,9 @@ impl Ws {
                 let bytes = serde_json::to_vec(&value).unwrap_or_default();
                 // Pushes onto the I/O thread's outbound channel; never
                 // contends with the read loop.
-                socket_clone.write_update(&key, &bytes);
+                for entry in broadcast_set.iter() {
+                    entry.value().write_update(&key, &bytes);
+                }
             }),
         });
         self.sockets.insert(user_id.to_string(), socket.clone());
@@ -460,12 +479,26 @@ impl Ws {
             if !socket_clone.is_disconnected() {
                 return;
             }
-            if let Some(current) = trans.sockets.get(&user_id) {
-                if Arc::ptr_eq(&socket_clone, current.value()) {
-                    trans.sockets.remove(&user_id);
-                    trans.app.tools().signaler().listeners().remove(&user_id);
+            // Drop just this connection from the user's set; tear the listener
+            // down only when no live connections remain for the user.
+            if let Some(set) = trans.user_sockets.get(&user_id).map(|e| e.value().clone()) {
+                set.remove(&socket_clone.id);
+                if set.is_empty() {
+                    trans
+                        .user_sockets
+                        .remove_if(&user_id, |_, current| current.is_empty());
+                    if !trans.user_sockets.contains_key(&user_id) {
+                        trans.app.tools().signaler().listeners().remove(&user_id);
+                    }
                 }
             }
+            // Tidy the legacy `sockets` map only if it still points at us.
+            // `remove_if` runs the predicate under the shard write lock, so we
+            // never hold a read `Ref` across a `remove` on the same shard
+            // (which would deadlock its RwLock).
+            trans
+                .sockets
+                .remove_if(&user_id, |_, current| Arc::ptr_eq(&socket_clone, current));
         });
     }
 }
@@ -502,6 +535,7 @@ impl Ws {
         Ws {
             app: self.app.clone(),
             sockets: self.sockets.clone(),
+            user_sockets: self.user_sockets.clone(),
         }
     }
 }

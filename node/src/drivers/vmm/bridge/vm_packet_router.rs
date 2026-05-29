@@ -125,16 +125,27 @@ fn dispatch_run_vm_packet(packet: &JsonValue, env: &VmPacketContext) -> String {
             }
         };
         return match elpify_lang::execute_masm_file_with_proof(&ast_path, &inputs) {
-            Ok(artifacts) => json!({
-                "ok": true,
-                "runtime": "elpify",
-                "machineId": machine_id,
-                "masmPath": ast_path,
-                "inputs": inputs,
-                "outputs": artifacts.stack_outputs,
-                "proof": artifacts.proof_bytes,
-            })
-            .to_string(),
+            Ok(artifacts) => {
+                // Encode the (tens-of-KB) STARK proof as base64 rather than a
+                // JSON number array. wasm creatures round-trip this value
+                // several times (persist, broadcast, re-read); a number array
+                // costs seconds per pass under TinyGo's reflection-based JSON,
+                // while a base64 string is a single scalar. `parse_u8_array_field`
+                // (used by elpifyProof / verifyProgramExecution) decodes both.
+                use base64::Engine;
+                let proof_b64 = base64::engine::general_purpose::STANDARD
+                    .encode(&artifacts.proof_bytes);
+                json!({
+                    "ok": true,
+                    "runtime": "elpify",
+                    "machineId": machine_id,
+                    "masmPath": ast_path,
+                    "inputs": inputs,
+                    "outputs": artifacts.stack_outputs,
+                    "proof": proof_b64,
+                })
+                .to_string()
+            }
             Err(err) => json!({
                 "ok": false,
                 "runtime": "elpify",

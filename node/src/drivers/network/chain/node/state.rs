@@ -110,7 +110,9 @@ impl Manager {
                 let _guard = Guard(wg);
                 f();
             });
-            self.handles.lock().unwrap().push(handle);
+            let mut handles = self.handles.lock().unwrap();
+            handles.retain(|h| !h.is_finished());
+            handles.push(handle);
         }
     }
 

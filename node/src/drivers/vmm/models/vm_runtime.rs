@@ -406,14 +406,22 @@ pub(crate) fn parse_u64_array_field(packet: &JsonValue, field_name: &str) -> Vec
 }
 
 pub(crate) fn parse_u8_array_field(packet: &JsonValue, field_name: &str) -> Vec<u8> {
-    packet[field_name]
-        .as_array()
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|v| v.as_u64().and_then(|n| u8::try_from(n).ok()))
-                .collect()
-        })
-        .unwrap_or_default()
+    // Accept either a base64 string (compact — preferred for large blobs like
+    // STARK proofs, which are tens of KB and ruinously slow to round-trip as a
+    // JSON number array through wasm creatures) or a raw JSON number array.
+    match &packet[field_name] {
+        JsonValue::String(s) => {
+            use base64::Engine;
+            base64::engine::general_purpose::STANDARD
+                .decode(s.as_bytes())
+                .unwrap_or_default()
+        }
+        JsonValue::Array(arr) => arr
+            .iter()
+            .filter_map(|v| v.as_u64().and_then(|n| u8::try_from(n).ok()))
+            .collect(),
+        _ => Vec::new(),
+    }
 }
 
 pub(crate) fn acquire_resource_lock(resource_id: &str, owner_id: &str) -> Result<(), String> {

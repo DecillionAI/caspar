@@ -126,6 +126,13 @@ impl Socket {
 pub struct Tcp {
     app: Arc<dyn ICore>,
     sockets: Arc<DashMap<String, Arc<Socket>>>,
+    /// Multiple concurrent connections may authenticate as the same user. The
+    /// signaler keeps a single listener per user_id, so without this a second
+    /// connection would overwrite the first's delivery path (and the first to
+    /// disconnect would tear down the survivor's listener). We track every live
+    /// socket per user (`user_id -> {socket.id -> socket}`) and fan signal
+    /// results out to all of them; clients de-dupe by correlationId.
+    user_sockets: Arc<DashMap<String, Arc<DashMap<String, Arc<Socket>>>>>,
 }
 
 impl Tcp {
@@ -134,6 +141,7 @@ impl Tcp {
         Arc::new(Tcp {
             app,
             sockets: Arc::new(DashMap::new()),
+            user_sockets: Arc::new(DashMap::new()),
         })
     }
 
@@ -268,14 +276,30 @@ impl Tcp {
     }
 
     fn attach_user_listener(self: &Arc<Self>, socket: &Arc<Socket>, user_id: &str) {
-        let socket_clone = socket.clone();
+        // Register this connection's socket in the per-user set so signal
+        // results fan out to every live connection of the user, not just the
+        // most recent one (the signaler holds a single listener per user_id).
+        let user_set = self
+            .user_sockets
+            .entry(user_id.to_string())
+            .or_insert_with(|| Arc::new(DashMap::new()))
+            .value()
+            .clone();
+        user_set.insert(socket.id.clone(), socket.clone());
+
+        // The listener broadcasts to whatever sockets are currently live for
+        // this user. Every connection installs an equivalent broadcast closure,
+        // so the signaler's last-writer-wins on listener_id is harmless.
+        let broadcast_set = user_set.clone();
         let listener = Arc::new(Listener {
             id: user_id.to_string(),
             paused: false,
             dis_time: 0,
             signal: Arc::new(move |key, value| {
                 let bytes = serde_json::to_vec(&value).unwrap_or_default();
-                socket_clone.write_update(&key, &bytes);
+                for entry in broadcast_set.iter() {
+                    entry.value().write_update(&key, &bytes);
+                }
             }),
         });
         self.sockets.insert(user_id.to_string(), socket.clone());
@@ -444,12 +468,31 @@ impl Tcp {
             if !socket_clone.is_disconnected() {
                 return;
             }
-            if let Some(current) = trans.sockets.get(&user_id) {
-                if Arc::ptr_eq(&socket_clone, current.value()) {
-                    trans.sockets.remove(&user_id);
-                    trans.app.tools().signaler().listeners().remove(&user_id);
+            // Drop just this connection's socket from the user's set. The
+            // user's signaler listener is torn down only once the user has no
+            // remaining live connections, so a transient connection closing
+            // never kills delivery for a still-open connection of the same user.
+            if let Some(set) = trans.user_sockets.get(&user_id).map(|e| e.value().clone()) {
+                set.remove(&socket_clone.id);
+                if set.is_empty() {
+                    // Remove the now-empty user entry only if it is still empty
+                    // (a fresh connection may have repopulated it meanwhile).
+                    trans
+                        .user_sockets
+                        .remove_if(&user_id, |_, current| current.is_empty());
+                    if !trans.user_sockets.contains_key(&user_id) {
+                        trans.app.tools().signaler().listeners().remove(&user_id);
+                    }
                 }
             }
+            // Keep the legacy peer/user `sockets` map tidy: drop the entry only
+            // if it still points at this socket. `remove_if` evaluates the
+            // predicate atomically under the shard write lock, so we never hold
+            // a read `Ref` across a `remove` on the same map (which deadlocks
+            // the shard's RwLock).
+            trans
+                .sockets
+                .remove_if(&user_id, |_, current| Arc::ptr_eq(&socket_clone, current));
         });
     }
 
@@ -531,6 +574,7 @@ impl Tcp {
         Tcp {
             app: self.app.clone(),
             sockets: self.sockets.clone(),
+            user_sockets: self.user_sockets.clone(),
         }
     }
 }
