@@ -140,8 +140,14 @@ jobs:
       #    above instead of cloning a second copy.
       # ═══════════════════════════════════════════════════════════════════════
 
+      # --no-rebuild because step 4 already loaded the caspar-node:latest
+      # image from the checked-in dist/. run-nodes.sh would otherwise re-invoke
+      # build-dist.sh which means a fresh cargo build (~50 min — past this
+      # step's 30 min timeout) and would defeat the point of skip_build=true.
+      # For skip_build=false the workflow's step-3 build already refreshed
+      # dist/ and the image before this step, so --no-rebuild is still right.
       - name: Start ${{ env.MODE }}-node cluster + deploy WASM creatures  (run-nodes.sh)
-        run: bash run-nodes.sh "$MODE" --no-gvisor --no-firecracker
+        run: bash run-nodes.sh "$MODE" --no-rebuild --no-gvisor --no-firecracker
         env:
           DECILLIONAI_SERVER: ${{ github.workspace }}/_decillionai-server
         timeout-minutes: 30
