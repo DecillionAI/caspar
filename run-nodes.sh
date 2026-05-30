@@ -1105,18 +1105,25 @@ fi
 [[ -d "$HOME/.cargo/bin" ]] && export PATH="$HOME/.cargo/bin:$PATH"
 
 if $USE_DOCKER; then
+  # --no-rebuild scopes purely to skipping the dist/ refresh (build-dist.sh).
+  # The docker image is still built every time docker mode is selected so the
+  # Dockerfile + dist/ payload that ends up running is always derived from
+  # the current checkout, not whatever stale image the daemon may have cached
+  # from a previous run. The Dockerfile COPYs from dist/, so the image content
+  # naturally follows whichever dist/ the previous step prepared.
   if $NO_REBUILD; then
-    info "--no-rebuild: skipping build, using existing Docker image $DOCKER_IMAGE"
-    docker image inspect "$DOCKER_IMAGE" >/dev/null 2>&1 \
-      || die "--no-rebuild set but Docker image $DOCKER_IMAGE not found"
+    info "--no-rebuild: reusing checked-in dist/ (skipping build-dist.sh)"
+    [[ -x "$REPO_DIR/dist/bin/caspar-node" ]] \
+      || die "--no-rebuild set but $REPO_DIR/dist/bin/caspar-node is missing"
   else
-    info "Building $DOCKER_IMAGE (build-dist.sh + docker build)…"
+    info "Refreshing dist/ via build-dist.sh…"
     bash "$REPO_DIR/build-dist.sh"
-    _fc_build_arg="true"; $SETUP_FIRECRACKER || _fc_build_arg="false"
-    docker build -f "$REPO_DIR/node/Dockerfile" \
-      --build-arg "INSTALL_FIRECRACKER=${_fc_build_arg}" \
-      -t "$DOCKER_IMAGE" "$REPO_DIR"
   fi
+  info "Building $DOCKER_IMAGE from dist/ …"
+  _fc_build_arg="true"; $SETUP_FIRECRACKER || _fc_build_arg="false"
+  docker build -f "$REPO_DIR/node/Dockerfile" \
+    --build-arg "INSTALL_FIRECRACKER=${_fc_build_arg}" \
+    -t "$DOCKER_IMAGE" "$REPO_DIR"
   ok "Docker image ready: $DOCKER_IMAGE"
 else
   if $NO_REBUILD; then
