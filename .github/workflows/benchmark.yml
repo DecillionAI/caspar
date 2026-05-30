@@ -11,9 +11,9 @@ on:
         type: choice
         options: [single, triple]
       skip_build:
-        description: 'Skip cargo build if dist/ already has binaries'
+        description: 'Skip cargo build (use checked-in dist/ binaries — default)'
         required: false
-        default: 'false'
+        default: 'true'
         type: boolean
 
   schedule:
@@ -77,11 +77,11 @@ jobs:
       # ═══════════════════════════════════════════════════════════════════════
 
       - name: Install Rust stable
-        if: ${{ inputs.skip_build != 'true' }}
+        if: ${{ inputs.skip_build == 'false' }}
         uses: dtolnay/rust-toolchain@stable
 
       - name: Cache Rust build output
-        if: ${{ inputs.skip_build != 'true' }}
+        if: ${{ inputs.skip_build == 'false' }}
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: |
@@ -89,7 +89,7 @@ jobs:
             cmd/casparctl -> target
 
       - name: Install WasmEdge 0.14.0
-        if: ${{ inputs.skip_build != 'true' }}
+        if: ${{ inputs.skip_build == 'false' }}
         run: |
           curl -sSf \
             https://raw.githubusercontent.com/WasmEdge/WasmEdge/0.14.0/utils/install.sh \
@@ -99,7 +99,7 @@ jobs:
           echo "$HOME/.wasmedge/bin"                  >> $GITHUB_PATH
 
       - name: Build dist/  (caspar-node, caspar-keygen, casparctl, WasmEdge, QuestDB)
-        if: ${{ inputs.skip_build != 'true' }}
+        if: ${{ inputs.skip_build == 'false' }}
         run: bash build-dist.sh
 
       # ═══════════════════════════════════════════════════════════════════════
