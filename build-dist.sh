@@ -77,11 +77,23 @@ echo ""
 # =============================================================================
 step "Step 1: Check dependencies"
 
-command -v cargo &>/dev/null || die "Rust/cargo not found. Install: curl https://sh.rustup.rs -sSf | sh"
-ok "cargo $(cargo --version 2>/dev/null | head -1)"
-
 command -v curl &>/dev/null || die "curl not found"
 ok "curl available"
+
+# Auto-install Rust if cargo is missing so build-dist.sh stays self-sufficient
+# when invoked from run-nodes.sh on a host that hasn't been pre-provisioned
+# (notably the GitHub Actions runner when the workflow's "Install Rust" step
+# was skipped via skip_build=true). The non-interactive rustup install drops
+# the toolchain in $HOME/.cargo and updates PATH for the rest of this shell.
+if ! command -v cargo &>/dev/null; then
+  info "cargo not found — installing rustup (stable toolchain)…"
+  curl -sSf --proto '=https' --tlsv1.2 https://sh.rustup.rs \
+    | sh -s -- -y --default-toolchain stable --profile minimal --no-modify-path
+  export PATH="$HOME/.cargo/bin:$PATH"
+  command -v cargo &>/dev/null \
+    || die "rustup install completed but cargo still not on PATH"
+fi
+ok "cargo $(cargo --version 2>/dev/null | head -1)"
 
 # =============================================================================
 # Step 2 — WasmEdge runtime library
