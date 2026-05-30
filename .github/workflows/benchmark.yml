@@ -10,10 +10,10 @@ on:
         default: triple
         type: choice
         options: [single, triple]
-      skip_build:
-        description: 'Skip cargo build (use checked-in dist/ binaries — default)'
+      rebuild:
+        description: 'Rebuild caspar-node from source (slow: ~50 min). Off = use checked-in dist/.'
         required: false
-        default: 'true'
+        default: 'false'
         type: boolean
 
   schedule:
@@ -27,15 +27,21 @@ jobs:
   benchmark:
     name: ${{ inputs.mode || 'triple' }}-node benchmark
     runs-on: ubuntu-latest
-    timeout-minutes: 180   # 3 h: ~50 m build + ~15 m startup + ~60 m bench
+    timeout-minutes: 180
 
     env:
       MODE: ${{ inputs.mode || 'triple' }}
+      REBUILD: ${{ inputs.rebuild || 'false' }}
 
     steps:
 
       # ═══════════════════════════════════════════════════════════════════════
       # 1. SOURCE
+      #    Only thing the workflow brings to the runner. run-nodes.sh handles
+      #    every other install (docker, rustup, WasmEdge, tinygo, pycryptodome,
+      #    decillionai-server checkout, creature build, deploy) and bench-all.sh
+      #    handles the benchmark side. The workflow's job is purely orchestration
+      #    + result-gating.
       # ═══════════════════════════════════════════════════════════════════════
 
       - name: Checkout caspar
@@ -43,9 +49,10 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      # bench-all.sh looks for decillionai-server/bench/{deploy.py,workflow_tests.py}
-      # next to the caspar repo.  We check it out inside the workspace and tell
-      # bench-all.sh its exact location via the DECILLIONAI_SERVER env var.
+      # bench-all.sh / run-nodes.sh look for decillionai-server/bench/* next to
+      # the caspar repo. Checking it out here (and pointing DECILLIONAI_SERVER
+      # at it) avoids a redundant in-script clone and pins both phases to the
+      # same commit.
       - name: Checkout decillionai-server (bench scripts)
         uses: actions/checkout@v4
         with:
@@ -55,107 +62,33 @@ jobs:
           path: _decillionai-server
 
       # ═══════════════════════════════════════════════════════════════════════
-      # 2. RUNTIME TOOLING
+      # 2. START CLUSTER + DEPLOY CREATURES
+      #    run-nodes.sh installs everything it needs (docker, rustup via
+      #    build-dist.sh, WasmEdge via build-dist.sh, tinygo, pycryptodome),
+      #    builds the caspar-node image, brings up the cluster, builds and
+      #    deploys WASM creatures.
+      #
+      #    When rebuild=false (default) we pass --no-rebuild so the script
+      #    reuses the checked-in dist/bin/caspar-node and dist/lib/wasmedge —
+      #    no rustup/cargo/WasmEdge install needed, run completes in minutes.
+      #
+      #    When rebuild=true the script does the full bootstrap and builds
+      #    caspar-node from source; expect ~50 min of cargo compile.
       # ═══════════════════════════════════════════════════════════════════════
 
-      - name: Set up Java 17  (required by QuestDB)
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '17'
-
-      - name: Set up Python 3  (required by bench scripts)
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.x'
-
-      - name: Install pycryptodome  (required by deploy.py)
-        run: pip3 install pycryptodome --quiet
-
-      # ═══════════════════════════════════════════════════════════════════════
-      # 3. BUILD  (skip if skip_build=true and dist/ is already populated)
-      # ═══════════════════════════════════════════════════════════════════════
-
-      - name: Install Rust stable
-        if: ${{ inputs.skip_build == 'false' }}
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache Rust build output
-        if: ${{ inputs.skip_build == 'false' }}
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: |
-            node         -> target
-            cmd/casparctl -> target
-
-      - name: Install WasmEdge 0.14.0
-        if: ${{ inputs.skip_build == 'false' }}
+      - name: Start ${{ env.MODE }}-node cluster + deploy WASM creatures (run-nodes.sh)
         run: |
-          curl -sSf \
-            https://raw.githubusercontent.com/WasmEdge/WasmEdge/0.14.0/utils/install.sh \
-            | bash -s -- -v 0.14.0
-          echo "WASMEDGE_LIB_DIR=$HOME/.wasmedge/lib" >> $GITHUB_ENV
-          echo "LD_LIBRARY_PATH=$HOME/.wasmedge/lib"  >> $GITHUB_ENV
-          echo "$HOME/.wasmedge/bin"                  >> $GITHUB_PATH
-
-      - name: Build dist/  (caspar-node, caspar-keygen, casparctl, WasmEdge, QuestDB)
-        if: ${{ inputs.skip_build == 'false' }}
-        run: bash build-dist.sh
-
-      # ═══════════════════════════════════════════════════════════════════════
-      # 4. DOCKER IMAGE
-      # ═══════════════════════════════════════════════════════════════════════
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Build caspar-node Docker image
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: node/Dockerfile
-          push: false
-          # load: true makes the image available to the local Docker daemon so
-          # run-nodes.sh can find it via `docker image inspect caspar-node:latest`
-          # and skip the redundant rebuild step.
-          load: true
-          tags: caspar-node:latest
-          # Firecracker is not used in CI (run-nodes.sh is called with
-          # --no-firecracker), so skip the binary + kernel downloads to keep
-          # the image lean and avoid optional S3/GitHub download failures.
-          build-args: |
-            INSTALL_FIRECRACKER=false
-          # Layer cache — dramatically speeds up repeat runs
-          cache-from: type=gha
-          cache-to:   type=gha,mode=max
-
-      # ═══════════════════════════════════════════════════════════════════════
-      # 5. START CLUSTER  +  CREATURE BUILD/DEPLOY
-      #    run-nodes.sh owns the full bootstrap: per-node RSA + babble keys,
-      #    .env files (including the per-container QuestDB port set),
-      #    peers.genesis.json, container startup, tinygo install, WASM
-      #    creature build via decillionai-server/build-all.sh, and the
-      #    deploy.py push that writes ~/deployment_report.json.  The
-      #    DECILLIONAI_SERVER env tells run-nodes.sh to reuse the checkout
-      #    above instead of cloning a second copy.
-      # ═══════════════════════════════════════════════════════════════════════
-
-      # --no-rebuild because step 4 already loaded the caspar-node:latest
-      # image from the checked-in dist/. run-nodes.sh would otherwise re-invoke
-      # build-dist.sh which means a fresh cargo build (~50 min — past this
-      # step's 30 min timeout) and would defeat the point of skip_build=true.
-      # For skip_build=false the workflow's step-3 build already refreshed
-      # dist/ and the image before this step, so --no-rebuild is still right.
-      - name: Start ${{ env.MODE }}-node cluster + deploy WASM creatures  (run-nodes.sh)
-        run: bash run-nodes.sh "$MODE" --no-rebuild --no-gvisor --no-firecracker
+          flags=( "$MODE" --no-gvisor --no-firecracker )
+          [[ "$REBUILD" == "true" ]] || flags+=( --no-rebuild )
+          bash run-nodes.sh "${flags[@]}"
         env:
           DECILLIONAI_SERVER: ${{ github.workspace }}/_decillionai-server
-        timeout-minutes: 30
+        timeout-minutes: 120
 
-      # run-nodes.sh writes /tmp/caspar/deploy.failed if deploy was partial.
-      # We surface that here as a real failed step so the benchmark step does
-      # not run against a half-deployed cluster (which previously produced a
-      # silent green run with "No nodes reachable" in the bench log).
+      # run-nodes.sh writes /tmp/caspar/deploy.failed if deploy was partial,
+      # then continues so logs are still collected. We surface that sentinel
+      # as a real failed step so the bench step does not run against a
+      # half-deployed cluster (which previously produced a silent green run).
       - name: Verify creature deployment succeeded
         run: |
           if [[ -f /tmp/caspar/deploy.failed ]]; then
@@ -182,12 +115,12 @@ jobs:
           PYEOF
 
       # ═══════════════════════════════════════════════════════════════════════
-      # 6. BENCHMARK
+      # 3. BENCHMARK
       #    --skip-deploy because run-nodes.sh already deployed and produced
       #    ~/deployment_report.json; bench-all.sh runs only workflow_tests.py.
       # ═══════════════════════════════════════════════════════════════════════
 
-      - name: Run benchmark suite  (bench-all.sh)
+      - name: Run benchmark suite (bench-all.sh)
         run: bash bench-all.sh "$MODE" --skip-deploy
         env:
           DECILLIONAI_SERVER: ${{ github.workspace }}/_decillionai-server
@@ -212,7 +145,7 @@ jobs:
           PYEOF
 
       # ═══════════════════════════════════════════════════════════════════════
-      # 7. CAPTURE CONTAINER LOGS  (must run BEFORE stop-nodes.sh tears them
+      # 4. CAPTURE CONTAINER LOGS  (must run BEFORE stop-nodes.sh tears them
       # down — once the container is gone, `docker logs` is gone too)
       # ═══════════════════════════════════════════════════════════════════════
 
@@ -233,15 +166,15 @@ jobs:
           done
 
       # ═══════════════════════════════════════════════════════════════════════
-      # 8. TEARDOWN  (always runs so logs are always collected)
+      # 5. TEARDOWN  (always runs so logs are always collected)
       # ═══════════════════════════════════════════════════════════════════════
 
-      - name: Stop cluster  (stop-nodes.sh)
+      - name: Stop cluster (stop-nodes.sh)
         if: always()
         run: bash stop-nodes.sh
 
       # ═══════════════════════════════════════════════════════════════════════
-      # 9. COLLECT & PUBLISH REPORTS
+      # 6. COLLECT & PUBLISH REPORTS
       # ═══════════════════════════════════════════════════════════════════════
 
       - name: Collect report files
@@ -300,7 +233,6 @@ jobs:
           echo "REPORT_TS=${TS}"    >> $GITHUB_ENV
           echo "REPORT_DIR=${DEST}" >> $GITHUB_ENV
 
-      # Print the KPI markdown report directly in the GitHub Actions run summary
       - name: Publish KPI summary to run page
         if: always()
         run: |
@@ -310,6 +242,7 @@ jobs:
             echo "| | |"
             echo "|---|---|"
             echo "| **Mode** | \`${MODE}\` |"
+            echo "| **Rebuild** | \`${REBUILD}\` |"
             echo "| **Commit** | \`${{ github.sha }}\` |"
             echo "| **Triggered by** | ${{ github.actor }} |"
             echo ""
@@ -345,6 +278,7 @@ jobs:
           git commit \
             -m "chore(reports): run #${{ github.run_number }} ${REPORT_TS}" \
             -m "Mode: ${MODE}" \
+            -m "Rebuild: ${REBUILD}" \
             -m "Run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
             -m "Triggered by: ${{ github.actor }}"
           git push
