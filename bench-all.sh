@@ -249,8 +249,32 @@ BENCH_START=$SECONDS
 info "Running workflow_tests.py — 9 creature workflows + TPS burst…"
 echo ""
 
-python3 "$BENCH_SCRIPT" 2>&1 | tee /tmp/caspar/bench.log \
-  || warn "workflow_tests.py exited non-zero — check output above"
+python3 "$BENCH_SCRIPT" 2>&1 | tee /tmp/caspar/bench.log
+BENCH_RC=${PIPESTATUS[0]}
+if [[ $BENCH_RC -ne 0 ]]; then
+  die "workflow_tests.py exited with code $BENCH_RC — see /tmp/caspar/bench.log"
+fi
+# Guard against the "exits 0 but never wrote results" failure mode where the
+# script aborts after "No nodes reachable" without producing a report. Earlier
+# runs went silently green because the publish step happily skipped the
+# missing files.
+if [[ ! -s "$RESULT_JSON" ]]; then
+  die "workflow_tests.py reported success but produced no $RESULT_JSON"
+fi
+# Reject runs that produced a report but contain failed steps. The KPI
+# summary below still prints; we just refuse to mark the run green.
+SUMMARY_FAILED=$(python3 -c "
+import json
+try:
+    d = json.load(open('$RESULT_JSON'))
+    s = d.get('summary') or {}
+    print(int(s.get('failed', 0)))
+except Exception:
+    print(-1)
+" 2>/dev/null || echo -1)
+if [[ "$SUMMARY_FAILED" -ne 0 ]]; then
+  warn "workflow_results.json reports ${SUMMARY_FAILED} failed step(s) — will exit non-zero after summary"
+fi
 
 BENCH_ELAPSED=$((SECONDS - BENCH_START))
 TOTAL_ELAPSED=$((SECONDS - START_TIME))
@@ -321,3 +345,9 @@ fi
 echo ""
 ok "Report: $RESULT_MD"
 echo ""
+
+# Final gate: if the bench reported any failed step, fail the script so the
+# GitHub Actions step turns red instead of going silently green.
+if [[ "${SUMMARY_FAILED:-0}" -ne 0 ]]; then
+  die "Benchmark completed with ${SUMMARY_FAILED} failed step(s) — see $RESULT_JSON"
+fi

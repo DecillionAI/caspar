@@ -173,11 +173,27 @@ impl Ws {
         // every message in is already stripped by the I/O loop before this
         // is called. ACK detection also happens upstream, so any body that
         // reaches here is a real request body.
+        let body_len = body.len();
         let parsed = match decode_request_body(&body) {
             Ok(p) => p,
-            Err(_) => return,
+            Err(e) => {
+                eprintln!(
+                    "[ws] decode_request_body failed: peer={} body_len={} err={}",
+                    socket.peer, body_len, e
+                );
+                return;
+            }
         };
         let peer_ip = socket.peer_ip();
+        let started = Instant::now();
+        eprintln!(
+            "[ws] >> path={} user={} pkt={} payload_len={} peer={}",
+            parsed.path,
+            parsed.user_id,
+            parsed.packet_id,
+            parsed.payload.len(),
+            socket.peer
+        );
 
         match parsed.path.as_str() {
             "logout" => {
@@ -200,6 +216,11 @@ impl Ws {
                     &parsed.packet_id,
                     0,
                     &serde_json::to_vec(&build_error_json(msg)).unwrap_or_default(),
+                );
+                eprintln!(
+                    "[ws] << path=logout pkt={} elapsed_ms={}",
+                    parsed.packet_id,
+                    started.elapsed().as_millis()
                 );
                 return;
             }
@@ -230,6 +251,11 @@ impl Ws {
                             .unwrap_or_default(),
                     );
                 }
+                eprintln!(
+                    "[ws] << path=authenticate pkt={} elapsed_ms={}",
+                    parsed.packet_id,
+                    started.elapsed().as_millis()
+                );
                 return;
             }
             _ => {}
@@ -244,6 +270,12 @@ impl Ws {
                     &serde_json::to_vec(&build_error_json("action not found"))
                         .unwrap_or_default(),
                 );
+                eprintln!(
+                    "[ws] << path={} pkt={} code=1 action_not_found elapsed_ms={}",
+                    parsed.path,
+                    parsed.packet_id,
+                    started.elapsed().as_millis()
+                );
                 return;
             }
         };
@@ -257,6 +289,13 @@ impl Ws {
                     2,
                     &serde_json::to_vec(&build_error_json(&format!("{}", e)))
                         .unwrap_or_default(),
+                );
+                eprintln!(
+                    "[ws] << path={} pkt={} code=2 parse_input_err={} elapsed_ms={}",
+                    parsed.path,
+                    parsed.packet_id,
+                    e,
+                    started.elapsed().as_millis()
                 );
                 return;
             }
@@ -273,6 +312,14 @@ impl Ws {
             Ok((sc, value)) => {
                 let body = serde_json::to_vec(&value).unwrap_or_default();
                 socket.write_response(&parsed.packet_id, sc, &body);
+                eprintln!(
+                    "[ws] << path={} pkt={} code={} resp_len={} elapsed_ms={}",
+                    parsed.path,
+                    parsed.packet_id,
+                    sc,
+                    body.len(),
+                    started.elapsed().as_millis()
+                );
             }
             Err(e) => {
                 socket.write_response(
@@ -280,6 +327,13 @@ impl Ws {
                     3,
                     &serde_json::to_vec(&build_error_json(&format!("{}", e)))
                         .unwrap_or_default(),
+                );
+                eprintln!(
+                    "[ws] << path={} pkt={} code=3 act_err={} elapsed_ms={}",
+                    parsed.path,
+                    parsed.packet_id,
+                    e,
+                    started.elapsed().as_millis()
                 );
             }
         }
