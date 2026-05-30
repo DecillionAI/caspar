@@ -148,11 +148,30 @@ impl Tcp {
     fn process_inbound(self: &Arc<Self>, socket: &Arc<Socket>, body: Vec<u8>) {
         // ACKs are handled inline by the I/O loop, so anything that reaches
         // here is a real request body.
+        let body_len = body.len();
         let parsed = match decode_request_body(&body) {
             Ok(p) => p,
-            Err(_) => return,
+            Err(e) => {
+                eprintln!(
+                    "[tcp] decode_request_body failed: peer={} body_len={} err={}",
+                    socket.peer, body_len, e
+                );
+                return;
+            }
         };
         let peer_ip = socket.peer_ip();
+        let started = Instant::now();
+        // Per-request entry log so a stall is visible in the node log — the
+        // previous benchmark run had no app-level logs at all, which made it
+        // impossible to tell whether a request had reached the server.
+        eprintln!(
+            "[tcp] >> path={} user={} pkt={} payload_len={} peer={}",
+            parsed.path,
+            parsed.user_id,
+            parsed.packet_id,
+            parsed.payload.len(),
+            socket.peer
+        );
 
         match parsed.path.as_str() {
             "logout" => {
@@ -180,6 +199,11 @@ impl Tcp {
                             .unwrap_or_default(),
                     );
                 }
+                eprintln!(
+                    "[tcp] << path=logout pkt={} elapsed_ms={}",
+                    parsed.packet_id,
+                    started.elapsed().as_millis()
+                );
                 return;
             }
             "authenticate" | "/creatures/authenticate" => {
@@ -209,6 +233,11 @@ impl Tcp {
                             .unwrap_or_default(),
                     );
                 }
+                eprintln!(
+                    "[tcp] << path=authenticate pkt={} elapsed_ms={}",
+                    parsed.packet_id,
+                    started.elapsed().as_millis()
+                );
                 return;
             }
             _ => {}
@@ -223,6 +252,12 @@ impl Tcp {
                     &serde_json::to_vec(&build_error_json("action not found"))
                         .unwrap_or_default(),
                 );
+                eprintln!(
+                    "[tcp] << path={} pkt={} code=1 action_not_found elapsed_ms={}",
+                    parsed.path,
+                    parsed.packet_id,
+                    started.elapsed().as_millis()
+                );
                 return;
             }
         };
@@ -236,6 +271,13 @@ impl Tcp {
                     2,
                     &serde_json::to_vec(&build_error_json(&format!("{}", e)))
                         .unwrap_or_default(),
+                );
+                eprintln!(
+                    "[tcp] << path={} pkt={} code=2 parse_input_err={} elapsed_ms={}",
+                    parsed.path,
+                    parsed.packet_id,
+                    e,
+                    started.elapsed().as_millis()
                 );
                 return;
             }
@@ -252,6 +294,14 @@ impl Tcp {
             Ok((sc, value)) => {
                 let body = serde_json::to_vec(&value).unwrap_or_default();
                 socket.write_response(&parsed.packet_id, sc, &body);
+                eprintln!(
+                    "[tcp] << path={} pkt={} code={} resp_len={} elapsed_ms={}",
+                    parsed.path,
+                    parsed.packet_id,
+                    sc,
+                    body.len(),
+                    started.elapsed().as_millis()
+                );
                 // Lazily register the update-stream listener after the first
                 // successful authenticated request on this connection. We use
                 // a per-socket flag (not a global listener check) so that a
@@ -270,6 +320,13 @@ impl Tcp {
                     3,
                     &serde_json::to_vec(&build_error_json(&format!("{}", e)))
                         .unwrap_or_default(),
+                );
+                eprintln!(
+                    "[tcp] << path={} pkt={} code=3 act_err={} elapsed_ms={}",
+                    parsed.path,
+                    parsed.packet_id,
+                    e,
+                    started.elapsed().as_millis()
                 );
             }
         }
@@ -334,9 +391,10 @@ impl Tcp {
 
         let (tx, rx) = mpsc::channel::<OutboundFrame>();
         let socket = Socket::new(peer.clone(), tx);
+        eprintln!("[tcp] + accept peer={} sock={}", peer, socket.id);
         let peer_key = socket.peer_ip();
         if !peer_key.is_empty() {
-            self.sockets.insert(peer_key, socket.clone());
+            self.sockets.insert(peer_key.clone(), socket.clone());
         }
 
         // Resumable read accumulator. The legacy `read_length_prefixed_frame`
@@ -458,6 +516,26 @@ impl Tcp {
         socket.shutdown();
         stream.shutdown();
         let user_id = socket.user_id();
+        eprintln!(
+            "[tcp] - close peer={} sock={} user={}",
+            socket.peer, socket.id, user_id
+        );
+        // Always drop the peer-IP-keyed entry from `sockets`, regardless of
+        // whether the connection ever authenticated. The previous code only
+        // cleaned up the user-id entry, so unauthenticated probes (and any
+        // connection from an IP that never logged in) leaked a stale Arc.
+        {
+            let trans = self.clone();
+            let peer_key_clone = peer_key.clone();
+            let socket_clone = socket.clone();
+            if !peer_key_clone.is_empty() {
+                trans
+                    .sockets
+                    .remove_if(&peer_key_clone, |_, current| {
+                        Arc::ptr_eq(&socket_clone, current)
+                    });
+            }
+        }
         if user_id.is_empty() {
             return;
         }

@@ -146,6 +146,35 @@ jobs:
           DECILLIONAI_SERVER: ${{ github.workspace }}/_decillionai-server
         timeout-minutes: 30
 
+      # run-nodes.sh writes /tmp/caspar/deploy.failed if deploy was partial.
+      # We surface that here as a real failed step so the benchmark step does
+      # not run against a half-deployed cluster (which previously produced a
+      # silent green run with "No nodes reachable" in the bench log).
+      - name: Verify creature deployment succeeded
+        run: |
+          if [[ -f /tmp/caspar/deploy.failed ]]; then
+            echo "::error::Creature deployment failed during run-nodes.sh — refusing to run benchmark."
+            exit 1
+          fi
+          if [[ ! -s "$HOME/deployment_report.json" ]]; then
+            echo "::error::deployment_report.json missing or empty — deploy did not complete."
+            exit 1
+          fi
+          python3 - "$HOME/deployment_report.json" <<'PYEOF'
+          import json, sys
+          reps = json.load(open(sys.argv[1]))
+          if not isinstance(reps, list) or not reps:
+              print("::error::deployment_report.json is not a non-empty list"); sys.exit(1)
+          bad = [r for r in reps if not isinstance(r, dict) or r.get('ok_count', 0) == 0]
+          if bad:
+              names = ', '.join(r.get('node', '?') for r in bad)
+              print(f"::error::Nodes with zero successful deploys: {names}"); sys.exit(1)
+          errs = sum(r.get('error_count', 0) for r in reps)
+          if errs:
+              print(f"::error::Deployment report contains {errs} error(s)"); sys.exit(1)
+          print(f"Deployment OK: {len(reps)} node(s), {sum(r.get('ok_count',0) for r in reps)} modules.")
+          PYEOF
+
       # ═══════════════════════════════════════════════════════════════════════
       # 6. BENCHMARK
       #    --skip-deploy because run-nodes.sh already deployed and produced
@@ -157,6 +186,24 @@ jobs:
         env:
           DECILLIONAI_SERVER: ${{ github.workspace }}/_decillionai-server
         timeout-minutes: 60
+
+      - name: Verify benchmark results
+        run: |
+          if [[ ! -s "$HOME/workflow_results.json" ]]; then
+            echo "::error::workflow_results.json missing — benchmark did not produce results."
+            exit 1
+          fi
+          python3 - "$HOME/workflow_results.json" <<'PYEOF'
+          import json, sys
+          d = json.load(open(sys.argv[1]))
+          s = d.get('summary') or {}
+          total, passed, failed = s.get('total', 0), s.get('passed', 0), s.get('failed', 0)
+          if total == 0:
+              print("::error::Benchmark summary reports zero total steps"); sys.exit(1)
+          if failed:
+              print(f"::error::Benchmark has {failed}/{total} failed step(s)"); sys.exit(1)
+          print(f"Benchmark OK: {passed}/{total} passed.")
+          PYEOF
 
       # ═══════════════════════════════════════════════════════════════════════
       # 7. CAPTURE CONTAINER LOGS  (must run BEFORE stop-nodes.sh tears them

@@ -727,6 +727,12 @@ _build_creatures() {
 # ─── Application-level readiness probe ───────────────────────────────────────
 # TCP-open is necessary but not sufficient; wait until the node actually
 # responds to a /auths/getServerPublicKey request before deploying.
+#
+# We require N *consecutive* successful round-trips so a flake in the first
+# few seconds (e.g. the listener thread accepted but the action registry is
+# still being populated) does not let deploy start prematurely. The 2026-05-30
+# run failed because the probe passed but the node was not yet handling
+# authenticated requests — node2/3 stalled at first login.
 _probe_node_app_ready() {
   # $1 = TCP port.  Returns 0 when the node responds, 1 on timeout/error.
   local port="$1"
@@ -761,21 +767,41 @@ finally:
 " 2>/dev/null
 }
 
+# Require the node to handle several requests back-to-back without a stall.
+# The "API stops responding after a few requests" failure mode would let the
+# first probe pass and the second time out, so we keep probing until we get
+# N consecutive successes.
+_probe_node_steady() {
+  local port="$1"
+  local need="${2:-3}"
+  local got=0
+  while [[ $got -lt $need ]]; do
+    if _probe_node_app_ready "$port"; then
+      got=$((got + 1))
+    else
+      return 1
+    fi
+    sleep 0.2
+  done
+  return 0
+}
+
 _wait_nodes_app_ready() {
   local max_wait=180
   info "Waiting for node(s) to be application-ready (up to ${max_wait}s)…"
   for n in "${NODES[@]}"; do
     local port=${NODE_TCP[$n]}
     local elapsed=0
-    while ! _probe_node_app_ready "$port"; do
+    while ! _probe_node_steady "$port" 3; do
       sleep 2; elapsed=$((elapsed + 2))
       if [[ $elapsed -ge $max_wait ]]; then
-        warn "node$n did not become application-ready after ${max_wait}s — deploy may fail"
+        warn "node$n did not become application-ready (3-probe steady) after ${max_wait}s — deploy may fail"
         break
       fi
     done
-    _probe_node_app_ready "$port" && ok "node$n application-ready" \
-      || warn "node$n not responding to probes — continuing anyway"
+    _probe_node_steady "$port" 3 \
+      && ok "node$n application-ready (3 probes steady)" \
+      || warn "node$n not steadily responding to probes — continuing anyway"
   done
 }
 
@@ -789,24 +815,46 @@ _deploy_creatures() {
     || { warn "pycryptodome not available — skipping deployment"; return 1; }
   info "Deploying WASM creatures to node(s)…"
   mkdir -p "$DATA_ROOT"
+  # PIPESTATUS[0] reflects deploy.py's real exit; the tee + grep chain otherwise
+  # masks failures and the workflow reports green on a broken deploy.
   python3 "$deploy_script" 2>&1 | tee "$DATA_ROOT/deploy.log" | \
     grep --line-buffered -iE '(deploy|\.wasm|creature|module|install|register|upload)' | \
     while IFS= read -r line; do info "  $line"; done
+  local deploy_rc=${PIPESTATUS[0]}
   local report="${HOME:-/root}/deployment_report.json"
-  if [[ -f "$report" ]]; then
-    local ok_count
-    ok_count=$(python3 -c "
-import json
+  if [[ $deploy_rc -ne 0 ]]; then
+    warn "deploy.py exited with code $deploy_rc — see $DATA_ROOT/deploy.log"
+    return $deploy_rc
+  fi
+  if [[ ! -f "$report" ]]; then
+    warn "deploy.py finished but deployment_report.json not found"
+    return 1
+  fi
+  # Validate the report: every node must have at least one successful module,
+  # and the overall error count must be zero. Anything less is a silent
+  # half-deploy (e.g. node1 OK + node2/3 timed out) that bench-all.sh would
+  # later run against, producing a meaningless "no nodes reachable" abort.
+  local stats
+  stats=$(python3 -c "
+import json, sys
 try:
     reps = json.load(open('$report'))
-    print(sum(r.get('ok_count', 0) for r in reps if isinstance(r, dict)))
-except Exception:
-    print(0)
-" 2>/dev/null || echo 0)
-    ok "Creature deployment complete — ${ok_count} WASM modules deployed"
-  else
-    warn "deploy.py finished but deployment_report.json not found"
+except Exception as e:
+    print('parse_error', e); sys.exit(2)
+if not isinstance(reps, list) or not reps:
+    print('empty_report'); sys.exit(2)
+ok = sum(r.get('ok_count', 0) for r in reps if isinstance(r, dict))
+err = sum(r.get('error_count', 0) for r in reps if isinstance(r, dict))
+nodes_ok = sum(1 for r in reps if isinstance(r, dict) and r.get('ok_count', 0) > 0)
+nodes_total = len(reps)
+print(f'{ok} {err} {nodes_ok} {nodes_total}')
+" 2>&1) || { warn "deployment_report.json malformed: $stats"; return 1; }
+  read -r ok_count err_count nodes_ok nodes_total <<<"$stats"
+  if [[ "${err_count:-0}" -gt 0 || "${nodes_ok:-0}" -ne "${nodes_total:-0}" ]]; then
+    warn "Creature deployment partial: ok=${ok_count} err=${err_count} nodes_ok=${nodes_ok}/${nodes_total}"
+    return 1
   fi
+  ok "Creature deployment complete — ${ok_count} WASM modules deployed across ${nodes_ok}/${nodes_total} nodes"
 }
 
 # ─── Dependency checks ───────────────────────────────────────────────────────
@@ -1391,7 +1439,13 @@ if $DEPLOY_CREATURES; then
     export GOROOT="/usr/local/go123"
     if _build_creatures "$DECILLIONAI_SERVER_DIR"; then
       _wait_nodes_app_ready
-      _deploy_creatures "$DECILLIONAI_SERVER_DIR"
+      if ! _deploy_creatures "$DECILLIONAI_SERVER_DIR"; then
+        # Mark the deploy step as failed via a sentinel file the workflow can
+        # check after this script exits — set -e is not used here and we still
+        # want the surrounding "summary" block to print.
+        mkdir -p "$DATA_ROOT" && : > "$DATA_ROOT/deploy.failed"
+        warn "Creature deployment failed — bench-all.sh will refuse to run"
+      fi
     fi
   fi
 else
