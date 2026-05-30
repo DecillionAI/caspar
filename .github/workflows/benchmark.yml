@@ -140,14 +140,8 @@ jobs:
       #    above instead of cloning a second copy.
       # ═══════════════════════════════════════════════════════════════════════
 
-      # --no-rebuild tells run-nodes.sh to skip its internal build-dist.sh
-      # invocation (which re-runs the WasmEdge installer and cargo build).
-      # The docker image was already built from dist/ in step 4, so re-running
-      # the build inside run-nodes.sh is pure waste — and when skip_build=true
-      # the host hasn't installed the WasmEdge toolchain at all, so the
-      # build-dist.sh re-run would fail to install WasmEdge and abort.
       - name: Start ${{ env.MODE }}-node cluster + deploy WASM creatures  (run-nodes.sh)
-        run: bash run-nodes.sh "$MODE" --no-rebuild --no-gvisor --no-firecracker
+        run: bash run-nodes.sh "$MODE" --no-gvisor --no-firecracker
         env:
           DECILLIONAI_SERVER: ${{ github.workspace }}/_decillionai-server
         timeout-minutes: 30
