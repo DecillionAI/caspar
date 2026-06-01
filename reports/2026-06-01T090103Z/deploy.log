@@ -1,0 +1,149 @@
+Caspar WASM Creature Deployment
+================================
+
+============================================================
+  Node: node1 (127.0.0.1:8074)
+============================================================
+  Logged in: 1@global
+  Deploying namespace creatures...
+    chain: ok (size=326,510, program=5@global, 2.24s)
+    elpify-chain: ok (size=379,195, program=8@global, 2.28s)
+    invites: ok (size=318,875, program=11@global, 2.49s)
+    pc: ok (size=319,154, program=14@global, 2.38s)
+    storage: ok (size=317,029, program=17@global, 3.07s)
+    stores: ok (size=324,503, program=20@global, 2.52s)
+  Deploying endpoint creatures...
+    chains/create: ok (2.96s)
+    chains/createFromStore: ok (3.10s)
+    chains/createShard: ok (3.64s)
+    chains/registerNode: ok (4.09s)
+    chains/submitBaseTrx: ok (3.22s)
+    invites/accept: ok (2.98s)
+    invites/cancel: ok (2.75s)
+    invites/create: ok (3.94s)
+    invites/decline: ok (3.08s)
+    invites/listStoreInvites: ok (3.24s)
+    invites/listUserInvites: ok (4.02s)
+    pc/execCommand: ok (3.43s)
+    pc/runPc: ok (3.71s)
+    storage/deleteStoreEntity: ok (3.26s)
+    storage/deleteUserEntity: ok (3.10s)
+    storage/download: ok (3.19s)
+    storage/upload: ok (3.10s)
+    storage/uploadAppEntity: ok (3.71s)
+    storage/uploadStoreEntity: ok (5.06s)
+    storage/uploadUserEntity: ok (3.38s)
+    stores/addMachine: ok (2.96s)
+    stores/addMember: ok (3.22s)
+    stores/addProgram: ok (3.48s)
+    stores/create: ok (3.46s)
+    stores/delete: ok (3.41s)
+    stores/get: ok (3.12s)
+    stores/getDefaultAccess: ok (4.85s)
+    stores/history: ok (4.32s)
+    stores/join: ok (3.90s)
+    stores/leave: ok (4.51s)
+    stores/list: ok (4.84s)
+
+  37 WASM modules deployed successfully.
+
+============================================================
+  Node: node2 (127.0.0.1:8174)
+============================================================
+  Logged in: 1@global
+  Deploying namespace creatures...
+    chain: ok (size=326,510, program=5@global, 3.14s)
+    elpify-chain: ok (size=379,195, program=8@global, 2.72s)
+    invites: ok (size=318,875, program=11@global, 2.89s)
+    pc: ok (size=319,154, program=14@global, 3.64s)
+    storage: ok (size=317,029, program=17@global, 3.75s)
+    stores: ok (size=324,503, program=20@global, 2.93s)
+  Deploying endpoint creatures...
+    chains/create: ok (2.49s)
+    chains/createFromStore: ok (3.15s)
+    chains/createShard: ok (2.55s)
+    chains/registerNode: ok (3.07s)
+    chains/submitBaseTrx: ok (2.75s)
+    invites/accept: ok (2.85s)
+    invites/cancel: ok (3.35s)
+    invites/create: ok (3.55s)
+    invites/decline: ok (2.85s)
+    invites/listStoreInvites: ok (3.12s)
+    invites/listUserInvites: ok (3.04s)
+    pc/execCommand: ok (2.85s)
+    pc/runPc: ok (3.02s)
+    storage/deleteStoreEntity: ok (5.77s)
+    storage/deleteUserEntity: ok (3.38s)
+    storage/download: ok (3.29s)
+    storage/upload: ok (3.61s)
+    storage/uploadAppEntity: ok (3.21s)
+    storage/uploadStoreEntity: ok (3.16s)
+    storage/uploadUserEntity: ok (3.35s)
+    stores/addMachine: ok (3.21s)
+    stores/addMember: ok (3.96s)
+    stores/addProgram: ok (3.44s)
+    stores/create: ok (2.94s)
+    stores/delete: ok (3.57s)
+    stores/get: ok (3.72s)
+    stores/getDefaultAccess: ok (3.73s)
+    stores/history: ok (3.45s)
+    stores/join: ok (3.53s)
+    stores/leave: ok (7.76s)
+    stores/list: ok (3.35s)
+
+  37 WASM modules deployed successfully.
+
+============================================================
+  Node: node3 (127.0.0.1:8274)
+============================================================
+  Logged in: 1@global
+  Deploying namespace creatures...
+    chain: ok (size=326,510, program=5@global, 5.09s)
+    elpify-chain: ok (size=379,195, program=8@global, 3.33s)
+    invites: ok (size=318,875, program=11@global, 4.60s)
+    pc: ok (size=319,154, program=14@global, 3.49s)
+    storage: ok (size=317,029, program=17@global, 4.59s)
+    stores: ok (size=324,503, program=20@global, 2.94s)
+  Deploying endpoint creatures...
+    chains/create: ok (3.51s)
+    chains/createFromStore: ok (3.27s)
+    chains/createShard: ok (2.82s)
+    chains/registerNode: ok (2.54s)
+    chains/submitBaseTrx: ok (3.25s)
+    invites/accept: ok (2.37s)
+    invites/cancel: ok (3.39s)
+    invites/create: ok (3.28s)
+    invites/decline: ok (3.57s)
+    invites/listStoreInvites: ok (3.55s)
+    invites/listUserInvites: ok (2.97s)
+    pc/execCommand: ok (2.37s)
+    pc/runPc: ok (2.92s)
+    storage/deleteStoreEntity: ok (3.56s)
+    storage/deleteUserEntity: ok (3.40s)
+    storage/download: ok (2.99s)
+    storage/upload: ok (3.12s)
+    storage/uploadAppEntity: ok (3.36s)
+    storage/uploadStoreEntity: ok (2.80s)
+    storage/uploadUserEntity: ok (3.24s)
+    stores/addMachine: ok (3.52s)
+    stores/addMember: ok (3.21s)
+    stores/addProgram: ok (3.25s)
+    stores/create: ok (4.43s)
+    stores/delete: ok (3.14s)
+    stores/get: ok (3.26s)
+    stores/getDefaultAccess: ok (4.16s)
+    stores/history: ok (3.55s)
+    stores/join: ok (2.73s)
+    stores/leave: ok (3.00s)
+    stores/list: ok (3.87s)
+
+  37 WASM modules deployed successfully.
+
+
+Deployment Summary
+==================
+  node1: completed | 37 deployed | 0 errors
+  node2: completed | 37 deployed | 0 errors
+  node3: completed | 37 deployed | 0 errors
+
+Report: /home/runner/deployment_report.json
