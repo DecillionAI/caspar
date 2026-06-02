@@ -490,11 +490,11 @@ fn create_program(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
                 return Err(anyhow!("you are not owner of machine"));
             }
             let program = Program {
-                machine_id: app_for_handler.tools().storage().gen_id(
+                id: app_for_handler.tools().storage().gen_id(
                     &*trx,
                     &crate::models::input::IInput::origin(&input),
                 ),
-                app_id: machine.id.clone(),
+                machine_id: machine.id.clone(),
                 path: input.path.clone(),
                 runtime: input.runtime.clone(),
                 comment: input.comment.clone(),
@@ -502,14 +502,16 @@ fn create_program(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
             machine.machines_count += 1;
             machine.push(&*trx);
             program.push(&*trx);
+            // The program stores `machine_id` = its owning Machine; ownership is
+            // resolved by loading that Machine (no app_id, no side ownership link).
             let _ = trx.put_json(
-                &format!("ProgMeta::{}", program.machine_id),
+                &format!("ProgMeta::{}", program.id),
                 "metadata",
                 &json!({}),
                 true,
             );
             trx.put_link(
-                &format!("machinePrograms::{}::{}", machine.id, program.machine_id),
+                &format!("machinePrograms::{}::{}", machine.id, program.id),
                 "true",
             );
             Ok(json!({"program": program}))
@@ -556,7 +558,7 @@ fn update_program(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
                 return Err(anyhow!("program does not exist"));
             }
             let mut program = Program {
-                machine_id: input.program_id.clone(),
+                id: input.program_id.clone(),
                 ..Default::default()
             }
             .pull(&*trx);
@@ -571,7 +573,7 @@ fn update_program(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
                         .collect(),
                 );
                 trx.put_json(
-                    &format!("ProgMeta::{}", program.machine_id),
+                    &format!("ProgMeta::{}", program.id),
                     "metadata",
                     &meta_value,
                     true,
@@ -599,12 +601,12 @@ fn run_program_entity(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
                 return Err(anyhow!("program does not exist"));
             }
             let program = Program {
-                machine_id: program_id.clone(),
+                id: program_id.clone(),
                 ..Default::default()
             }
             .pull(&*trx);
             let entity = Entity {
-                program_id: program.machine_id.clone(),
+                program_id: program.id.clone(),
                 entity_id: input.entity_id.clone(),
                 ..Default::default()
             }
@@ -613,35 +615,45 @@ fn run_program_entity(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
                 return Err(anyhow!("entity does not exist"));
             }
             let entity_type = normalize_entity_type(&entity.entity_type);
-            let machine = Machine {
+            // A program owns itself: authorize against the recorded program owner
+            // rather than the deprecated app_id parent pointer.
+            let owner_machine = Machine {
                 id: program.machine_id.clone(),
                 ..Default::default()
             }
             .pull(&*trx, false);
-            if machine.owner_id != state.info().user_id() {
-                return Err(anyhow!("you are not owner of this machine"));
+            if owner_machine.owner_id != state.info().user_id() {
+                return Err(anyhow!("you are not owner of this program"));
             }
             let vm_id = Uuid::new_v4().to_string();
             trx.put_link(&format!("VmStatus::{}", vm_id), "running");
             let resources = normalize_vm_resources(&input.resources);
-            let mut billing_data = validate_and_build_vm_billing(
-                &app_for_handler,
-                &*trx,
-                &state.info().user_id(),
-                &input.payment_lock_id,
-                &input.payment_signatures,
-                &resources,
-            )?;
-            billing_data.insert("machineId".into(), json!(input.machine_id));
-            billing_data.insert("entityId".into(), json!(input.entity_id));
-            billing_data.insert("vmId".into(), json!(vm_id));
-            trx.put_link(&format!("VmBilling::{}", vm_id), "true");
-            trx.put_json(
-                &format!("Json::VmBilling::{}", vm_id),
-                "payment",
-                &Value::Object(billing_data),
-                true,
-            )?;
+            // Free-tier bypass: when every VM cost rate is zero there is nothing
+            // to bill, so a payment lock is not required. Paid nodes still
+            // enforce the lock + per-step signatures via validate_and_build_vm_billing.
+            let vm_is_free = app_for_handler.vm_ram_cost_per_mb_per_minute() == 0
+                && app_for_handler.vm_cpu_core_cost_per_minute() == 0
+                && app_for_handler.vm_disk_cost_per_gb_per_minute() == 0;
+            if !vm_is_free {
+                let mut billing_data = validate_and_build_vm_billing(
+                    &app_for_handler,
+                    &*trx,
+                    &state.info().user_id(),
+                    &input.payment_lock_id,
+                    &input.payment_signatures,
+                    &resources,
+                )?;
+                billing_data.insert("machineId".into(), json!(input.machine_id));
+                billing_data.insert("entityId".into(), json!(input.entity_id));
+                billing_data.insert("vmId".into(), json!(vm_id));
+                trx.put_link(&format!("VmBilling::{}", vm_id), "true");
+                trx.put_json(
+                    &format!("Json::VmBilling::{}", vm_id),
+                    "payment",
+                    &Value::Object(billing_data),
+                    true,
+                )?;
+            }
             let params: HashMap<String, String> = if input.params.is_empty() {
                 HashMap::new()
             } else {
@@ -650,7 +662,7 @@ fn run_program_entity(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
             trx.put_link(
                 &format!(
                     "VmInstance::{}::{}::{}",
-                    program.machine_id, input.entity_id, vm_id
+                    program.id, input.entity_id, vm_id
                 ),
                 "true",
             );
@@ -660,7 +672,7 @@ fn run_program_entity(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
                 trx.put_link(
                     &format!(
                         "VmContainerName::{}::{}::{}",
-                        program.machine_id, input.entity_id, vm_id
+                        program.id, input.entity_id, vm_id
                     ),
                     &container_name,
                 );
@@ -738,12 +750,12 @@ fn stop_program_entity(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
                 return Err(anyhow!("program does not exist"));
             }
             let program = Program {
-                machine_id: program_id.clone(),
+                id: program_id.clone(),
                 ..Default::default()
             }
             .pull(&*trx);
             let entity = Entity {
-                program_id: program.machine_id.clone(),
+                program_id: program.id.clone(),
                 entity_id: input.entity_id.clone(),
                 ..Default::default()
             }
@@ -752,34 +764,35 @@ fn stop_program_entity(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
                 return Err(anyhow!("entity does not exist"));
             }
             let entity_type = normalize_entity_type(&entity.entity_type);
-            let machine = Machine {
+            // Authorize against the recorded program owner (no app_id).
+            let owner_machine = Machine {
                 id: program.machine_id.clone(),
                 ..Default::default()
             }
             .pull(&*trx, false);
-            if machine.owner_id != state.info().user_id() {
-                return Err(anyhow!("you are not owner of this machine"));
+            if owner_machine.owner_id != state.info().user_id() {
+                return Err(anyhow!("you are not owner of this program"));
             }
             let vm_id = input.vm_id.clone();
             trx.del_key(&format!("link::VmStatus::{}", vm_id));
             trx.del_key(&format!(
                 "link::VmInstance::{}::{}::{}",
-                program.machine_id, input.entity_id, vm_id
+                program.id, input.entity_id, vm_id
             ));
             trx.del_key(&format!("link::VmBilling::{}", vm_id));
             trx.del_json(&format!("Json::VmBilling::{}", vm_id), "payment");
             let entity_image_id = entity.entity_id.clone();
             let container_name = trx.get_link(&format!(
                 "VmContainerName::{}::{}::{}",
-                program.machine_id, input.entity_id, vm_id
+                program.id, input.entity_id, vm_id
             ));
             trx.del_key(&format!(
                 "link::vmStandaloneImageName::{}::{}",
-                program.machine_id, input.entity_id
+                program.id, input.entity_id
             ));
             trx.del_key(&format!(
                 "link::vmStandaloneContainerName::{}::{}",
-                program.machine_id, input.entity_id
+                program.id, input.entity_id
             ));
             let mut stop_input: Map<String, Value> = Map::new();
             stop_input.insert("runtime".into(), json!(entity_type));
@@ -823,19 +836,19 @@ fn read_vm_logs(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
                         continue;
                     }
                     let program = Program {
-                        machine_id: parts[1].to_string(),
+                        id: parts[1].to_string(),
                         ..Default::default()
                     }
                     .pull(&*trx);
-                    if program.machine_id.is_empty() {
+                    if program.id.is_empty() {
                         break;
                     }
-                    let machine = Machine {
-                        id: program.app_id.clone(),
+                    owner_user_id = Machine {
+                        id: program.machine_id.clone(),
                         ..Default::default()
                     }
-                    .pull(&*trx, false);
-                    owner_user_id = machine.owner_id;
+                    .pull(&*trx, false)
+                    .owner_id;
                     break;
                 }
             }
@@ -869,16 +882,16 @@ fn open_vm_terminal(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
                 return Err(anyhow!("program does not exist"));
             }
             let program = Program {
-                machine_id: input.creature_id.clone(),
+                id: input.creature_id.clone(),
                 ..Default::default()
             }
             .pull(&*trx);
-            let machine = Machine {
-                id: program.app_id.clone(),
+            let owner_machine = Machine {
+                id: program.machine_id.clone(),
                 ..Default::default()
             }
             .pull(&*trx, false);
-            if machine.owner_id != state.info().user_id() {
+            if owner_machine.owner_id != state.info().user_id() {
                 return Err(anyhow!("you are not owner of this creature"));
             }
             trx.put_link(
@@ -906,16 +919,16 @@ fn close_vm_terminal(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
                 return Err(anyhow!("program does not exist"));
             }
             let program = Program {
-                machine_id: input.creature_id.clone(),
+                id: input.creature_id.clone(),
                 ..Default::default()
             }
             .pull(&*trx);
-            let machine = Machine {
-                id: program.app_id.clone(),
+            let owner_machine = Machine {
+                id: program.machine_id.clone(),
                 ..Default::default()
             }
             .pull(&*trx, false);
-            if machine.owner_id != state.info().user_id() {
+            if owner_machine.owner_id != state.info().user_id() {
                 return Err(anyhow!("you are not owner of this creature"));
             }
             trx.del_key(&format!(
@@ -958,19 +971,17 @@ fn deploy(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
                 return Err(anyhow!("program not found"));
             }
             let program = Program {
-                machine_id: program_id.clone(),
+                id: program_id.clone(),
                 ..Default::default()
             }
             .pull(&*trx);
-            if !trx.has_obj("Machine", &program.app_id) {
-                return Err(anyhow!("machine not found"));
-            }
-            let machine = Machine {
-                id: program.app_id.clone(),
+            // Authorize against the recorded program owner (no app_id).
+            let owner_machine = Machine {
+                id: program.machine_id.clone(),
                 ..Default::default()
             }
             .pull(&*trx, false);
-            if machine.owner_id != state.info().user_id() {
+            if owner_machine.owner_id != state.info().user_id() {
                 return Err(anyhow!("access to vm denied"));
             }
             let entity_type = normalize_entity_type(&input.entity_type);
@@ -983,7 +994,7 @@ fn deploy(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
                 .decode(&input.payload)
                 .map_err(|e| anyhow!("{}", e))?;
             let mut entity_model = Entity {
-                program_id: program.machine_id.clone(),
+                program_id: program.id.clone(),
                 entity_id: input.entity_id.clone(),
                 entity_type: entity_type.clone(),
                 image_name: input.entity_id.clone(),
@@ -1004,7 +1015,7 @@ fn deploy(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
                     "{}{}{}/entities/{}",
                     app_for_handler.tools().storage().storage_root(),
                     PLUGINS_TEMPLATE_NAME,
-                    program.machine_id,
+                    program.id,
                     input.entity_id
                 );
                 let primary_file_name = if entity_type == "wasm" {
@@ -1035,20 +1046,20 @@ fn deploy(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
                 }
                 if entity_type == "wasm" {
                     trx.put_link(
-                        &format!("vmEntityPath::{}::{}", program.machine_id, input.entity_id),
+                        &format!("vmEntityPath::{}::{}", program.id, input.entity_id),
                         &format!("{}/{}", build_folder_path, primary_file_name),
                     );
                     trx.put_link(
-                        &format!("vmEntityType::{}::{}", program.machine_id, input.entity_id),
+                        &format!("vmEntityType::{}::{}", program.id, input.entity_id),
                         "wasm",
                     );
                     program.push(&*trx);
-                    app_for_handler.tools().vmm().assign(&program.machine_id);
+                    app_for_handler.tools().vmm().assign(&program.id);
                 } else {
                     let build_id = Uuid::new_v4().to_string();
                     trx.put_link(&format!("VmBuilds::{}::{}", vm_id, build_id), "true");
                     let app_async = app_for_handler.clone();
-                    let mid = program.machine_id.clone();
+                    let mid = program.id.clone();
                     let eid = input.entity_id.clone();
                     let path = build_folder_path.clone();
                     let etype = entity_type.clone();
@@ -1065,7 +1076,7 @@ fn deploy(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
                     "{}{}{}/entities/{}",
                     app_for_handler.tools().storage().storage_root(),
                     PLUGINS_TEMPLATE_NAME,
-                    program.machine_id,
+                    program.id,
                     input.entity_id
                 );
                 app_for_handler.tools().file().save_data_to_global_storage(
@@ -1078,7 +1089,7 @@ fn deploy(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
                     let build_id = Uuid::new_v4().to_string();
                     trx.put_link(&format!("VmBuilds::{}::{}", vm_id, build_id), "true");
                     let app_async = app_for_handler.clone();
-                    let mid = program.machine_id.clone();
+                    let mid = program.id.clone();
                     let eid = input.entity_id.clone();
                     let path = entity_folder_path.clone();
                     let etype = entity_type.clone();
@@ -1090,7 +1101,7 @@ fn deploy(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
                     });
                 }
                 program.push(&*trx);
-                app_for_handler.tools().vmm().assign(&program.machine_id);
+                app_for_handler.tools().vmm().assign(&program.id);
             }
             entity_model.entity_type = entity_type;
             entity_model.push(&*trx);
@@ -1170,7 +1181,7 @@ fn list_program_machines(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
             let programs = Program::list(&*trx, &prefix)?;
             let mut program_by_machine_id: HashMap<String, Program> = HashMap::new();
             for program in programs {
-                program_by_machine_id.insert(program.machine_id.clone(), program);
+                program_by_machine_id.insert(program.id.clone(), program);
             }
             let mut result: Vec<Map<String, Value>> = Vec::new();
             for user in users {
@@ -1204,11 +1215,11 @@ fn install_program_bootstrap(app: Arc<dyn ICore>) {
                     program.runtime.as_str(),
                     "wasm" | "elpify" | "javascript" | "elpian" | "fire" | "docker"
                 ) {
-                    app_for_closure.tools().vmm().assign(&program.machine_id);
-                    let store_id = trx.get_link(&format!("vmAlarmStoreId::{}", program.machine_id));
+                    app_for_closure.tools().vmm().assign(&program.id);
+                    let store_id = trx.get_link(&format!("vmAlarmStoreId::{}", program.id));
                     if !store_id.is_empty() {
                         let app_async = app_for_closure.clone();
-                        let machine_id = program.machine_id.clone();
+                        let machine_id = program.id.clone();
                         let store_id_clone = store_id.clone();
                         let alarm_time_raw = trx.get_link(&format!("vmAlarmTime::{}", machine_id));
                         let alarm_data = trx.get_link(&format!("vmAlarmData::{}", machine_id));
@@ -1238,7 +1249,7 @@ fn install_program_bootstrap(app: Arc<dyn ICore>) {
                         });
                     }
                 }
-                let prefix = format!("hasaccess::{}::", program.machine_id);
+                let prefix = format!("hasaccess::{}::", program.id);
                 let store_ids = trx.get_links_list(&prefix, -1, -1, &[]).unwrap_or_default();
                 for store_id in store_ids {
                     let bare = store_id
@@ -1248,7 +1259,7 @@ fn install_program_bootstrap(app: Arc<dyn ICore>) {
                     app_for_closure
                         .tools()
                         .signaler()
-                        .join_group(&bare, &program.machine_id);
+                        .join_group(&bare, &program.id);
                 }
             }
             Ok(())

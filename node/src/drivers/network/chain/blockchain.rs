@@ -348,15 +348,15 @@ impl IChain for Blockchain {
                 true,
                 Box::new(move |trx: &dyn ITrx| {
                     let vm = Program {
-                        machine_id: machine_id_owned.clone(),
+                        id: machine_id_owned.clone(),
                         ..Default::default()
                     }
                     .pull(trx);
-                    if vm.app_id.is_empty() {
+                    if vm.machine_id.is_empty() {
                         return Ok(());
                     }
                     let app = Machine {
-                        id: vm.app_id.clone(),
+                        id: vm.machine_id.clone(),
                         ..Default::default()
                     }
                     .pull(trx, false);

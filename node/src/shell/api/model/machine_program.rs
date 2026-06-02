@@ -165,10 +165,13 @@ impl Machine {
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Program {
+    // The program's own identity.
     #[serde(rename = "id", default)]
+    pub id: String,
+    // Link to the owning Machine object (machines = former "apps"). This is the
+    // canonical owner relationship; there is no separate app_id pointer.
+    #[serde(rename = "machineId", default)]
     pub machine_id: String,
-    #[serde(rename = "appId", default)]
-    pub app_id: String,
     #[serde(default)]
     pub runtime: String,
     #[serde(default)]
@@ -184,20 +187,22 @@ impl Program {
 
     pub fn push(&self, trx: &dyn ITrx) {
         let mut cols: HashMap<String, Vec<u8>> = HashMap::new();
+        // Persisted column "id" holds the program's own id; "machineId" holds
+        // the owning machine id.
+        cols.insert("id".into(), self.id.as_bytes().to_vec());
         cols.insert("machineId".into(), self.machine_id.as_bytes().to_vec());
-        cols.insert("appId".into(), self.app_id.as_bytes().to_vec());
         cols.insert("runtime".into(), self.runtime.as_bytes().to_vec());
         cols.insert("path".into(), self.path.as_bytes().to_vec());
         cols.insert("comment".into(), self.comment.as_bytes().to_vec());
-        trx.put_obj(Self::type_(), &self.machine_id, cols);
+        trx.put_obj(Self::type_(), &self.id, cols);
     }
 
     fn fill(d: &mut Program, m: &HashMap<String, Vec<u8>>) {
+        if let Some(v) = m.get("id") {
+            d.id = String::from_utf8_lossy(v).into_owned();
+        }
         if let Some(v) = m.get("machineId") {
             d.machine_id = String::from_utf8_lossy(v).into_owned();
-        }
-        if let Some(v) = m.get("appId") {
-            d.app_id = String::from_utf8_lossy(v).into_owned();
         }
         if let Some(v) = m.get("runtime") {
             d.runtime = String::from_utf8_lossy(v).into_owned();
@@ -211,7 +216,7 @@ impl Program {
     }
 
     pub fn pull(mut self, trx: &dyn ITrx) -> Program {
-        let m = trx.get_obj(Self::type_(), &self.machine_id);
+        let m = trx.get_obj(Self::type_(), &self.id);
         if !m.is_empty() {
             Program::fill(&mut self, &m);
         }
@@ -236,14 +241,14 @@ impl Program {
                     return None;
                 }
                 let mut d = Program {
-                    machine_id: id,
+                    id,
                     ..Default::default()
                 };
                 Program::fill(&mut d, &m);
                 Some(d)
             })
             .collect();
-        entities.sort_by(|a, b| a.machine_id.cmp(&b.machine_id));
+        entities.sort_by(|a, b| a.id.cmp(&b.id));
         Ok(entities)
     }
 
@@ -262,14 +267,14 @@ impl Program {
                     return None;
                 }
                 let mut d = Program {
-                    machine_id: id,
+                    id,
                     ..Default::default()
                 };
                 Program::fill(&mut d, &m);
                 Some(d)
             })
             .collect();
-        entities.sort_by(|a, b| a.machine_id.cmp(&b.machine_id));
+        entities.sort_by(|a, b| a.id.cmp(&b.id));
         Ok(entities)
     }
 }
