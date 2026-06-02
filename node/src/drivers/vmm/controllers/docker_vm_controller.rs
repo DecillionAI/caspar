@@ -2,7 +2,6 @@ use crate::drivers::vmm::prelude::*;
 use crate::drivers::vmm::controllers::vm_controller::VmController;
 use crate::drivers::vmm::network::vm_network::VmNetworkService;
 use crate::drivers::vmm::models::vm_runtime::parse_vm_resource_limits;
-use crate::drivers::vmm::bridge::runtime_io::{wasm_send, log};
 use crate::drivers::vmm::globals::with_global_app;
 
 pub(crate) struct DockerVmController {
@@ -145,7 +144,11 @@ impl DockerVmController {
                         follow: true,
                         stdout: true,
                         stderr: true,
-                        tail: "0".to_string(),
+                        // "all" (not "0"): short-lived creatures print and exit
+                        // within milliseconds, before this follower attaches.
+                        // tail:"0" would only stream NEW lines and miss their
+                        // entire output; "all" replays the full buffered log.
+                        tail: "all".to_string(),
                         ..Default::default()
                     }),
                 );
@@ -505,19 +508,43 @@ fn parse_input_files(input_files: &JsonValue) -> Result<HashMap<String, Vec<u8>>
     Ok(files)
 }
 
+// Background log-writer: build/run log capture happens *inside* tokio
+// `block_on` contexts, but storage().log_vm() drives a synchronous Postgres
+// (QuestDB) client whose connection is torn down on a background tokio runtime
+// — dropping it from within another runtime aborts the process ("panic in a
+// destructor during cleanup"). We therefore funnel every captured line to a
+// single dedicated OS thread that owns no tokio context and performs the
+// blocking write safely. This also decouples the (chatty) container stdout from
+// the hot capture path. The router-based vmLog packet path is unsuitable here:
+// it classifies by "type" (a bare {"key":"vmLog"} is dropped as Unknown) and
+// the host-call path requires creature program context the follower lacks.
+fn vm_log_sender() -> std::sync::mpsc::Sender<(String, String, String)> {
+    static LOG_TX: std::sync::OnceLock<
+        std::sync::Mutex<std::sync::mpsc::Sender<(String, String, String)>>,
+    > = std::sync::OnceLock::new();
+    LOG_TX
+        .get_or_init(|| {
+            let (tx, rx) = std::sync::mpsc::channel::<(String, String, String)>();
+            thread::spawn(move || {
+                for (vm_id, log_type, text) in rx {
+                    let ts = chrono::Utc::now().timestamp_millis();
+                    with_global_app(|app| {
+                        let _ = app.tools().storage().log_vm(&vm_id, &log_type, &text, ts);
+                    });
+                }
+            });
+            std::sync::Mutex::new(tx)
+        })
+        .lock()
+        .unwrap()
+        .clone()
+}
+
 fn emit_vm_log(vm_id: &str, log_type: &str, text: &str) {
     if vm_id.trim().is_empty() || text.trim().is_empty() {
         return;
     }
-    let packet = json!({
-        "key": "vmLog",
-        "input": {
-            "vmId": vm_id,
-            "logType": log_type,
-            "text": text
-        }
-    });
-    let _ = wasm_send(packet);
+    let _ = vm_log_sender().send((vm_id.to_string(), log_type.to_string(), text.to_string()));
 }
 
 fn build_context_from_path(path: &str) -> Result<Vec<u8>, String> {

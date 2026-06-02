@@ -37,15 +37,15 @@ impl Vmm {
                     let creature_id = parts[1].to_string();
                     *creature_clone.lock().unwrap() = creature_id.clone();
                     let program = Program {
-                        machine_id: creature_id.clone(),
+                        id: creature_id.clone(),
                         ..Default::default()
                     }
                     .pull(trx);
-                    if program.machine_id.is_empty() {
+                    if program.id.is_empty() {
                         break;
                     }
                     let machine = Machine {
-                        id: program.app_id.clone(),
+                        id: program.machine_id.clone(),
                         ..Default::default()
                     }
                     .pull(trx, false);

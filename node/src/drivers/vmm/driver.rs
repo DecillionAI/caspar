@@ -165,7 +165,7 @@ impl Vmm {
             true,
             Box::new(move |trx: &dyn ITrx| {
                 let vm = Program {
-                    machine_id: machine_id_owned.clone(),
+                    id: machine_id_owned.clone(),
                     ..Default::default()
                 }
                 .pull(trx);
@@ -639,7 +639,7 @@ fn resolve_vm_execution_target_inner(
         true,
         Box::new(move |trx: &dyn ITrx| {
             let vm = Program {
-                machine_id: machine_id_owned.clone(),
+                id: machine_id_owned.clone(),
                 ..Default::default()
             }
             .pull(trx);

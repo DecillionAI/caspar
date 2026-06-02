@@ -226,7 +226,7 @@ impl Core {
                 true,
                 Box::new(move |trx: &dyn ITrx| {
                     let vm = Program {
-                        machine_id: machine_id_owned.clone(),
+                        id: machine_id_owned.clone(),
                         ..Default::default()
                     }
                     .pull(trx);

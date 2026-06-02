@@ -318,15 +318,29 @@ impl IStorage for Storage {
             Ok(c) => c,
             Err(_) => return Vec::new(),
         };
+        // QuestDB does not support the `LIMIT n OFFSET m` form (it rejects the
+        // OFFSET token) nor bound integer params in LIMIT; it uses `LIMIT lo, hi`
+        // where `lo` rows are skipped and rows up to `hi` are returned. Translate
+        // offset/count into that range inline (both are validated i64s, so this
+        // is injection-safe). NOTE: lo is the skip count (offset), not offset+1 —
+        // with ORDER BY time DESC, offset+1 would drop the most-recent row.
+        let lo = offset;
+        let hi = offset + count;
         let rows = if log_type.is_empty() {
             client.query(
-                "SELECT id, build_id, machine_id, vm_id, log_type, data, time FROM buildlogs WHERE vm_id = $1 ORDER BY time DESC LIMIT $2 OFFSET $3",
-                &[&vm_id, &count, &offset],
+                &format!(
+                    "SELECT id, build_id, machine_id, vm_id, log_type, data, time FROM buildlogs WHERE vm_id = $1 ORDER BY time DESC LIMIT {}, {}",
+                    lo, hi
+                ),
+                &[&vm_id],
             )
         } else {
             client.query(
-                "SELECT id, build_id, machine_id, vm_id, log_type, data, time FROM buildlogs WHERE vm_id = $1 AND log_type = $2 ORDER BY time DESC LIMIT $3 OFFSET $4",
-                &[&vm_id, &log_type, &count, &offset],
+                &format!(
+                    "SELECT id, build_id, machine_id, vm_id, log_type, data, time FROM buildlogs WHERE vm_id = $1 AND log_type = $2 ORDER BY time DESC LIMIT {}, {}",
+                    lo, hi
+                ),
+                &[&vm_id, &log_type],
             )
         };
         let rows = match rows {

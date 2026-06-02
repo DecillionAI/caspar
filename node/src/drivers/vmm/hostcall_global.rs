@@ -18,8 +18,26 @@ impl Vmm {
         let input = data.get("input").cloned().unwrap_or(Value::Null);
 
         match key.as_str() {
-            "execDocker" | "copyToDocker" | "execVm" | "copyToVm" | "runVm" => {
-                ("unsupported runtime".into(), req_id)
+            // Multi-runtime VM lifecycle ops are handled by the typed VM packet
+            // router (route_vm_packet dispatches by "type"), the same path
+            // build_vm_image uses. The host-call envelope carries the fields
+            // under "input" with the op in "key"; translate to a typed packet
+            // (fields hoisted to top level, key->type) and dispatch it so docker
+            // and firecracker creatures actually start/exec/copy.
+            "runVm" | "execVm" | "execDocker" | "copyToVm" | "copyToDocker" => {
+                let typed = match key.as_str() {
+                    "execDocker" => "execVm",
+                    "copyToDocker" => "copyToVm",
+                    other => other,
+                };
+                let mut packet = input.clone();
+                if let Some(obj) = packet.as_object_mut() {
+                    obj.insert("type".into(), Value::String(typed.to_string()));
+                    let res = crate::drivers::vmm::dispatch_packet(&packet);
+                    (res, req_id)
+                } else {
+                    ("{\"ok\":false,\"error\":\"vm op input must be an object\"}".into(), req_id)
+                }
             }
             "checkTokenValidity" => self.handle_check_token_validity(&input, req_id),
             "plantTrigger" => self.handle_plant_trigger(&input, req_id),
