@@ -1,6 +1,6 @@
 # Caspar DecillionAI — Creature Workflow & Throughput Report
 
-**Generated:** 2026-06-01T09:00:54Z
+**Generated:** 2026-06-03T12:59:30Z
 **Total steps:** 154  |  **Passed:** 154  |  **Failed:** 0
 
 ## Workflow 1 — chain: workchain + shard + registerNode + submitBaseTrx
@@ -9,20 +9,20 @@ Steps: 12  |  Passed: 12  |  Failed: 0
 
 | Step | Node | OK | Latency (ms) | Notes |
 |------|------|----|--------------|-------|
-| create workchain | node1 | ✓ | 217.6 | chainId=1@chain.create.id |
-| createShard | node1 | ✓ | 119.0 | shardId=2@chain.shard.id |
-| registerNode | node1 | ✓ | 139.7 | chainId=1@chain.create.id, endpoint=127.0.0.1:8074, id=1@global |
-| submitBaseTrx | node1 | ✓ | 147.0 | trxId=3@chain.trx.id |
-| create workchain | node2 | ✓ | 125.6 | chainId=1@chain.create.id |
-| createShard | node2 | ✓ | 122.9 | shardId=2@chain.shard.id |
-| registerNode | node2 | ✓ | 123.8 | chainId=1@chain.create.id, endpoint=127.0.0.1:8174, id=1@global |
-| submitBaseTrx | node2 | ✓ | 121.9 | trxId=3@chain.trx.id |
-| create workchain | node3 | ✓ | 121.7 | chainId=1@chain.create.id |
-| createShard | node3 | ✓ | 121.3 | shardId=2@chain.shard.id |
-| registerNode | node3 | ✓ | 120.5 | chainId=1@chain.create.id, endpoint=127.0.0.1:8274, id=1@global |
-| submitBaseTrx | node3 | ✓ | 123.9 | trxId=3@chain.trx.id |
+| create workchain | node1 | ✓ | 162.4 | chainId=1@chain.create.id |
+| createShard | node1 | ✓ | 100.8 | shardId=2@chain.shard.id |
+| registerNode | node1 | ✓ | 150.4 | chainId=1@chain.create.id, endpoint=127.0.0.1:8074, id=1@global |
+| submitBaseTrx | node1 | ✓ | 146.4 | trxId=3@chain.trx.id |
+| create workchain | node2 | ✓ | 126.8 | chainId=1@chain.create.id |
+| createShard | node2 | ✓ | 124.0 | shardId=2@chain.shard.id |
+| registerNode | node2 | ✓ | 123.9 | chainId=1@chain.create.id, endpoint=127.0.0.1:8174, id=1@global |
+| submitBaseTrx | node2 | ✓ | 142.9 | trxId=3@chain.trx.id |
+| create workchain | node3 | ✓ | 124.1 | chainId=1@chain.create.id |
+| createShard | node3 | ✓ | 129.9 | shardId=2@chain.shard.id |
+| registerNode | node3 | ✓ | 112.9 | chainId=1@chain.create.id, endpoint=127.0.0.1:8274, id=1@global |
+| submitBaseTrx | node3 | ✓ | 122.0 | trxId=3@chain.trx.id |
 
-**Latency:** mean=133.7 ms  p50=123.8 ms  p95=217.6 ms  p99=217.6 ms  min=119.0 ms  max=217.6 ms
+**Latency:** mean=130.5 ms  p50=126.8 ms  p95=162.4 ms  p99=162.4 ms  min=100.8 ms  max=162.4 ms
 
 ## Workflow 2 — stores: create + join + list + get
 
@@ -30,20 +30,20 @@ Steps: 12  |  Passed: 12  |  Failed: 0
 
 | Step | Node | OK | Latency (ms) | Notes |
 |------|------|----|--------------|-------|
-| create store | node1 | ✓ | 128.4 | storeId=4@store |
-| list stores | node1 | ✓ | 121.2 | count=0 |
-| join store | node1 | ✓ | 111.0 |  |
-| get store | node1 | ✓ | 121.5 |  |
-| create store | node2 | ✓ | 97.7 | storeId=4@store |
+| create store | node1 | ✓ | 132.9 | storeId=4@store |
+| list stores | node1 | ✓ | 117.0 | count=0 |
+| join store | node1 | ✓ | 129.9 |  |
+| get store | node1 | ✓ | 133.7 |  |
+| create store | node2 | ✓ | 117.9 | storeId=4@store |
 | list stores | node2 | ✓ | 128.9 | count=0 |
-| join store | node2 | ✓ | 121.1 |  |
-| get store | node2 | ✓ | 126.9 |  |
-| create store | node3 | ✓ | 99.0 | storeId=4@store |
-| list stores | node3 | ✓ | 118.2 | count=0 |
-| join store | node3 | ✓ | 105.2 |  |
-| get store | node3 | ✓ | 100.2 |  |
+| join store | node2 | ✓ | 125.0 |  |
+| get store | node2 | ✓ | 108.1 |  |
+| create store | node3 | ✓ | 125.9 | storeId=4@store |
+| list stores | node3 | ✓ | 127.2 | count=0 |
+| join store | node3 | ✓ | 104.6 |  |
+| get store | node3 | ✓ | 126.0 |  |
 
-**Latency:** mean=114.9 ms  p50=121.1 ms  p95=128.9 ms  p99=128.9 ms  min=97.7 ms  max=128.9 ms
+**Latency:** mean=123.1 ms  p50=126.0 ms  p95=133.7 ms  p99=133.7 ms  min=104.6 ms  max=133.7 ms
 
 ## Workflow 3 — storage: upload → download → delete
 
@@ -51,17 +51,17 @@ Steps: 9  |  Passed: 9  |  Failed: 0
 
 | Step | Node | OK | Latency (ms) | Notes |
 |------|------|----|--------------|-------|
-| upload user entity | node1 | ✓ | 107.3 |  |
-| download entity | node1 | ✓ | 119.7 | size=0 |
-| delete entity | node1 | ✓ | 128.0 |  |
-| upload user entity | node2 | ✓ | 125.8 |  |
-| download entity | node2 | ✓ | 127.2 | size=0 |
-| delete entity | node2 | ✓ | 121.7 |  |
-| upload user entity | node3 | ✓ | 124.9 |  |
-| download entity | node3 | ✓ | 123.2 | size=0 |
-| delete entity | node3 | ✓ | 120.6 |  |
+| upload user entity | node1 | ✓ | 142.6 |  |
+| download entity | node1 | ✓ | 130.4 | size=0 |
+| delete entity | node1 | ✓ | 151.7 |  |
+| upload user entity | node2 | ✓ | 120.6 |  |
+| download entity | node2 | ✓ | 122.9 | size=0 |
+| delete entity | node2 | ✓ | 121.4 |  |
+| upload user entity | node3 | ✓ | 102.7 |  |
+| download entity | node3 | ✓ | 132.1 | size=0 |
+| delete entity | node3 | ✓ | 126.9 |  |
 
-**Latency:** mean=122.1 ms  p50=123.2 ms  p95=128.0 ms  p99=128.0 ms  min=107.3 ms  max=128.0 ms
+**Latency:** mean=127.9 ms  p50=126.9 ms  p95=151.7 ms  p99=151.7 ms  min=102.7 ms  max=151.7 ms
 
 ## Workflow 4 — invites: create + list + cancel
 
@@ -69,17 +69,17 @@ Steps: 9  |  Passed: 9  |  Failed: 0
 
 | Step | Node | OK | Latency (ms) | Notes |
 |------|------|----|--------------|-------|
-| create invite | node1 | ✓ | 124.8 |  |
-| listUserInvites | node1 | ✓ | 126.0 | count=0 |
-| listStoreInvites | node1 | ✓ | 139.0 | count=0 |
-| create invite | node2 | ✓ | 115.8 |  |
-| listUserInvites | node2 | ✓ | 123.9 | count=0 |
-| listStoreInvites | node2 | ✓ | 130.9 | count=0 |
-| create invite | node3 | ✓ | 122.9 |  |
-| listUserInvites | node3 | ✓ | 121.9 | count=0 |
-| listStoreInvites | node3 | ✓ | 128.1 | count=0 |
+| create invite | node1 | ✓ | 122.1 |  |
+| listUserInvites | node1 | ✓ | 126.9 | count=0 |
+| listStoreInvites | node1 | ✓ | 133.0 | count=0 |
+| create invite | node2 | ✓ | 131.9 |  |
+| listUserInvites | node2 | ✓ | 122.4 | count=0 |
+| listStoreInvites | node2 | ✓ | 123.9 | count=0 |
+| create invite | node3 | ✓ | 105.8 |  |
+| listUserInvites | node3 | ✓ | 122.0 | count=0 |
+| listStoreInvites | node3 | ✓ | 118.9 | count=0 |
 
-**Latency:** mean=125.9 ms  p50=124.8 ms  p95=139.0 ms  p99=139.0 ms  min=115.8 ms  max=139.0 ms
+**Latency:** mean=123.0 ms  p50=122.4 ms  p95=133.0 ms  p99=133.0 ms  min=105.8 ms  max=133.0 ms
 
 ## Workflow 6 — elpify-chain: stake → commit → reveal → elect → executeTrx(MASM)
 
@@ -87,56 +87,56 @@ Steps: 48  |  Passed: 48  |  Failed: 0
 
 | Step | Node | OK | Latency (ms) | Notes |
 |------|------|----|--------------|-------|
-| stake node1 (100) | node1 | ✓ | 105.7 | nodeId=1@global, stake=100.0 |
-| stake node2 (200) | node1 | ✓ | 101.9 | nodeId=validator-2-1@global, stake=200.0 |
-| stake node3 (300) | node1 | ✓ | 124.8 | nodeId=validator-3-1@global, stake=300.0 |
-| commit (1@global) | node1 | ✓ | 113.0 | hash=601316f05ee3ca6c |
-| commit (validator-2-1@gl) | node1 | ✓ | 121.9 | hash=bfc70388c60f994b |
-| commit (validator-3-1@gl) | node1 | ✓ | 130.0 | hash=e78bef2c583a38e1 |
-| reveal (1@global) | node1 | ✓ | 110.0 |  |
-| reveal (validator-2-1@gl) | node1 | ✓ | 121.7 |  |
-| reveal (validator-3-1@gl) | node1 | ✓ | 120.9 |  |
-| electionTick | node1 | ✓ | 144.1 | winners=3 |
-| status query | node1 | ✓ | 147.7 | validators=3 |
-| executeTrx:fib | node1 | ✓ | 139.4 | trxId=trx-fib-131b6f93, status=pending, consensus_validators=3 |
-| executeTrx:hash | node1 | ✓ | 141.0 | trxId=trx-hash-d68b05aa, status=pending, consensus_validators=3 |
-| executeTrx:hello | node1 | ✓ | 140.9 | trxId=trx-hello-9fb63750, status=pending, consensus_validators=3 |
-| tally:fib | node1 | ✓ | 135.9 |  |
-| tally:hash | node1 | ✓ | 168.9 |  |
-| stake node1 (100) | node2 | ✓ | 126.9 | nodeId=1@global, stake=100.0 |
-| stake node2 (200) | node2 | ✓ | 98.3 | nodeId=validator-2-1@global, stake=200.0 |
-| stake node3 (300) | node2 | ✓ | 117.5 | nodeId=validator-3-1@global, stake=300.0 |
-| commit (1@global) | node2 | ✓ | 115.9 | hash=a112416ea8ab82d4 |
-| commit (validator-2-1@gl) | node2 | ✓ | 111.1 | hash=ccff9c46c49af586 |
-| commit (validator-3-1@gl) | node2 | ✓ | 150.6 | hash=415a1f3f84f95795 |
-| reveal (1@global) | node2 | ✓ | 120.1 |  |
-| reveal (validator-2-1@gl) | node2 | ✓ | 121.9 |  |
-| reveal (validator-3-1@gl) | node2 | ✓ | 121.6 |  |
-| electionTick | node2 | ✓ | 146.9 | winners=3 |
-| status query | node2 | ✓ | 121.8 | validators=3 |
-| executeTrx:fib | node2 | ✓ | 145.7 | trxId=trx-fib-bad29a42, status=pending, consensus_validators=3 |
-| executeTrx:hash | node2 | ✓ | 146.7 | trxId=trx-hash-a4c853eb, status=pending, consensus_validators=3 |
-| executeTrx:hello | node2 | ✓ | 147.1 | trxId=trx-hello-cfa6c896, status=pending, consensus_validators=3 |
-| tally:fib | node2 | ✓ | 151.9 |  |
-| tally:hash | node2 | ✓ | 147.8 |  |
-| stake node1 (100) | node3 | ✓ | 115.9 | nodeId=1@global, stake=100.0 |
-| stake node2 (200) | node3 | ✓ | 127.8 | nodeId=validator-2-1@global, stake=200.0 |
-| stake node3 (300) | node3 | ✓ | 95.8 | nodeId=validator-3-1@global, stake=300.0 |
-| commit (1@global) | node3 | ✓ | 121.1 | hash=045fb75a6ac6e5b3 |
-| commit (validator-2-1@gl) | node3 | ✓ | 139.8 | hash=0fd2c996ca5d5822 |
-| commit (validator-3-1@gl) | node3 | ✓ | 125.8 | hash=eaf66b1b0e3e9982 |
-| reveal (1@global) | node3 | ✓ | 122.7 |  |
-| reveal (validator-2-1@gl) | node3 | ✓ | 117.9 |  |
-| reveal (validator-3-1@gl) | node3 | ✓ | 124.7 |  |
-| electionTick | node3 | ✓ | 115.4 | winners=3 |
-| status query | node3 | ✓ | 143.5 | validators=3 |
-| executeTrx:fib | node3 | ✓ | 143.5 | trxId=trx-fib-67e42d4e, status=pending, consensus_validators=3 |
-| executeTrx:hash | node3 | ✓ | 123.9 | trxId=trx-hash-3ca90a71, status=pending, consensus_validators=3 |
-| executeTrx:hello | node3 | ✓ | 140.0 | trxId=trx-hello-b44c9a0c, status=pending, consensus_validators=3 |
-| tally:fib | node3 | ✓ | 141.7 |  |
-| tally:hash | node3 | ✓ | 137.8 |  |
+| stake node1 (100) | node1 | ✓ | 125.3 | nodeId=1@global, stake=100.0 |
+| stake node2 (200) | node1 | ✓ | 121.9 | nodeId=validator-2-1@global, stake=200.0 |
+| stake node3 (300) | node1 | ✓ | 112.8 | nodeId=validator-3-1@global, stake=300.0 |
+| commit (1@global) | node1 | ✓ | 128.0 | hash=c0c6ccceb9b3a061 |
+| commit (validator-2-1@gl) | node1 | ✓ | 125.7 | hash=2470228bc74ecc24 |
+| commit (validator-3-1@gl) | node1 | ✓ | 113.9 | hash=969d497ad6b8bf0f |
+| reveal (1@global) | node1 | ✓ | 125.0 |  |
+| reveal (validator-2-1@gl) | node1 | ✓ | 145.7 |  |
+| reveal (validator-3-1@gl) | node1 | ✓ | 127.8 |  |
+| electionTick | node1 | ✓ | 145.0 | winners=3 |
+| status query | node1 | ✓ | 136.0 | validators=3 |
+| executeTrx:fib | node1 | ✓ | 170.7 | trxId=trx-fib-64e438a0, status=pending, consensus_validators=3 |
+| executeTrx:hash | node1 | ✓ | 157.6 | trxId=trx-hash-f4250585, status=pending, consensus_validators=3 |
+| executeTrx:hello | node1 | ✓ | 136.1 | trxId=trx-hello-6c63b314, status=pending, consensus_validators=3 |
+| tally:fib | node1 | ✓ | 129.1 |  |
+| tally:hash | node1 | ✓ | 144.6 |  |
+| stake node1 (100) | node2 | ✓ | 105.9 | nodeId=1@global, stake=100.0 |
+| stake node2 (200) | node2 | ✓ | 126.9 | nodeId=validator-2-1@global, stake=200.0 |
+| stake node3 (300) | node2 | ✓ | 120.3 | nodeId=validator-3-1@global, stake=300.0 |
+| commit (1@global) | node2 | ✓ | 128.6 | hash=b8e984ea115a12fc |
+| commit (validator-2-1@gl) | node2 | ✓ | 118.8 | hash=81f6a755f64f3099 |
+| commit (validator-3-1@gl) | node2 | ✓ | 123.2 | hash=57d2aee30308a7d8 |
+| reveal (1@global) | node2 | ✓ | 143.5 |  |
+| reveal (validator-2-1@gl) | node2 | ✓ | 127.9 |  |
+| reveal (validator-3-1@gl) | node2 | ✓ | 129.8 |  |
+| electionTick | node2 | ✓ | 141.2 | winners=3 |
+| status query | node2 | ✓ | 144.8 | validators=3 |
+| executeTrx:fib | node2 | ✓ | 150.9 | trxId=trx-fib-3ccc0f97, status=pending, consensus_validators=3 |
+| executeTrx:hash | node2 | ✓ | 170.6 | trxId=trx-hash-cab6a006, status=pending, consensus_validators=3 |
+| executeTrx:hello | node2 | ✓ | 142.8 | trxId=trx-hello-b820e128, status=pending, consensus_validators=3 |
+| tally:fib | node2 | ✓ | 139.9 |  |
+| tally:hash | node2 | ✓ | 145.9 |  |
+| stake node1 (100) | node3 | ✓ | 123.9 | nodeId=1@global, stake=100.0 |
+| stake node2 (200) | node3 | ✓ | 125.7 | nodeId=validator-2-1@global, stake=200.0 |
+| stake node3 (300) | node3 | ✓ | 126.9 | nodeId=validator-3-1@global, stake=300.0 |
+| commit (1@global) | node3 | ✓ | 125.0 | hash=217349040773204c |
+| commit (validator-2-1@gl) | node3 | ✓ | 119.7 | hash=5bfc3ffab4eb7f25 |
+| commit (validator-3-1@gl) | node3 | ✓ | 122.8 | hash=e534a179a1e533b5 |
+| reveal (1@global) | node3 | ✓ | 129.9 |  |
+| reveal (validator-2-1@gl) | node3 | ✓ | 121.0 |  |
+| reveal (validator-3-1@gl) | node3 | ✓ | 123.7 |  |
+| electionTick | node3 | ✓ | 150.9 | winners=3 |
+| status query | node3 | ✓ | 150.0 | validators=3 |
+| executeTrx:fib | node3 | ✓ | 142.1 | trxId=trx-fib-d2cf8427, status=pending, consensus_validators=3 |
+| executeTrx:hash | node3 | ✓ | 146.4 | trxId=trx-hash-b39f1ed5, status=pending, consensus_validators=3 |
+| executeTrx:hello | node3 | ✓ | 141.1 | trxId=trx-hello-9ccd34b5, status=pending, consensus_validators=3 |
+| tally:fib | node3 | ✓ | 144.8 |  |
+| tally:hash | node3 | ✓ | 122.9 |  |
 
-**Latency:** mean=129.1 ms  p50=125.8 ms  p95=150.6 ms  p99=168.9 ms  min=95.8 ms  max=168.9 ms
+**Latency:** mean=133.8 ms  p50=129.1 ms  p95=157.6 ms  p99=170.7 ms  min=105.9 ms  max=170.7 ms
 
 ## Workflow 7 — cross-creature: chain + stores + elpify + storage + invites
 
@@ -144,26 +144,26 @@ Steps: 18  |  Passed: 18  |  Failed: 0
 
 | Step | Node | OK | Latency (ms) | Notes |
 |------|------|----|--------------|-------|
-| chain:createFromStore | node1 | ✓ | 133.7 | chainId=6@chain.create.id |
-| stores:history | node1 | ✓ | 108.9 | events=0 |
-| storage:uploadStoreEntity(chain proof) | node1 | ✓ | 123.1 |  |
-| elpify-chain:status(via store context) | node1 | ✓ | 111.8 | validators=0 |
-| invites:create(cross-store) | node1 | ✓ | 121.2 |  |
-| chain:submitBaseTrx(elpify proof) | node1 | ✓ | 101.2 | trxId=9@chain.trx.id |
-| chain:createFromStore | node2 | ✓ | 147.0 | chainId=6@chain.create.id |
-| stores:history | node2 | ✓ | 100.0 | events=0 |
-| storage:uploadStoreEntity(chain proof) | node2 | ✓ | 122.7 |  |
-| elpify-chain:status(via store context) | node2 | ✓ | 120.0 | validators=0 |
-| invites:create(cross-store) | node2 | ✓ | 114.9 |  |
-| chain:submitBaseTrx(elpify proof) | node2 | ✓ | 101.1 | trxId=9@chain.trx.id |
-| chain:createFromStore | node3 | ✓ | 109.3 | chainId=6@chain.create.id |
-| stores:history | node3 | ✓ | 122.5 | events=0 |
-| storage:uploadStoreEntity(chain proof) | node3 | ✓ | 117.8 |  |
-| elpify-chain:status(via store context) | node3 | ✓ | 120.9 | validators=0 |
-| invites:create(cross-store) | node3 | ✓ | 111.9 |  |
-| chain:submitBaseTrx(elpify proof) | node3 | ✓ | 129.7 | trxId=9@chain.trx.id |
+| chain:createFromStore | node1 | ✓ | 129.9 | chainId=6@chain.create.id |
+| stores:history | node1 | ✓ | 127.5 | events=0 |
+| storage:uploadStoreEntity(chain proof) | node1 | ✓ | 117.1 |  |
+| elpify-chain:status(via store context) | node1 | ✓ | 126.1 | validators=0 |
+| invites:create(cross-store) | node1 | ✓ | 143.9 |  |
+| chain:submitBaseTrx(elpify proof) | node1 | ✓ | 144.8 | trxId=9@chain.trx.id |
+| chain:createFromStore | node2 | ✓ | 123.9 | chainId=6@chain.create.id |
+| stores:history | node2 | ✓ | 124.5 | events=0 |
+| storage:uploadStoreEntity(chain proof) | node2 | ✓ | 100.2 |  |
+| elpify-chain:status(via store context) | node2 | ✓ | 126.9 | validators=0 |
+| invites:create(cross-store) | node2 | ✓ | 148.0 |  |
+| chain:submitBaseTrx(elpify proof) | node2 | ✓ | 125.9 | trxId=9@chain.trx.id |
+| chain:createFromStore | node3 | ✓ | 124.3 | chainId=6@chain.create.id |
+| stores:history | node3 | ✓ | 98.6 | events=0 |
+| storage:uploadStoreEntity(chain proof) | node3 | ✓ | 127.9 |  |
+| elpify-chain:status(via store context) | node3 | ✓ | 112.4 | validators=0 |
+| invites:create(cross-store) | node3 | ✓ | 122.4 |  |
+| chain:submitBaseTrx(elpify proof) | node3 | ✓ | 127.8 | trxId=9@chain.trx.id |
 
-**Latency:** mean=117.7 ms  p50=120.0 ms  p95=147.0 ms  p99=147.0 ms  min=100.0 ms  max=147.0 ms
+**Latency:** mean=125.1 ms  p50=126.1 ms  p95=148.0 ms  p99=148.0 ms  min=98.6 ms  max=148.0 ms
 
 ## Workflow 8 — throughput burst (sequential + mixed + concurrent)
 
@@ -171,41 +171,41 @@ Steps: 33  |  Passed: 33  |  Failed: 0
 
 | Step | Node | OK | Latency (ms) | Notes |
 |------|------|----|--------------|-------|
-| elpify-chain:status n=20 | node1 | ✓ | 2300.0 | tps=8.7, p50_ms=119.7, p99_ms=123.9 |
-| chain:submitBaseTrx n=20 | node1 | ✓ | 2261.0 | tps=8.85, p50_ms=119.1, p99_ms=125.9 |
-| stores:list n=20 | node1 | ✓ | 2422.0 | tps=8.26, p50_ms=122.1, p99_ms=134.7 |
-| stores:create n=20 | node1 | ✓ | 2430.0 | tps=8.23, p50_ms=121.7, p99_ms=130.8 |
-| storage:upload n=20 | node1 | ✓ | 2320.9 | tps=8.62, p50_ms=119.4, p99_ms=126.9 |
-| storage:download n=20 | node1 | ✓ | 2443.2 | tps=8.19, p50_ms=123.8, p99_ms=127.9 |
-| invites:listUserInvites n=20 | node1 | ✓ | 2454.4 | tps=8.15, p50_ms=123.6, p99_ms=127.9 |
-| invites:listStoreInvites n=20 | node1 | ✓ | 2438.8 | tps=8.2, p50_ms=122.9, p99_ms=129.8 |
-| elpify-chain:executeTrx(MASM) n=5 | node1 | ✓ | 654.1 | tps=7.644, p50_ms=124.9, p99_ms=148.5 |
-| mixed-workload n=30 | node1 | ✓ | 3969.6 | tps=7.56, mean_ms=132.2, p50_ms=129.9 |
-| concurrent-burst n=10 threads | node1 | ✓ | 935.5 | tps=10.69, p50_ms=818.2, p99_ms=917.5 |
-| elpify-chain:status n=20 | node2 | ✓ | 2222.5 | tps=9.0, p50_ms=110.3, p99_ms=132.1 |
-| chain:submitBaseTrx n=20 | node2 | ✓ | 2288.0 | tps=8.74, p50_ms=119.1, p99_ms=130.2 |
-| stores:list n=20 | node2 | ✓ | 2462.9 | tps=8.12, p50_ms=122.7, p99_ms=130.1 |
-| stores:create n=20 | node2 | ✓ | 2413.0 | tps=8.29, p50_ms=121.9, p99_ms=132.2 |
-| storage:upload n=20 | node2 | ✓ | 2400.9 | tps=8.33, p50_ms=122.9, p99_ms=132.9 |
-| storage:download n=20 | node2 | ✓ | 2478.2 | tps=8.07, p50_ms=122.3, p99_ms=132.9 |
-| invites:listUserInvites n=20 | node2 | ✓ | 2469.1 | tps=8.1, p50_ms=123.0, p99_ms=143.8 |
-| invites:listStoreInvites n=20 | node2 | ✓ | 2501.6 | tps=7.99, p50_ms=122.9, p99_ms=148.8 |
-| elpify-chain:executeTrx(MASM) n=5 | node2 | ✓ | 664.0 | tps=7.531, p50_ms=130.9, p99_ms=146.8 |
-| mixed-workload n=30 | node2 | ✓ | 3891.8 | tps=7.71, mean_ms=129.6, p50_ms=126.5 |
-| concurrent-burst n=10 threads | node2 | ✓ | 902.7 | tps=11.08, p50_ms=784.1, p99_ms=882.4 |
-| elpify-chain:status n=20 | node3 | ✓ | 2297.0 | tps=8.71, p50_ms=118.4, p99_ms=126.9 |
-| chain:submitBaseTrx n=20 | node3 | ✓ | 2320.2 | tps=8.62, p50_ms=121.4, p99_ms=133.9 |
-| stores:list n=20 | node3 | ✓ | 2511.0 | tps=7.96, p50_ms=124.2, p99_ms=136.7 |
-| stores:create n=20 | node3 | ✓ | 2467.2 | tps=8.11, p50_ms=123.9, p99_ms=144.9 |
-| storage:upload n=20 | node3 | ✓ | 2411.3 | tps=8.29, p50_ms=122.8, p99_ms=130.1 |
-| storage:download n=20 | node3 | ✓ | 2450.0 | tps=8.16, p50_ms=122.9, p99_ms=141.0 |
-| invites:listUserInvites n=20 | node3 | ✓ | 2428.8 | tps=8.23, p50_ms=122.1, p99_ms=132.6 |
-| invites:listStoreInvites n=20 | node3 | ✓ | 2469.0 | tps=8.1, p50_ms=122.4, p99_ms=140.9 |
-| elpify-chain:executeTrx(MASM) n=5 | node3 | ✓ | 654.4 | tps=7.641, p50_ms=125.5, p99_ms=150.2 |
-| mixed-workload n=30 | node3 | ✓ | 4040.2 | tps=7.43, mean_ms=134.6, p50_ms=127.4 |
-| concurrent-burst n=10 threads | node3 | ✓ | 925.1 | tps=10.81, p50_ms=820.7, p99_ms=911.7 |
+| elpify-chain:status n=20 | node1 | ✓ | 2381.3 | tps=8.4, p50_ms=124.0, p99_ms=130.1 |
+| chain:submitBaseTrx n=20 | node1 | ✓ | 2435.1 | tps=8.21, p50_ms=124.0, p99_ms=137.2 |
+| stores:list n=20 | node1 | ✓ | 2578.8 | tps=7.76, p50_ms=130.4, p99_ms=150.9 |
+| stores:create n=20 | node1 | ✓ | 2546.5 | tps=7.85, p50_ms=127.9, p99_ms=131.7 |
+| storage:upload n=20 | node1 | ✓ | 2464.9 | tps=8.11, p50_ms=124.9, p99_ms=130.6 |
+| storage:download n=20 | node1 | ✓ | 2502.2 | tps=7.99, p50_ms=125.4, p99_ms=137.9 |
+| invites:listUserInvites n=20 | node1 | ✓ | 2518.2 | tps=7.94, p50_ms=127.1, p99_ms=142.0 |
+| invites:listStoreInvites n=20 | node1 | ✓ | 2593.3 | tps=7.71, p50_ms=128.0, p99_ms=157.3 |
+| elpify-chain:executeTrx(MASM) n=5 | node1 | ✓ | 697.7 | tps=7.167, p50_ms=134.5, p99_ms=153.9 |
+| mixed-workload n=30 | node1 | ✓ | 4088.9 | tps=7.34, mean_ms=136.2, p50_ms=132.5 |
+| concurrent-burst n=10 threads | node1 | ✓ | 1146.5 | tps=8.72, p50_ms=1017.2, p99_ms=1135.6 |
+| elpify-chain:status n=20 | node2 | ✓ | 2241.0 | tps=8.92, p50_ms=112.2, p99_ms=135.5 |
+| chain:submitBaseTrx n=20 | node2 | ✓ | 2298.1 | tps=8.7, p50_ms=121.8, p99_ms=130.8 |
+| stores:list n=20 | node2 | ✓ | 2437.9 | tps=8.2, p50_ms=124.0, p99_ms=135.4 |
+| stores:create n=20 | node2 | ✓ | 2500.4 | tps=8.0, p50_ms=127.0, p99_ms=132.9 |
+| storage:upload n=20 | node2 | ✓ | 2528.3 | tps=7.91, p50_ms=127.7, p99_ms=139.2 |
+| storage:download n=20 | node2 | ✓ | 2533.5 | tps=7.89, p50_ms=125.9, p99_ms=147.1 |
+| invites:listUserInvites n=20 | node2 | ✓ | 2484.1 | tps=8.05, p50_ms=124.0, p99_ms=152.7 |
+| invites:listStoreInvites n=20 | node2 | ✓ | 2458.5 | tps=8.13, p50_ms=124.5, p99_ms=127.9 |
+| elpify-chain:executeTrx(MASM) n=5 | node2 | ✓ | 650.7 | tps=7.684, p50_ms=126.7, p99_ms=141.9 |
+| mixed-workload n=30 | node2 | ✓ | 4077.7 | tps=7.36, mean_ms=135.8, p50_ms=128.7 |
+| concurrent-burst n=10 threads | node2 | ✓ | 1006.0 | tps=9.94, p50_ms=902.7, p99_ms=988.2 |
+| elpify-chain:status n=20 | node3 | ✓ | 2434.0 | tps=8.22, p50_ms=124.3, p99_ms=132.3 |
+| chain:submitBaseTrx n=20 | node3 | ✓ | 2326.9 | tps=8.6, p50_ms=122.2, p99_ms=130.1 |
+| stores:list n=20 | node3 | ✓ | 2481.9 | tps=8.06, p50_ms=124.9, p99_ms=135.8 |
+| stores:create n=20 | node3 | ✓ | 2514.0 | tps=7.96, p50_ms=126.1, p99_ms=134.9 |
+| storage:upload n=20 | node3 | ✓ | 2380.0 | tps=8.4, p50_ms=121.7, p99_ms=129.1 |
+| storage:download n=20 | node3 | ✓ | 2522.7 | tps=7.93, p50_ms=125.8, p99_ms=148.8 |
+| invites:listUserInvites n=20 | node3 | ✓ | 2462.8 | tps=8.12, p50_ms=123.7, p99_ms=146.8 |
+| invites:listStoreInvites n=20 | node3 | ✓ | 2541.9 | tps=7.87, p50_ms=125.0, p99_ms=159.1 |
+| elpify-chain:executeTrx(MASM) n=5 | node3 | ✓ | 703.2 | tps=7.111, p50_ms=141.9, p99_ms=154.5 |
+| mixed-workload n=30 | node3 | ✓ | 3917.7 | tps=7.66, mean_ms=130.5, p50_ms=126.7 |
+| concurrent-burst n=10 threads | node3 | ✓ | 918.0 | tps=10.89, p50_ms=805.7, p99_ms=913.0 |
 
-**Latency:** mean=2251.5 ms  p50=2422.0 ms  p95=3969.6 ms  p99=4040.2 ms  min=654.1 ms  max=4040.2 ms
+**Latency:** mean=2314.3 ms  p50=2464.9 ms  p95=4077.7 ms  p99=4088.9 ms  min=650.7 ms  max=4088.9 ms
 
 ## Workflow 9 — federation: cross-node state propagation
 
@@ -213,12 +213,12 @@ Steps: 4  |  Passed: 4  |  Failed: 0
 
 | Step | Node | OK | Latency (ms) | Notes |
 |------|------|----|--------------|-------|
-| chain:create on node1 | node1 | ✓ | 127.1 | chainId=61@chain.create.id |
-| chain:submitBaseTrx on node1 | node1 | ✓ | 125.2 |  |
-| elpify-chain:status on node2 | node2 | ✓ | 144.6 | validators=0 |
-| elpify-chain:status on node3 | node3 | ✓ | 140.9 | validators=0 |
+| chain:create on node1 | node1 | ✓ | 86.9 | chainId=61@chain.create.id |
+| chain:submitBaseTrx on node1 | node1 | ✓ | 116.7 |  |
+| elpify-chain:status on node2 | node2 | ✓ | 123.9 | validators=0 |
+| elpify-chain:status on node3 | node3 | ✓ | 147.3 | validators=0 |
 
-**Latency:** mean=134.5 ms  p50=140.9 ms  p95=144.6 ms  p99=144.6 ms  min=125.2 ms  max=144.6 ms
+**Latency:** mean=118.7 ms  p50=123.9 ms  p95=147.3 ms  p99=147.3 ms  min=86.9 ms  max=147.3 ms
 
 ## Workflow 10 — concurrent load test (MASM + WASM) with resource KPIs
 
@@ -226,53 +226,53 @@ Steps: 9  |  Passed: 9  |  Failed: 0
 
 | Step | Node | OK | Latency (ms) | Notes |
 |------|------|----|--------------|-------|
-| wasm:status c=1 (n=20) | node1 | ✓ | 2331.3 | tps=8.58, p99_ms=130.8, ok_rate=100.0 |
-| wasm:status c=4 (n=80) | node1 | ✓ | 6072.5 | tps=13.17, p99_ms=498.9, ok_rate=100.0 |
-| wasm:status c=8 (n=160) | node1 | ✓ | 12256.3 | tps=13.05, p99_ms=868.5, ok_rate=100.0 |
-| wasm:status c=16 (n=320) | node1 | ✓ | 25292.9 | tps=12.65, p99_ms=1687.8, ok_rate=100.0 |
-| wasm:status c=32 (n=640) | node1 | ✓ | 61384.4 | tps=10.43, p99_ms=4266.2, ok_rate=100.0 |
-| masm:executeTrx c=1 (n=5) | node1 | ✓ | 721.1 | tps=6.93, p99_ms=148.0, ok_rate=100.0 |
-| masm:executeTrx c=2 (n=10) | node1 | ✓ | 1088.0 | tps=9.19, p99_ms=252.3, ok_rate=100.0 |
-| masm:executeTrx c=4 (n=20) | node1 | ✓ | 1877.9 | tps=10.65, p99_ms=506.1, ok_rate=100.0 |
-| masm:executeTrx c=8 (n=40) | node1 | ✓ | 3289.0 | tps=12.16, p99_ms=1043.2, ok_rate=100.0 |
+| wasm:status c=1 (n=20) | node1 | ✓ | 2268.3 | tps=8.82, p99_ms=131.8, ok_rate=100.0 |
+| wasm:status c=4 (n=80) | node1 | ✓ | 6335.8 | tps=12.63, p99_ms=528.7, ok_rate=100.0 |
+| wasm:status c=8 (n=160) | node1 | ✓ | 13004.8 | tps=12.3, p99_ms=951.1, ok_rate=100.0 |
+| wasm:status c=16 (n=320) | node1 | ✓ | 27261.7 | tps=11.74, p99_ms=1894.4, ok_rate=100.0 |
+| wasm:status c=32 (n=640) | node1 | ✓ | 71542.1 | tps=8.95, p99_ms=4895.3, ok_rate=100.0 |
+| masm:executeTrx c=1 (n=5) | node1 | ✓ | 743.6 | tps=6.72, p99_ms=151.8, ok_rate=100.0 |
+| masm:executeTrx c=2 (n=10) | node1 | ✓ | 1039.7 | tps=9.62, p99_ms=278.5, ok_rate=100.0 |
+| masm:executeTrx c=4 (n=20) | node1 | ✓ | 1709.9 | tps=11.7, p99_ms=512.4, ok_rate=100.0 |
+| masm:executeTrx c=8 (n=40) | node1 | ✓ | 3398.2 | tps=11.77, p99_ms=970.7, ok_rate=100.0 |
 
-**Latency:** mean=12701.5 ms  p50=3289.0 ms  p95=61384.4 ms  p99=61384.4 ms  min=721.1 ms  max=61384.4 ms
+**Latency:** mean=14144.9 ms  p50=3398.2 ms  p95=71542.1 ms  p99=71542.1 ms  min=743.6 ms  max=71542.1 ms
 
 ## Throughput (TPS) Summary
 
 | Operation | Node | TPS | Mean (ms) | P50 (ms) | P95 (ms) | P99 (ms) | Min | Max | OK% |
 |-----------|------|-----|-----------|----------|----------|----------|-----|-----|-----|
-| elpify-chain:status | node2 | 8.999 | 111.0 | 110.3 | 132.1 | 132.1 | 94.8 | 132.1 | 100% |
-| chain:submitBaseTrx | node1 | 8.846 | 112.9 | 119.1 | 125.9 | 125.9 | 93.9 | 125.9 | 100% |
-| chain:submitBaseTrx | node2 | 8.741 | 114.3 | 119.1 | 130.2 | 130.2 | 92.6 | 130.2 | 100% |
-| elpify-chain:status | node3 | 8.707 | 114.8 | 118.4 | 126.9 | 126.9 | 99.8 | 126.9 | 100% |
-| elpify-chain:status | node1 | 8.696 | 114.9 | 119.7 | 123.9 | 123.9 | 93.2 | 123.9 | 100% |
-| chain:submitBaseTrx | node3 | 8.620 | 115.9 | 121.4 | 133.9 | 133.9 | 91.7 | 133.9 | 100% |
-| storage:upload | node1 | 8.617 | 116.0 | 119.4 | 126.9 | 126.9 | 95.8 | 126.9 | 100% |
-| storage:upload | node2 | 8.330 | 120.0 | 122.9 | 132.9 | 132.9 | 91.3 | 132.9 | 100% |
-| storage:upload | node3 | 8.294 | 120.5 | 122.8 | 130.1 | 130.1 | 101.5 | 130.1 | 100% |
-| stores:create | node2 | 8.289 | 120.6 | 121.9 | 132.2 | 132.2 | 108.7 | 132.2 | 100% |
-| stores:list | node1 | 8.258 | 121.0 | 122.1 | 134.7 | 134.7 | 101.8 | 134.7 | 100% |
-| invites:listUserInvites | node3 | 8.234 | 121.4 | 122.1 | 132.6 | 132.6 | 105.9 | 132.6 | 100% |
-| stores:create | node1 | 8.230 | 121.4 | 121.7 | 130.8 | 130.8 | 107.9 | 130.8 | 100% |
-| invites:listStoreInvites | node1 | 8.201 | 121.9 | 122.9 | 129.8 | 129.8 | 97.0 | 129.8 | 100% |
-| storage:download | node1 | 8.186 | 122.1 | 123.8 | 127.9 | 127.9 | 113.5 | 127.9 | 100% |
-| storage:download | node3 | 8.163 | 122.4 | 122.9 | 141.0 | 141.0 | 94.5 | 141.0 | 100% |
-| invites:listUserInvites | node1 | 8.149 | 122.6 | 123.6 | 127.9 | 127.9 | 112.9 | 127.9 | 100% |
-| stores:list | node2 | 8.120 | 123.1 | 122.7 | 130.1 | 130.1 | 115.8 | 130.1 | 100% |
-| stores:create | node3 | 8.106 | 123.2 | 123.9 | 144.9 | 144.9 | 111.3 | 144.9 | 100% |
-| invites:listStoreInvites | node3 | 8.101 | 123.3 | 122.4 | 140.9 | 140.9 | 113.8 | 140.9 | 100% |
-| invites:listUserInvites | node2 | 8.100 | 123.4 | 123.0 | 143.8 | 143.8 | 106.1 | 143.8 | 100% |
-| storage:download | node2 | 8.070 | 123.8 | 122.3 | 132.9 | 132.9 | 116.2 | 132.9 | 100% |
-| invites:listStoreInvites | node2 | 7.995 | 125.0 | 122.9 | 148.8 | 148.8 | 115.9 | 148.8 | 100% |
-| stores:list | node3 | 7.965 | 125.5 | 124.2 | 136.7 | 136.7 | 117.0 | 136.7 | 100% |
-| elpify-chain:executeTrx(MASM) | node1 | 7.644 | 130.7 | 124.9 | 148.5 | 148.5 | 120.9 | 148.5 | 100% |
-| elpify-chain:executeTrx(MASM) | node3 | 7.641 | 130.8 | 125.5 | 150.2 | 150.2 | 115.7 | 150.2 | 100% |
-| elpify-chain:executeTrx(MASM) | node2 | 7.531 | 132.7 | 130.9 | 146.8 | 146.8 | 114.2 | 146.8 | 100% |
+| elpify-chain:status | node2 | 8.925 | 112.0 | 112.2 | 135.5 | 135.5 | 93.0 | 135.5 | 100% |
+| chain:submitBaseTrx | node2 | 8.703 | 114.8 | 121.8 | 130.8 | 130.8 | 96.9 | 130.8 | 100% |
+| chain:submitBaseTrx | node3 | 8.595 | 116.3 | 122.2 | 130.1 | 130.1 | 98.1 | 130.1 | 100% |
+| storage:upload | node3 | 8.403 | 118.9 | 121.7 | 129.1 | 129.1 | 94.7 | 129.1 | 100% |
+| elpify-chain:status | node1 | 8.399 | 119.0 | 124.0 | 130.1 | 130.1 | 103.1 | 130.1 | 100% |
+| elpify-chain:status | node3 | 8.217 | 121.6 | 124.3 | 132.3 | 132.3 | 103.7 | 132.3 | 100% |
+| chain:submitBaseTrx | node1 | 8.213 | 121.5 | 124.0 | 137.2 | 137.2 | 95.9 | 137.2 | 100% |
+| stores:list | node2 | 8.204 | 121.8 | 124.0 | 135.4 | 135.4 | 107.6 | 135.4 | 100% |
+| invites:listStoreInvites | node2 | 8.135 | 122.8 | 124.5 | 127.9 | 127.9 | 105.6 | 127.9 | 100% |
+| invites:listUserInvites | node3 | 8.121 | 123.1 | 123.7 | 146.8 | 146.8 | 102.9 | 146.8 | 100% |
+| storage:upload | node1 | 8.114 | 123.2 | 124.9 | 130.6 | 130.6 | 105.5 | 130.6 | 100% |
+| stores:list | node3 | 8.058 | 124.0 | 124.9 | 135.8 | 135.8 | 97.7 | 135.8 | 100% |
+| invites:listUserInvites | node2 | 8.051 | 124.1 | 124.0 | 152.7 | 152.7 | 95.5 | 152.7 | 100% |
+| stores:create | node2 | 7.999 | 124.9 | 127.0 | 132.9 | 132.9 | 94.0 | 132.9 | 100% |
+| storage:download | node1 | 7.993 | 125.0 | 125.4 | 137.9 | 137.9 | 103.7 | 137.9 | 100% |
+| stores:create | node3 | 7.956 | 125.6 | 126.1 | 134.9 | 134.9 | 111.9 | 134.9 | 100% |
+| invites:listUserInvites | node1 | 7.942 | 125.8 | 127.1 | 142.0 | 142.0 | 107.8 | 142.0 | 100% |
+| storage:download | node3 | 7.928 | 126.1 | 125.8 | 148.8 | 148.8 | 112.9 | 148.8 | 100% |
+| storage:upload | node2 | 7.910 | 126.3 | 127.7 | 139.2 | 139.2 | 105.0 | 139.2 | 100% |
+| storage:download | node2 | 7.894 | 126.6 | 125.9 | 147.1 | 147.1 | 119.0 | 147.1 | 100% |
+| invites:listStoreInvites | node3 | 7.868 | 127.0 | 125.0 | 159.1 | 159.1 | 110.4 | 159.1 | 100% |
+| stores:create | node1 | 7.854 | 127.2 | 127.9 | 131.7 | 131.7 | 120.9 | 131.7 | 100% |
+| stores:list | node1 | 7.755 | 128.9 | 130.4 | 150.9 | 150.9 | 111.6 | 150.9 | 100% |
+| invites:listStoreInvites | node1 | 7.712 | 129.6 | 128.0 | 157.3 | 157.3 | 114.9 | 157.3 | 100% |
+| elpify-chain:executeTrx(MASM) | node2 | 7.684 | 130.1 | 126.7 | 141.9 | 141.9 | 122.1 | 141.9 | 100% |
+| elpify-chain:executeTrx(MASM) | node1 | 7.167 | 139.4 | 134.5 | 153.9 | 153.9 | 130.0 | 153.9 | 100% |
+| elpify-chain:executeTrx(MASM) | node3 | 7.111 | 140.5 | 141.9 | 154.5 | 154.5 | 122.0 | 154.5 | 100% |
 
-**Highest TPS:** `elpify-chain:status` on `node2` — **8.999 ops/s** (p50=110.3 ms)
+**Highest TPS:** `elpify-chain:status` on `node2` — **8.925 ops/s** (p50=112.2 ms)
 
-**Lowest TPS (heavy on-chain path):** `elpify-chain:executeTrx(MASM)` on `node2` — **7.531 ops/s** (p50=130.9 ms)
+**Lowest TPS (heavy on-chain path):** `elpify-chain:executeTrx(MASM)` on `node3` — **7.111 ops/s** (p50=141.9 ms)
 
 ## Concurrent Load Test — Execution Engines + Resource KPIs
 
@@ -283,19 +283,19 @@ path. Resource columns are sampled from `/proc` over the phase window.
 
 | Engine | Conc | Reqs | TPS | Mean (ms) | P50 | P95 | P99 | OK% | CPU %/core | RSS peak (MB) | Thr peak | FD peak |
 |--------|------|------|-----|-----------|-----|-----|-----|-----|------------|---------------|----------|---------|
-| wasm | 1 | 20 | 8.58 | 116.1 | 122.1 | 130.8 | 130.8 | 100% | — | — | — | — |
-| wasm | 4 | 80 | 13.17 | 296.1 | 308.8 | 445.1 | 498.9 | 100% | — | — | — | — |
-| wasm | 8 | 160 | 13.05 | 601.4 | 607.7 | 821.0 | 868.5 | 100% | — | — | — | — |
-| wasm | 16 | 320 | 12.65 | 1233.1 | 1241.2 | 1610.1 | 1687.8 | 100% | — | — | — | — |
-| wasm | 32 | 640 | 10.43 | 3013.8 | 3047.2 | 3893.2 | 4266.2 | 100% | — | — | — | — |
-| masm | 1 | 5 | 6.93 | 143.9 | 143.3 | 148.0 | 148.0 | 100% | — | — | — | — |
-| masm | 2 | 10 | 9.19 | 211.6 | 219.0 | 252.3 | 252.3 | 100% | — | — | — | — |
-| masm | 4 | 20 | 10.65 | 363.7 | 387.8 | 506.1 | 506.1 | 100% | — | — | — | — |
-| masm | 8 | 40 | 12.16 | 619.3 | 589.2 | 1013.5 | 1043.2 | 100% | — | — | — | — |
+| wasm | 1 | 20 | 8.82 | 113.2 | 111.5 | 131.8 | 131.8 | 100% | — | — | — | — |
+| wasm | 4 | 80 | 12.63 | 311.5 | 315.4 | 440.5 | 528.7 | 100% | — | — | — | — |
+| wasm | 8 | 160 | 12.30 | 642.1 | 664.9 | 874.4 | 951.1 | 100% | — | — | — | — |
+| wasm | 16 | 320 | 11.74 | 1337.0 | 1345.4 | 1715.4 | 1894.4 | 100% | — | — | — | — |
+| wasm | 32 | 640 | 8.95 | 3512.8 | 3523.2 | 4512.2 | 4895.3 | 100% | — | — | — | — |
+| masm | 1 | 5 | 6.72 | 148.4 | 150.1 | 151.8 | 151.8 | 100% | — | — | — | — |
+| masm | 2 | 10 | 9.62 | 201.4 | 192.4 | 278.5 | 278.5 | 100% | — | — | — | — |
+| masm | 4 | 20 | 11.70 | 327.0 | 328.4 | 512.4 | 512.4 | 100% | — | — | — | — |
+| masm | 8 | 40 | 11.77 | 624.7 | 619.9 | 967.6 | 970.7 | 100% | — | — | — | — |
 
-**WASM execution:** peaks at **13.2 ops/s** @ concurrency 4 (p99=498.9 ms). Scaled **1.5×** from concurrency 1→4.
+**WASM execution:** peaks at **12.6 ops/s** @ concurrency 4 (p99=528.7 ms). Scaled **1.4×** from concurrency 1→4.
 
-**MASM execution (STARK proof):** peaks at **12.16 proofs/s** @ concurrency 8 (p99=1043.2 ms). This is the heaviest path — each request runs the Miden prover and the on-chain consensus broadcast.
+**MASM execution (STARK proof):** peaks at **11.77 proofs/s** @ concurrency 8 (p99=970.7 ms). This is the heaviest path — each request runs the Miden prover and the on-chain consensus broadcast.
 
 **Resource ceiling under load:** peak CPU **0%** of one core (~0.0% of total 4 cores), peak RSS **0 MB**, peak thread count **0** (summed across all node processes).
 
@@ -303,15 +303,15 @@ path. Resource columns are sampled from `/proc` over the phase window.
 
 | Workflow | Steps | Pass | Fail | Mean (ms) | P99 (ms) |
 |----------|-------|------|------|-----------|----------|
-| chain | 12 | 12 | 0 | 133.7 | 217.6 |
-| stores | 12 | 12 | 0 | 114.9 | 128.9 |
-| storage | 9 | 9 | 0 | 122.1 | 128.0 |
-| invites | 9 | 9 | 0 | 125.9 | 139.0 |
-| elpify-chain | 48 | 48 | 0 | 129.1 | 168.9 |
-| cross | 18 | 18 | 0 | 117.7 | 147.0 |
-| throughput | 33 | 33 | 0 | 2251.5 | 4040.2 |
-| federation | 4 | 4 | 0 | 134.5 | 144.6 |
-| load | 9 | 9 | 0 | 12701.5 | 61384.4 |
+| chain | 12 | 12 | 0 | 130.5 | 162.4 |
+| stores | 12 | 12 | 0 | 123.1 | 133.7 |
+| storage | 9 | 9 | 0 | 127.9 | 151.7 |
+| invites | 9 | 9 | 0 | 123.0 | 133.0 |
+| elpify-chain | 48 | 48 | 0 | 133.8 | 170.7 |
+| cross | 18 | 18 | 0 | 125.1 | 148.0 |
+| throughput | 33 | 33 | 0 | 2314.3 | 4088.9 |
+| federation | 4 | 4 | 0 | 118.7 | 147.3 |
+| load | 9 | 9 | 0 | 14144.9 | 71542.1 |
 
 ## Key Findings
 
