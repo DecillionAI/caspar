@@ -535,6 +535,10 @@ impl IVmm for Vmm {
     fn host_action_creature(&self, op: &str, input: &serde_json::Value, req_id: i64) -> (String, i64) {
         self.handle_creature_crud(op, input, req_id)
     }
+
+    fn host_action_program(&self, op: &str, input: &serde_json::Value, req_id: i64) -> (String, i64) {
+        self.handle_program_crud(op, input, req_id)
+    }
 }
 
 /// Small shim that owns the same handles as `Vmm` and can be cloned/wrapped

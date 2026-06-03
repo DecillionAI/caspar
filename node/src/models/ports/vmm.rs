@@ -78,4 +78,6 @@ pub trait IVmm: Send + Sync {
     fn host_action_store(&self, op: &str, input: &JsonValue, req_id: i64) -> (String, i64);
     /// Dispatch a creature CRUD host action.
     fn host_action_creature(&self, op: &str, input: &JsonValue, req_id: i64) -> (String, i64);
+    /// Dispatch a program CRUD host action (get/list/update/listByMachine).
+    fn host_action_program(&self, op: &str, input: &JsonValue, req_id: i64) -> (String, i64);
 }

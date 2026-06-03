@@ -254,8 +254,16 @@ _setup_gvisor() {
   fi
 
   # ── Merge runsc runtime into the correct daemon.json ────────────────────────
-  # --network=host: sandbox shares host netstack (no NAT, full reachability)
-  # --platform=ptrace: works without /dev/kvm
+  # --network=host:    sandbox uses the container netns' real stack rather than
+  #                    gVisor's internal netstack. This is required so creatures
+  #                    can (a) resolve DNS (gVisor's netstack cannot reach
+  #                    Docker's embedded resolver at 127.0.0.11 on user-defined
+  #                    networks) and (b) reach both the node and the public
+  #                    internet (e.g. the LLM backbone) through the host.
+  # --platform=ptrace: works without /dev/kvm.
+  # --ignore-cgroups:  required in nested / cgroup-less environments (containers,
+  #                    CI, the web runner) where /sys/fs/cgroup/<controller> is
+  #                    absent — otherwise runsc fails with "cannot set up cgroup".
   python3 - "$daemon_json" <<'PYEOF'
 import json, os, sys, tempfile
 path = sys.argv[1]
@@ -265,7 +273,7 @@ except FileNotFoundError:
     cfg = {}
 cfg.setdefault('runtimes', {})['runsc'] = {
     'path': 'runsc',
-    'runtimeArgs': ['--network=host', '--platform=ptrace'],
+    'runtimeArgs': ['--network=host', '--platform=ptrace', '--ignore-cgroups'],
 }
 cfg_dir = os.path.dirname(path)
 fd, tmp = tempfile.mkstemp(dir=cfg_dir, prefix='.daemon.')
@@ -944,6 +952,21 @@ else
   docker info 2>/dev/null | grep -q runsc \
     && ok "gVisor registered with Docker" \
     || warn "gVisor setup completed but runsc not visible in docker info"
+fi
+
+# ─── VM gateway network (kasper) ──────────────────────────────────────────────
+# Every docker/firecracker creature the node spawns is attached to the
+# user-defined ``kasper`` bridge network (see VmNetworkService::gateway_network_name
+# in node/src/drivers/vmm/network). The node does not create it, so we ensure it
+# exists here — otherwise container creation fails with "network kasper not found".
+if command -v docker &>/dev/null && docker info >/dev/null 2>&1; then
+  if docker network inspect kasper >/dev/null 2>&1; then
+    ok "Docker network 'kasper' already present"
+  elif docker network create kasper >/dev/null 2>&1; then
+    ok "Created docker network 'kasper' for VM creatures"
+  else
+    warn "Could not create docker network 'kasper' — docker creatures may fail to start"
+  fi
 fi
 
 # ─── Firecracker — default ON ─────────────────────────────────────────────────
