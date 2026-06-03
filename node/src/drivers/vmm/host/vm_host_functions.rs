@@ -272,6 +272,10 @@ pub(crate) fn handle_unified_host_call(packet: &JsonValue) -> String {
         }
         "getStore" => host_fn_get_store(&input),
         "listStores" => host_fn_list_stores(&input),
+        // List the creatures (members) that have access to a store.
+        "listStoreAccess" | "listStoreMembers" | "readMembers" => {
+            host_fn_list_store_access(&input)
+        }
         "updateStore" => host_fn_update_store(&input),
         "createCreature" | "createOwnedCreature" => host_fn_create_creature(&input),
         "getCreature" => host_fn_get_creature(&input),
@@ -283,6 +287,13 @@ pub(crate) fn handle_unified_host_call(packet: &JsonValue) -> String {
         "lockToken" => host_fn_lock_token(&input),
         "createProgram" => host_fn_create_program(&input),
         "deleteProgram" | "deleteOwnedProgram" => host_fn_delete_program(&input),
+        // Program CRUD reads — exposed so store/miniapp creatures can fetch a
+        // program's record + metadata (e.g. an MCP manifest) and enumerate the
+        // programs of a machine. Mirror the creature CRUD reads already present.
+        "getProgram" => host_fn_get_program(&input),
+        "listPrograms" => host_fn_list_programs(&input),
+        "listProgramMachines" => host_fn_list_program_machines(&input),
+        "updateProgram" => host_fn_update_program(&input),
         "deployEntity" | "deploy entity" => host_fn_deploy_entity(&input),
         "deleteCreature" | "removeCreature" | "deleteOwnedCreature" | "removeOwnedCreature" => {
             host_fn_delete_creature(&input)
@@ -321,6 +332,50 @@ pub(crate) fn host_fn_micro(op: &str, input: &JsonValue) -> String {
         Some(out) => out,
         None => json!({"ok": false, "error": "vmm not initialised"}).to_string(),
     }
+}
+
+// --------------------------------------------------------------------------- //
+// Program CRUD reads — the write side (`createProgram`/`deleteProgram`) existed
+// but the read side did not, so a store/miniapp creature could not resolve a
+// program's record + metadata (e.g. an MCP manifest) or enumerate programs.
+// These route through the canonical `IVmm::host_action_program` tool path, the
+// same persisted-state mechanism the creature CRUD reads use.
+// --------------------------------------------------------------------------- //
+
+/// Dispatch into `IVmm::host_action_program` via the canonical tool path.
+fn host_fn_program(op: &str, input: &JsonValue) -> String {
+    match with_global_app(|app| app.tools().vmm().host_action_program(op, input, 0).0) {
+        Some(out) => out,
+        None => json!({"ok": false, "error": "vmm not initialised"}).to_string(),
+    }
+}
+
+/// List the creatures with access to a store. Input: `{ storeId }`.
+pub(crate) fn host_fn_list_store_access(input: &JsonValue) -> String {
+    match with_global_app(|app| app.tools().vmm().host_action_store("listAccess", input, 0).0) {
+        Some(out) => out,
+        None => json!({"ok": false, "error": "vmm not initialised"}).to_string(),
+    }
+}
+
+/// Fetch a single program's record + metadata. Input: `{ programId }`.
+pub(crate) fn host_fn_get_program(input: &JsonValue) -> String {
+    host_fn_program("get", input)
+}
+
+/// List programs (optionally a page). Input: `{ offset?, count? }`.
+pub(crate) fn host_fn_list_programs(input: &JsonValue) -> String {
+    host_fn_program("list", input)
+}
+
+/// List the programs belonging to a machine creature. Input: `{ machineId }`.
+pub(crate) fn host_fn_list_program_machines(input: &JsonValue) -> String {
+    host_fn_program("listByMachine", input)
+}
+
+/// Update a program's record/metadata. Input: `{ programId, metadata?, ... }`.
+pub(crate) fn host_fn_update_program(input: &JsonValue) -> String {
+    host_fn_program("update", input)
 }
 
 /// Dispatch into `IVmm::host_action_resource_store` via the canonical tool path.

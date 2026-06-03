@@ -13,7 +13,7 @@ use crate::models::info::IInfo;
 use crate::models::transaction::ITrx;
 use crate::models::state::IState;
 use crate::core::actor::model::base::info::Info as BaseInfo;
-use crate::shell::api::model::{Creature, Store};
+use crate::shell::api::model::{Creature, Program, Store};
 
 use super::driver::{check_bool, check_i64, check_str, normalize_runtime, is_managed_runtime, Vmm};
 
@@ -190,6 +190,125 @@ impl Vmm {
                 (serde_json::to_string(&out).unwrap_or_default(), req_id)
             }
             _ => (r#"{"ok":false,"error":"unsupported creature op"}"#.into(), req_id),
+        }
+    }
+
+    /// Program CRUD reads/updates for VM host calls — the read side that the
+    /// existing `createProgram`/`deleteProgram` lacked. A program's metadata is
+    /// stored under `ProgMeta::{id}` (e.g. an MCP manifest); `listByMachine`
+    /// enumerates the programs of a machine creature via the
+    /// `machinePrograms::{machineId}::{programId}` links.
+    pub(crate) fn handle_program_crud(&self, op: &str, input: &Value, req_id: i64) -> (String, i64) {
+        match op {
+            "get" => {
+                let mut id = check_str(input, "programId", "");
+                if id.is_empty() {
+                    id = check_str(input, "id", "");
+                }
+                if id.is_empty() {
+                    return (r#"{"ok":false,"error":"programId is required"}"#.into(), req_id);
+                }
+                let prog_slot = Arc::new(Mutex::new(Program::default()));
+                let meta_slot: Arc<Mutex<Map<String, Value>>> = Arc::new(Mutex::new(Map::new()));
+                let ps = prog_slot.clone();
+                let ms = meta_slot.clone();
+                let id_owned = id.clone();
+                self.app.modify_state(
+                    true,
+                    Box::new(move |t: &dyn ITrx| {
+                        let p = Program { id: id_owned.clone(), ..Default::default() }.pull(t);
+                        *ps.lock().unwrap() = p;
+                        if let Ok(m) = t.get_json(&format!("ProgMeta::{}", id_owned), "metadata") {
+                            *ms.lock().unwrap() = m;
+                        }
+                        Ok(())
+                    }),
+                );
+                let program = prog_slot.lock().unwrap().clone();
+                let metadata = Value::Object(meta_slot.lock().unwrap().clone());
+                let out = json!({"ok": true, "program": program, "metadata": metadata});
+                (serde_json::to_string(&out).unwrap_or_default(), req_id)
+            }
+            "list" => {
+                let offset = number_from_input(input, "offset", 0);
+                let mut count = number_from_input(input, "count", 100);
+                if count <= 0 {
+                    count = 100;
+                }
+                let slot: Arc<Mutex<Vec<Program>>> = Arc::new(Mutex::new(Vec::new()));
+                let sc = slot.clone();
+                self.app.modify_state(
+                    true,
+                    Box::new(move |t: &dyn ITrx| {
+                        if let Ok(list) = Program::all(t, offset, count) {
+                            *sc.lock().unwrap() = list;
+                        }
+                        Ok(())
+                    }),
+                );
+                let programs = slot.lock().unwrap().clone();
+                (serde_json::to_string(&json!({"ok": true, "programs": programs})).unwrap_or_default(), req_id)
+            }
+            "listByMachine" => {
+                let mut machine_id = check_str(input, "machineId", "");
+                if machine_id.is_empty() {
+                    machine_id = check_str(input, "appId", "");
+                }
+                if machine_id.is_empty() {
+                    return (r#"{"ok":false,"error":"machineId is required"}"#.into(), req_id);
+                }
+                let slot: Arc<Mutex<Vec<Program>>> = Arc::new(Mutex::new(Vec::new()));
+                let sc = slot.clone();
+                let mid = machine_id.clone();
+                self.app.modify_state(
+                    true,
+                    Box::new(move |t: &dyn ITrx| {
+                        let prefix = format!("machinePrograms::{}::", mid);
+                        if let Ok(list) = Program::list(t, &prefix) {
+                            *sc.lock().unwrap() = list;
+                        }
+                        Ok(())
+                    }),
+                );
+                let programs = slot.lock().unwrap().clone();
+                (serde_json::to_string(&json!({"ok": true, "programs": programs})).unwrap_or_default(), req_id)
+            }
+            "update" => {
+                let mut id = check_str(input, "programId", "");
+                if id.is_empty() {
+                    id = check_str(input, "id", "");
+                }
+                if id.is_empty() {
+                    return (r#"{"ok":false,"error":"programId is required"}"#.into(), req_id);
+                }
+                let input_owned = input.clone();
+                let id_owned = id.clone();
+                self.app.modify_state(
+                    false,
+                    Box::new(move |t: &dyn ITrx| {
+                        let mut p = Program { id: id_owned.clone(), ..Default::default() }.pull(t);
+                        if p.id.is_empty() {
+                            p.id = id_owned.clone();
+                        }
+                        if let Some(v) = input_owned.get("comment").and_then(Value::as_str) {
+                            p.comment = v.to_string();
+                        }
+                        if let Some(v) = input_owned.get("runtime").and_then(Value::as_str) {
+                            p.runtime = v.to_string();
+                        }
+                        if let Some(v) = input_owned.get("path").and_then(Value::as_str) {
+                            p.path = v.to_string();
+                        }
+                        p.push(t);
+                        if let Some(md) = input_owned.get("metadata") {
+                            let _ = t.put_json(&format!("ProgMeta::{}", id_owned), "metadata", md, true);
+                        }
+                        Ok(())
+                    }),
+                );
+                (format!("{{\"ok\":true,\"id\":\"{}\"}}", id), req_id)
+            }
+            _ => (r#"{"ok":false,"error":"unsupported program op"}"#.into(), req_id),
         }
     }
 
@@ -947,6 +1066,47 @@ impl Vmm {
                 );
                 let stores = slot.lock().unwrap().clone();
                 let out = json!({"ok": true, "stores": stores});
+                (serde_json::to_string(&out).unwrap_or_default(), req_id)
+            }
+            // List the creatures with access to a store. An optional `type`
+            // filter (e.g. "machine", "human") returns only creatures of that
+            // type — each resolved to its full Creature record.
+            "listAccess" | "listMembers" | "readMembers" => {
+                let store_id = check_str(input, "storeId", "");
+                if store_id.is_empty() {
+                    return (r#"{"ok":false,"error":"storeId is required"}"#.into(), req_id);
+                }
+                let want_type = check_str(input, "type", "");
+                let slot: Arc<Mutex<Vec<Creature>>> = Arc::new(Mutex::new(Vec::new()));
+                let sc = slot.clone();
+                let sid = store_id.clone();
+                let want_owned = want_type.clone();
+                self.app.modify_state(
+                    true,
+                    Box::new(move |t: &dyn ITrx| {
+                        let prefix = format!("onaccess::{}::", sid);
+                        let keys = t.get_links_list(&prefix, -1, -1, &[]).unwrap_or_default();
+                        let mut out: Vec<Creature> = Vec::new();
+                        for k in keys {
+                            let member_id = k.strip_prefix(&prefix).unwrap_or(&k).to_string();
+                            if member_id.is_empty() {
+                                continue;
+                            }
+                            let c = Creature { id: member_id, ..Default::default() }.pull(t);
+                            if c.id.is_empty() {
+                                continue;
+                            }
+                            if !want_owned.is_empty() && c.type_name != want_owned {
+                                continue;
+                            }
+                            out.push(c);
+                        }
+                        *sc.lock().unwrap() = out;
+                        Ok(())
+                    }),
+                );
+                let members = slot.lock().unwrap().clone();
+                let out = json!({"ok": true, "storeId": store_id, "type": want_type, "members": members});
                 (serde_json::to_string(&out).unwrap_or_default(), req_id)
             }
             _ => (r#"{"ok":false,"error":"unsupported store op"}"#.into(), req_id),
