@@ -138,6 +138,8 @@ impl DockerVmController {
             with_global_app(|app| app.tools().vmm().commit_vm_trx(timeout_vm.as_str()));
             // DashMap: no lock needed — inserts/removes are concurrency-safe
             with_global_app(|app| app.tools().vmm().unregister_vm_context(timeout_vm.as_str()));
+            // Revoke the gateway session token so it can never be reused.
+            with_global_app(|app| app.tools().vmm().revoke_vm_session(timeout_vm.as_str()));
         });
         let container_id_for_logs = container_id.clone();
         let vm_id_for_logs = vm_cache_key.clone();
@@ -221,6 +223,8 @@ impl DockerVmController {
         with_global_app(|app| app.tools().vmm().commit_vm_trx(vm_cache_key.as_str()));
         // DashMap: no lock needed — inserts/removes are concurrency-safe
         with_global_app(|app| app.tools().vmm().unregister_vm_context(vm_cache_key.as_str()));
+        // Revoke the gateway session token so it can never be reused.
+        with_global_app(|app| app.tools().vmm().revoke_vm_session(vm_cache_key.as_str()));
         Ok(json!({
             "ok": true,
             "machineId": machine_id,
@@ -453,21 +457,31 @@ impl DockerVmController {
 }
 
 /// Build the environment variables that tell a docker creature how to reach the
-/// docker-host bridge gateway and who it is. The container reads these to open
-/// its single TCP connection back to the node.
+/// docker-host bridge gateway and authenticate to it.
+///
+/// Security: the container receives **only** an opaque, node-issued session
+/// token — never its own `vmId`/`creatureId`/`programId`. The node binds the
+/// token to the VM's authoritative identity (via `tools().vmm()`) and resolves
+/// it on connect, so a malicious container cannot declare another VM's identity
+/// to reach its data.
 fn gateway_container_env(machine_id: &str, creature_id: &str, vm_id: &str) -> Vec<String> {
     let host = std::env::var("DOCKER_HOST_GATEWAY_ADVERTISE_HOST")
         .unwrap_or_else(|_| "host.docker.internal".to_string());
     let port = std::env::var("DOCKER_HOST_GATEWAY_PORT").unwrap_or_else(|_| "8079".to_string());
+    // The owning program of a docker creature is its machine id (matches the
+    // VM-context registry), so program_id == machine_id.
+    let token = with_global_app(|app| {
+        app.tools()
+            .vmm()
+            .issue_vm_session(vm_id, creature_id, machine_id, machine_id)
+    })
+    .unwrap_or_default();
     vec![
         format!("CASPAR_GATEWAY_HOST={}", host),
         format!("CASPAR_GATEWAY_PORT={}", port),
+        format!("CASPAR_SESSION_TOKEN={}", token),
+        // vm_id is provided for log readability only; it is NOT trusted for auth.
         format!("CASPAR_VM_ID={}", vm_id),
-        format!("CASPAR_MACHINE_ID={}", machine_id),
-        // The host layer namespaces docker creatures by their owning program,
-        // which is the machine id; expose it as both for client convenience.
-        format!("CASPAR_PROGRAM_ID={}", machine_id),
-        format!("CASPAR_CREATURE_ID={}", creature_id),
     ]
 }
 

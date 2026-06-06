@@ -173,7 +173,7 @@ fn main() {
         .ok()
         .and_then(|p| p.parse().ok())
         .unwrap_or(8079);
-    crate::drivers::vmm::network::docker_host::start(docker_gateway_port);
+    app.tools().vmm().start_docker_gateway(docker_gateway_port);
 
     let port_tcp: i64 = env::var("CLIENT_TCP_API_PORT")
         .ok()

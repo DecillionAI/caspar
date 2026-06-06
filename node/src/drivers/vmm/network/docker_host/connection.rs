@@ -98,18 +98,22 @@ impl GatewayConnection {
     }
 }
 
-/// Process-wide registry of live container connections.
+/// Registry of live container connections, owned by a [`DockerHostGateway`]
+/// instance (never a process-wide static — the gateway is reached through the
+/// `ICore → tools() → vmm()` object graph).
 ///
 /// Lookups iterate the (small) live-connection set rather than maintaining
 /// secondary indexes — there is one connection per running docker VM, so the
 /// linear scan is cheap and keeps the registry free of index-consistency bugs.
+///
+/// [`DockerHostGateway`]: crate::drivers::vmm::network::docker_host::gateway::DockerHostGateway
 pub(crate) struct GatewayRegistry {
     conns: DashMap<u64, Arc<GatewayConnection>>,
     next_id: AtomicU64,
 }
 
 impl GatewayRegistry {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             conns: DashMap::new(),
             next_id: AtomicU64::new(1),
@@ -181,6 +185,3 @@ impl GatewayRegistry {
         conns.len()
     }
 }
-
-/// The single process-wide gateway connection registry.
-pub(crate) static GATEWAY_REGISTRY: Lazy<GatewayRegistry> = Lazy::new(GatewayRegistry::new);

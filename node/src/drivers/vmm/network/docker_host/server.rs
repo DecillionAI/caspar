@@ -1,72 +1,40 @@
-//! The docker-host bridge gateway TCP server.
+//! Per-connection I/O loop for the docker-host bridge gateway.
 //!
-//! A single listener accepts connections from docker creature containers. Each
-//! connection is pinned to a dedicated I/O thread that owns its `TcpStream`; a
-//! 20 ms read timeout lets that thread interleave inbound reads with draining
-//! the outbound MPSC queue, so signal pushes and host-call responses never
-//! block on, or deadlock against, the read path. This mirrors the proven
-//! concurrency model of the federation `netserver`.
+//! Each connection is pinned to a dedicated I/O thread that owns its
+//! `TcpStream`; a 20 ms read timeout lets that thread interleave inbound reads
+//! with draining the outbound MPSC queue, so signal pushes and host-call
+//! responses never block on, or deadlock against, the read path. This mirrors
+//! the proven concurrency model of the federation `netserver`.
 //!
-//! Lifecycle of a connection:
+//! ## Security: identity is node-assigned, never container-declared
 //!
-//! 1. container connects and sends `HELLO {vmId, machineId, creatureId,
-//!    programId}`;
-//! 2. the node registers it in [`GATEWAY_REGISTRY`] and replies `WELCOME`;
-//! 3. the container streams `REQUEST` host-calls (handled concurrently) and
-//!    receives `RESPONSE`s plus any pushed `SIGNAL`s;
-//! 4. on disconnect the connection is removed from the registry.
+//! A container authenticates with a single-use **session token** that the node
+//! issued (out of band) when it launched the container. On `HELLO` the node
+//! resolves the token to the VM's *authoritative* identity via
+//! `tools().vmm().resolve_vm_session` — the container never sends, and can never
+//! spoof, a `vmId`/`creatureId`/`programId`. Every subsequent request is stamped
+//! with that resolved identity. This gives docker creatures the same security
+//! posture the in-process wasm runtime already has (where `host_call` stamps the
+//! node-created runtime's own `machine_id`/`vm_id`).
 
 use std::collections::VecDeque;
 use std::io::{ErrorKind, Read, Write};
-use std::net::{TcpListener, TcpStream};
+use std::net::TcpStream;
 use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
 
 use crate::drivers::vmm::network::docker_host::connection::{
-    ContainerIdentity, GatewayConnection, OutboundFrame, GATEWAY_REGISTRY,
+    ContainerIdentity, GatewayConnection, OutboundFrame,
 };
 use crate::drivers::vmm::network::docker_host::dispatch::dispatch_host_call;
+use crate::drivers::vmm::network::docker_host::gateway::DockerHostGateway;
 use crate::drivers::vmm::network::docker_host::protocol::{
     encode_json_message, encode_message, next_message_id, GatewayMessage, MessageAssembler, Opcode,
     MAX_FRAME,
 };
 use crate::drivers::vmm::prelude::*;
 
-/// Start the gateway listener on `0.0.0.0:port` in a background thread.
-///
-/// A `port` of `0` or below disables the gateway (used when the deployment
-/// doesn't run docker creatures). Safe to call once during node startup.
-pub fn start(port: i64) {
-    if port <= 0 {
-        return;
-    }
-    thread::spawn(move || {
-        let addr = format!("0.0.0.0:{}", port);
-        let listener = match TcpListener::bind(&addr) {
-            Ok(l) => l,
-            Err(e) => {
-                eprintln!("[docker-host-gateway] bind {} failed: {}", addr, e);
-                return;
-            }
-        };
-        eprintln!("[docker-host-gateway] listening on {}", addr);
-        for incoming in listener.incoming() {
-            match incoming {
-                Ok(stream) => {
-                    thread::spawn(move || run_connection(stream));
-                }
-                Err(e) => {
-                    eprintln!("[docker-host-gateway] accept error: {}", e);
-                    // Never abandon the listener over a single accept failure.
-                    continue;
-                }
-            }
-        }
-    });
-}
-
-/// Per-connection I/O loop. Owns the `TcpStream` for the lifetime of the
-/// connection.
-fn run_connection(stream: TcpStream) {
+/// Run the I/O loop for one accepted container connection.
+pub(crate) fn run_connection(gateway: Arc<DockerHostGateway>, stream: TcpStream) {
     let peer = stream
         .peer_addr()
         .map(|a| a.to_string())
@@ -157,7 +125,7 @@ fn run_connection(stream: TcpStream) {
                         body_filled = 0;
                         match assembler.push_frame(&body) {
                             Ok(Some(msg)) => {
-                                if !handle_message(&peer, &tx, &mut session, msg) {
+                                if !handle_message(&gateway, &peer, &tx, &mut session, msg) {
                                     break 'io;
                                 }
                             }
@@ -178,7 +146,7 @@ fn run_connection(stream: TcpStream) {
     // Cleanup.
     if let Some(conn) = session.take() {
         conn.shutdown();
-        GATEWAY_REGISTRY.remove(conn.conn_id);
+        gateway.registry.remove(conn.conn_id);
     }
     let _ = stream.shutdown(std::net::Shutdown::Both);
 }
@@ -186,6 +154,7 @@ fn run_connection(stream: TcpStream) {
 /// Handle one fully-reassembled inbound message. Returns `false` to terminate
 /// the connection.
 fn handle_message(
+    gateway: &Arc<DockerHostGateway>,
     peer: &str,
     tx: &Sender<OutboundFrame>,
     session: &mut Option<Arc<GatewayConnection>>,
@@ -197,38 +166,60 @@ fn handle_message(
                 // Duplicate handshake — ignore, keep the existing session.
                 return true;
             }
-            let body = msg.json();
-            let identity = ContainerIdentity {
-                vm_id: str_field(&body, "vmId"),
-                machine_id: str_field(&body, "machineId"),
-                creature_id: str_field(&body, "creatureId"),
-                program_id: str_field(&body, "programId"),
+            // Authenticate by node-issued token ONLY. The container does not (and
+            // cannot) declare its own identity — the node resolves it.
+            let token = msg
+                .json()
+                .get("token")
+                .and_then(JsonValue::as_str)
+                .unwrap_or("")
+                .trim()
+                .to_string();
+            let resolved = if token.is_empty() {
+                None
+            } else {
+                gateway.app.tools().vmm().resolve_vm_session(&token)
             };
-            if identity.vm_id.is_empty() && identity.program_id.is_empty() {
+            let Some((vm_id, creature_id, program_id, machine_id)) = resolved else {
                 send_local(
                     tx,
                     Opcode::Error,
-                    0,
-                    &json!({ "ok": false, "error": "HELLO requires vmId or programId" }),
+                    msg.correlation_id,
+                    &json!({ "ok": false, "error": "invalid or missing session token" }),
                 );
                 return false;
-            }
-            let conn_id = GATEWAY_REGISTRY.alloc_conn_id();
-            let conn = GatewayConnection::new(conn_id, peer.to_string(), identity.clone(), tx.clone());
-            GATEWAY_REGISTRY.insert(conn.clone());
+            };
+            let identity = ContainerIdentity {
+                vm_id: vm_id.clone(),
+                machine_id: machine_id.clone(),
+                creature_id: creature_id.clone(),
+                program_id: program_id.clone(),
+            };
+            let conn_id = gateway.registry.alloc_conn_id();
+            let conn = GatewayConnection::new(conn_id, peer.to_string(), identity, tx.clone());
+            gateway.registry.insert(conn.clone());
             *session = Some(conn);
             eprintln!(
-                "[docker-host-gateway] {} registered vm={} machine={} (conns={})",
+                "[docker-host-gateway] {} authenticated vm={} machine={} (conns={})",
                 peer,
-                identity.vm_id,
-                identity.machine_id,
-                GATEWAY_REGISTRY.count()
+                vm_id,
+                machine_id,
+                gateway.registry.count()
             );
+            // Tell the container its node-assigned identity (read-only) so it can
+            // address replies without ever declaring identity itself.
             send_local(
                 tx,
                 Opcode::Welcome,
                 msg.correlation_id,
-                &json!({ "ok": true, "sessionId": conn_id, "vmId": identity.vm_id }),
+                &json!({
+                    "ok": true,
+                    "sessionId": conn_id,
+                    "vmId": vm_id,
+                    "machineId": machine_id,
+                    "creatureId": creature_id,
+                    "programId": program_id,
+                }),
             );
             true
         }
@@ -282,14 +273,6 @@ fn send_local(tx: &Sender<OutboundFrame>, opcode: Opcode, correlation_id: u64, v
     for frame in frames {
         let _ = tx.send(OutboundFrame::Body(frame));
     }
-}
-
-fn str_field(v: &JsonValue, key: &str) -> String {
-    v.get(key)
-        .and_then(JsonValue::as_str)
-        .unwrap_or("")
-        .trim()
-        .to_string()
 }
 
 enum ReadOutcome {

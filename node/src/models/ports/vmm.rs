@@ -26,6 +26,30 @@ pub trait IVmm: Send + Sync {
     /// Returns `(result, gasUsed)`.
     fn vm_callback(&self, data_raw: &str) -> (String, i64);
 
+    // ── Docker-host bridge gateway ───────────────────────────────────────
+    /// Start the docker-host bridge gateway TCP listener for docker creatures.
+    /// No-op when `port <= 0` or already running. The gateway is owned by the
+    /// VMM instance — callers reach it only through `tools().vmm()`.
+    fn start_docker_gateway(&self, port: i64);
+    /// Issue an unguessable, node-managed session token bound to a VM's
+    /// authoritative identity. This token is the *only* credential injected into
+    /// a docker container; the node resolves the identity from it, so a
+    /// container can never declare (or spoof) another VM's identity.
+    fn issue_vm_session(
+        &self,
+        vm_id: &str,
+        creature_id: &str,
+        program_id: &str,
+        machine_id: &str,
+    ) -> String;
+    /// Resolve a session token to `(vm_id, creature_id, program_id, machine_id)`.
+    fn resolve_vm_session(&self, token: &str) -> Option<(String, String, String, String)>;
+    /// Revoke any session bound to `vm_id` (called at VM teardown).
+    fn revoke_vm_session(&self, vm_id: &str);
+    /// Push a signal to every live docker container of `machine_id`, delivered
+    /// over its gateway connection. Returns the number of containers reached.
+    fn push_signal_to_machine(&self, machine_id: &str, key: &str, data: &JsonValue) -> usize;
+
     // ── VM execution context registry ────────────────────────────────────
     /// Register an active VM execution context (vm_id → creature/machine).
     fn register_vm_context(&self, vm_id: &str, creature_id: &str, machine_id: &str);
