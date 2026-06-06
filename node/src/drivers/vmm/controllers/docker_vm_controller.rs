@@ -52,11 +52,24 @@ impl DockerVmController {
 
         self.stop_and_remove_if_exists(&container_id)?;
 
-        let env = packet["env"].as_array().map(|v| {
-            v.iter()
-                .filter_map(|x| x.as_str().map(|s| s.to_string()))
-                .collect::<Vec<String>>()
-        });
+        // Base env from the caller, then append the docker-host bridge gateway
+        // coordinates + this container's verified identity. The container uses
+        // these to open its single TCP connection back to the node and conduct
+        // all host interactions over it.
+        let mut env_vars = packet["env"]
+            .as_array()
+            .map(|v| {
+                v.iter()
+                    .filter_map(|x| x.as_str().map(|s| s.to_string()))
+                    .collect::<Vec<String>>()
+            })
+            .unwrap_or_default();
+        env_vars.extend(gateway_container_env(
+            machine_id,
+            &creature_id,
+            &vm_cache_key,
+        ));
+        let env = Some(env_vars);
         let cmd = packet["command"]
             .as_str()
             .map(|command| vec!["sh".to_string(), "-lc".to_string(), command.to_string()]);
@@ -73,6 +86,9 @@ impl DockerVmController {
                 host_config: Some(HostConfig {
                     runtime: Some("runsc".to_string()),
                     network_mode: Some(VmNetworkService::gateway_network_name().to_string()),
+                    // Resolve `host.docker.internal` to the node host inside the
+                    // bridge network so the container can dial the gateway.
+                    extra_hosts: Some(vec!["host.docker.internal:host-gateway".to_string()]),
                     memory: Some((limits.ram_mb * 1024 * 1024) as i64),
                     cpu_count: Some(limits.cpu_cores as i64),
                     storage_opt: Some(HashMap::from([(
@@ -434,6 +450,25 @@ impl DockerVmController {
             "runtime": "docker"
         }))
     }
+}
+
+/// Build the environment variables that tell a docker creature how to reach the
+/// docker-host bridge gateway and who it is. The container reads these to open
+/// its single TCP connection back to the node.
+fn gateway_container_env(machine_id: &str, creature_id: &str, vm_id: &str) -> Vec<String> {
+    let host = std::env::var("DOCKER_HOST_GATEWAY_ADVERTISE_HOST")
+        .unwrap_or_else(|_| "host.docker.internal".to_string());
+    let port = std::env::var("DOCKER_HOST_GATEWAY_PORT").unwrap_or_else(|_| "8079".to_string());
+    vec![
+        format!("CASPAR_GATEWAY_HOST={}", host),
+        format!("CASPAR_GATEWAY_PORT={}", port),
+        format!("CASPAR_VM_ID={}", vm_id),
+        format!("CASPAR_MACHINE_ID={}", machine_id),
+        // The host layer namespaces docker creatures by their owning program,
+        // which is the machine id; expose it as both for client convenience.
+        format!("CASPAR_PROGRAM_ID={}", machine_id),
+        format!("CASPAR_CREATURE_ID={}", creature_id),
+    ]
 }
 
 fn docker_container_id(

@@ -235,6 +235,17 @@ impl IVmm for Vmm {
                 if key != "creatures/signal" {
                     return;
                 }
+                // If a docker creature of this machine is connected to the
+                // bridge gateway, deliver the signal straight to its container
+                // over the live TCP connection instead of cold-spawning a VM.
+                if crate::drivers::vmm::network::docker_host::push_signal_to_machine(
+                    &machine_id_owned,
+                    &key,
+                    &value,
+                ) > 0
+                {
+                    return;
+                }
                 let raw = serde_json::to_vec(&value).unwrap_or_default();
                 let entity_id = serde_json::from_slice::<stores::Send>(&raw)
                     .ok()
