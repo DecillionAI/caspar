@@ -52,11 +52,20 @@ impl DockerVmController {
 
         self.stop_and_remove_if_exists(&container_id)?;
 
-        let env = packet["env"].as_array().map(|v| {
-            v.iter()
-                .filter_map(|x| x.as_str().map(|s| s.to_string()))
-                .collect::<Vec<String>>()
-        });
+        // Base env from the caller, then append the docker-host bridge gateway
+        // coordinates + this container's verified identity. The container uses
+        // these to open its single TCP connection back to the node and conduct
+        // all host interactions over it.
+        let mut env_vars = packet["env"]
+            .as_array()
+            .map(|v| {
+                v.iter()
+                    .filter_map(|x| x.as_str().map(|s| s.to_string()))
+                    .collect::<Vec<String>>()
+            })
+            .unwrap_or_default();
+        env_vars.extend(gateway_container_env(&vm_cache_key));
+        let env = Some(env_vars);
         let cmd = packet["command"]
             .as_str()
             .map(|command| vec!["sh".to_string(), "-lc".to_string(), command.to_string()]);
@@ -73,6 +82,9 @@ impl DockerVmController {
                 host_config: Some(HostConfig {
                     runtime: Some("runsc".to_string()),
                     network_mode: Some(VmNetworkService::gateway_network_name().to_string()),
+                    // Resolve `host.docker.internal` to the node host inside the
+                    // bridge network so the container can dial the gateway.
+                    extra_hosts: Some(vec!["host.docker.internal:host-gateway".to_string()]),
                     memory: Some((limits.ram_mb * 1024 * 1024) as i64),
                     cpu_count: Some(limits.cpu_cores as i64),
                     storage_opt: Some(HashMap::from([(
@@ -122,6 +134,8 @@ impl DockerVmController {
             with_global_app(|app| app.tools().vmm().commit_vm_trx(timeout_vm.as_str()));
             // DashMap: no lock needed — inserts/removes are concurrency-safe
             with_global_app(|app| app.tools().vmm().unregister_vm_context(timeout_vm.as_str()));
+            // Drop the container→identity binding so its IP can't be reused.
+            with_global_app(|app| app.tools().vmm().unregister_vm_container(timeout_container.as_str()));
         });
         let container_id_for_logs = container_id.clone();
         let vm_id_for_logs = vm_cache_key.clone();
@@ -167,6 +181,18 @@ impl DockerVmController {
         });
         // DashMap: no lock needed — inserts/removes are concurrency-safe
         with_global_app(|app| app.tools().vmm().register_vm_context(&vm_cache_key, &creature_id, machine_id));
+        // Bind the docker container name to this VM's authoritative identity so
+        // the gateway can resolve a connection's identity from its source IP
+        // (IP → container name → identity). program_id == machine_id for docker.
+        with_global_app(|app| {
+            app.tools().vmm().register_vm_container(
+                &container_id,
+                &vm_cache_key,
+                &creature_id,
+                machine_id,
+                machine_id,
+            )
+        });
         // Begin a lifecycle transaction buffer for this VM execution so all
         // dbOp writes are batched and committed atomically at VM end.
         with_global_app(|app| app.tools().vmm().begin_vm_trx(&vm_cache_key));
@@ -205,6 +231,8 @@ impl DockerVmController {
         with_global_app(|app| app.tools().vmm().commit_vm_trx(vm_cache_key.as_str()));
         // DashMap: no lock needed — inserts/removes are concurrency-safe
         with_global_app(|app| app.tools().vmm().unregister_vm_context(vm_cache_key.as_str()));
+        // Drop the container→identity binding so its IP can't be reused.
+        with_global_app(|app| app.tools().vmm().unregister_vm_container(container_id.as_str()));
         Ok(json!({
             "ok": true,
             "machineId": machine_id,
@@ -292,6 +320,41 @@ impl DockerVmController {
             "containerId": container_id,
             "fileName": file_name
         }))
+    }
+
+    /// Resolve the docker container name that owns `ip` on any docker network.
+    ///
+    /// This is the authoritative, spoof-resistant way to identify which creature
+    /// a gateway connection belongs to: the source IP of the connection is fixed
+    /// by the docker bridge (a container cannot forge another container's bridge
+    /// IP), and docker — not the container — reports which container holds it.
+    pub(crate) fn find_container_name_by_ip(&self, ip: &str) -> Result<Option<String>, String> {
+        if ip.is_empty() {
+            return Ok(None);
+        }
+        let summaries = self.with_async(self.docker.list_containers(Some(
+            ListContainersOptions::<String> {
+                all: false,
+                ..Default::default()
+            },
+        )))?;
+        for c in summaries {
+            let matched = c
+                .network_settings
+                .as_ref()
+                .and_then(|ns| ns.networks.as_ref())
+                .map(|nets| nets.values().any(|ep| ep.ip_address.as_deref() == Some(ip)))
+                .unwrap_or(false);
+            if matched {
+                let name = c
+                    .names
+                    .as_ref()
+                    .and_then(|n| n.first())
+                    .map(|s| s.trim_start_matches('/').to_string());
+                return Ok(name);
+            }
+        }
+        Ok(None)
     }
 
     fn stop_and_remove_if_exists(&self, container_id: &str) -> Result<(), String> {
@@ -434,6 +497,26 @@ impl DockerVmController {
             "runtime": "docker"
         }))
     }
+}
+
+/// Build the environment variables that tell a docker creature how to reach the
+/// docker-host bridge gateway.
+///
+/// Security: the container is given **no identity and no secret** — only the
+/// gateway address. The node identifies which creature a connection belongs to
+/// from the connection's docker-network source IP (see
+/// `find_container_name_by_ip` / `IVmm::identify_container_by_ip`), which a
+/// container cannot forge. `CASPAR_VM_ID` is exposed for log readability only
+/// and is never trusted for auth.
+fn gateway_container_env(vm_id: &str) -> Vec<String> {
+    let host = std::env::var("DOCKER_HOST_GATEWAY_ADVERTISE_HOST")
+        .unwrap_or_else(|_| "host.docker.internal".to_string());
+    let port = std::env::var("DOCKER_HOST_GATEWAY_PORT").unwrap_or_else(|_| "8079".to_string());
+    vec![
+        format!("CASPAR_GATEWAY_HOST={}", host),
+        format!("CASPAR_GATEWAY_PORT={}", port),
+        format!("CASPAR_VM_ID={}", vm_id),
+    ]
 }
 
 fn docker_container_id(

@@ -1,3 +1,4 @@
+pub mod docker_host;
 pub mod gateway;
 pub mod gateway_http;
 pub mod gateway_registry;

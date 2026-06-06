@@ -55,6 +55,18 @@ pub struct Vmm {
 
     /// resource_id → per-resource lock state (used by lockResource host call).
     pub(crate) resource_locks: DashMap<String, Arc<ResourceLockEntry>>,
+
+    /// The docker-host bridge gateway. Owned here so docker creatures reach it
+    /// only through the canonical `ICore → tools() → vmm()` object graph — there
+    /// is no gateway global.
+    pub(crate) gateway: Arc<crate::drivers::vmm::network::docker_host::DockerHostGateway>,
+
+    /// docker container name → authoritative VM identity. Populated when the
+    /// node launches a docker creature; the gateway resolves a connection's
+    /// identity by mapping its source IP to a container name and looking it up
+    /// here, so a container can never declare/spoof its own identity.
+    pub(crate) vm_containers:
+        DashMap<String, crate::drivers::vmm::network::docker_host::ContainerIdentity>,
 }
 
 impl Vmm {
@@ -70,6 +82,7 @@ impl Vmm {
         // Publish the core handle so stateless VM host-call handlers can
         // reach the signaler / storage tools without a Vmm reference.
         crate::drivers::vmm::globals::set_global_app(app.clone());
+        let gateway = crate::drivers::vmm::network::docker_host::DockerHostGateway::new(app.clone());
         let vmm = Arc::new(Vmm {
             app,
             storage_root: storage_root.to_string(),
@@ -78,6 +91,8 @@ impl Vmm {
             vm_context: DashMap::new(),
             vm_trx: DashMap::new(),
             resource_locks: DashMap::new(),
+            gateway,
+            vm_containers: DashMap::new(),
         });
         vmm
     }
@@ -235,6 +250,19 @@ impl IVmm for Vmm {
                 if key != "creatures/signal" {
                     return;
                 }
+                // If a docker creature of this machine is connected to the
+                // bridge gateway, deliver the signal straight to its container
+                // over the live TCP connection instead of cold-spawning a VM.
+                // Reached through the canonical tools().vmm() object graph.
+                if trans
+                    .app
+                    .tools()
+                    .vmm()
+                    .push_signal_to_machine(&machine_id_owned, &key, &value)
+                    > 0
+                {
+                    return;
+                }
                 let raw = serde_json::to_vec(&value).unwrap_or_default();
                 let entity_id = serde_json::from_slice::<stores::Send>(&raw)
                     .ok()
@@ -307,6 +335,58 @@ impl IVmm for Vmm {
 
     fn vm_callback(&self, data_raw: &str) -> (String, i64) {
         Vmm::vm_callback(self, data_raw)
+    }
+
+    // ── Docker-host bridge gateway ────────────────────────────────────────────
+
+    fn start_docker_gateway(&self, port: i64) {
+        self.gateway.listen(port);
+    }
+
+    fn register_vm_container(
+        &self,
+        container_name: &str,
+        vm_id: &str,
+        creature_id: &str,
+        program_id: &str,
+        machine_id: &str,
+    ) {
+        self.vm_containers.insert(
+            container_name.to_string(),
+            crate::drivers::vmm::network::docker_host::ContainerIdentity {
+                vm_id: vm_id.to_string(),
+                creature_id: creature_id.to_string(),
+                program_id: program_id.to_string(),
+                machine_id: machine_id.to_string(),
+            },
+        );
+    }
+
+    fn unregister_vm_container(&self, container_name: &str) {
+        self.vm_containers.remove(container_name);
+    }
+
+    fn identify_container_by_ip(&self, ip: &str) -> Option<(String, String, String, String)> {
+        // Ask docker which container currently owns this source IP, then map the
+        // container name to the identity we recorded at launch.
+        let name = crate::drivers::vmm::host::vm_host_functions::with_docker_controller(
+            |controller| controller.find_container_name_by_ip(ip),
+        )
+        .ok()
+        .flatten()?;
+        self.vm_containers.get(&name).map(|e| {
+            let id = e.value();
+            (
+                id.vm_id.clone(),
+                id.creature_id.clone(),
+                id.program_id.clone(),
+                id.machine_id.clone(),
+            )
+        })
+    }
+
+    fn push_signal_to_machine(&self, machine_id: &str, key: &str, data: &Value) -> usize {
+        self.gateway.push_signal_to_machine(machine_id, key, data)
     }
 
     // ── VM execution context registry ────────────────────────────────────────

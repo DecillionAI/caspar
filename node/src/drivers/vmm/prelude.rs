@@ -2,8 +2,8 @@ pub use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 pub use base64::Engine;
 pub use blockingqueue::BlockingQueue;
 pub use bollard::container::{
-    Config as DockerConfig, CreateContainerOptions, LogOutput, LogsOptions, RemoveContainerOptions,
-    StartContainerOptions, StopContainerOptions, UploadToContainerOptions,
+    Config as DockerConfig, CreateContainerOptions, ListContainersOptions, LogOutput, LogsOptions,
+    RemoveContainerOptions, StartContainerOptions, StopContainerOptions, UploadToContainerOptions,
 };
 pub use bollard::errors::Error as BollardError;
 pub use bollard::exec::{CreateExecOptions, StartExecResults};
