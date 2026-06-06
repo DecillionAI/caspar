@@ -61,10 +61,11 @@ pub struct Vmm {
     /// is no gateway global.
     pub(crate) gateway: Arc<crate::drivers::vmm::network::docker_host::DockerHostGateway>,
 
-    /// session token → authoritative VM identity. The node issues a token when
-    /// it launches a docker creature and resolves the identity from it on
-    /// connect, so a container can never declare/spoof its own identity.
-    pub(crate) vm_sessions:
+    /// docker container name → authoritative VM identity. Populated when the
+    /// node launches a docker creature; the gateway resolves a connection's
+    /// identity by mapping its source IP to a container name and looking it up
+    /// here, so a container can never declare/spoof its own identity.
+    pub(crate) vm_containers:
         DashMap<String, crate::drivers::vmm::network::docker_host::ContainerIdentity>,
 }
 
@@ -91,7 +92,7 @@ impl Vmm {
             vm_trx: DashMap::new(),
             resource_locks: DashMap::new(),
             gateway,
-            vm_sessions: DashMap::new(),
+            vm_containers: DashMap::new(),
         });
         vmm
     }
@@ -342,16 +343,16 @@ impl IVmm for Vmm {
         self.gateway.listen(port);
     }
 
-    fn issue_vm_session(
+    fn register_vm_container(
         &self,
+        container_name: &str,
         vm_id: &str,
         creature_id: &str,
         program_id: &str,
         machine_id: &str,
-    ) -> String {
-        let token = crate::shell::utils::crypto::secure_unique_string();
-        self.vm_sessions.insert(
-            token.clone(),
+    ) {
+        self.vm_containers.insert(
+            container_name.to_string(),
             crate::drivers::vmm::network::docker_host::ContainerIdentity {
                 vm_id: vm_id.to_string(),
                 creature_id: creature_id.to_string(),
@@ -359,11 +360,21 @@ impl IVmm for Vmm {
                 machine_id: machine_id.to_string(),
             },
         );
-        token
     }
 
-    fn resolve_vm_session(&self, token: &str) -> Option<(String, String, String, String)> {
-        self.vm_sessions.get(token).map(|e| {
+    fn unregister_vm_container(&self, container_name: &str) {
+        self.vm_containers.remove(container_name);
+    }
+
+    fn identify_container_by_ip(&self, ip: &str) -> Option<(String, String, String, String)> {
+        // Ask docker which container currently owns this source IP, then map the
+        // container name to the identity we recorded at launch.
+        let name = crate::drivers::vmm::host::vm_host_functions::with_docker_controller(
+            |controller| controller.find_container_name_by_ip(ip),
+        )
+        .ok()
+        .flatten()?;
+        self.vm_containers.get(&name).map(|e| {
             let id = e.value();
             (
                 id.vm_id.clone(),
@@ -372,10 +383,6 @@ impl IVmm for Vmm {
                 id.machine_id.clone(),
             )
         })
-    }
-
-    fn revoke_vm_session(&self, vm_id: &str) {
-        self.vm_sessions.retain(|_, id| id.vm_id != vm_id);
     }
 
     fn push_signal_to_machine(&self, machine_id: &str, key: &str, data: &Value) -> usize {

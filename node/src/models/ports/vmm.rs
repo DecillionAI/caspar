@@ -31,21 +31,25 @@ pub trait IVmm: Send + Sync {
     /// No-op when `port <= 0` or already running. The gateway is owned by the
     /// VMM instance — callers reach it only through `tools().vmm()`.
     fn start_docker_gateway(&self, port: i64);
-    /// Issue an unguessable, node-managed session token bound to a VM's
-    /// authoritative identity. This token is the *only* credential injected into
-    /// a docker container; the node resolves the identity from it, so a
-    /// container can never declare (or spoof) another VM's identity.
-    fn issue_vm_session(
+    /// Bind a docker container *name* to its VM's authoritative identity. Done
+    /// when the node launches the container, so a gateway connection can be
+    /// identified by resolving its source IP → container name → this identity.
+    fn register_vm_container(
         &self,
+        container_name: &str,
         vm_id: &str,
         creature_id: &str,
         program_id: &str,
         machine_id: &str,
-    ) -> String;
-    /// Resolve a session token to `(vm_id, creature_id, program_id, machine_id)`.
-    fn resolve_vm_session(&self, token: &str) -> Option<(String, String, String, String)>;
-    /// Revoke any session bound to `vm_id` (called at VM teardown).
-    fn revoke_vm_session(&self, vm_id: &str);
+    );
+    /// Drop a container→identity binding at VM teardown.
+    fn unregister_vm_container(&self, container_name: &str);
+    /// Identify the creature/VM a connection belongs to from its docker-network
+    /// source `ip`: the node asks docker which container owns that IP, then maps
+    /// the container name to its registered identity. Returns
+    /// `(vm_id, creature_id, program_id, machine_id)`. Spoof-resistant — the
+    /// container cannot forge its bridge IP or docker's view of it.
+    fn identify_container_by_ip(&self, ip: &str) -> Option<(String, String, String, String)>;
     /// Push a signal to every live docker container of `machine_id`, delivered
     /// over its gateway connection. Returns the number of containers reached.
     fn push_signal_to_machine(&self, machine_id: &str, key: &str, data: &JsonValue) -> usize;

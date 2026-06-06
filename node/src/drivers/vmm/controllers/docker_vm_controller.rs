@@ -64,11 +64,7 @@ impl DockerVmController {
                     .collect::<Vec<String>>()
             })
             .unwrap_or_default();
-        env_vars.extend(gateway_container_env(
-            machine_id,
-            &creature_id,
-            &vm_cache_key,
-        ));
+        env_vars.extend(gateway_container_env(&vm_cache_key));
         let env = Some(env_vars);
         let cmd = packet["command"]
             .as_str()
@@ -138,8 +134,8 @@ impl DockerVmController {
             with_global_app(|app| app.tools().vmm().commit_vm_trx(timeout_vm.as_str()));
             // DashMap: no lock needed — inserts/removes are concurrency-safe
             with_global_app(|app| app.tools().vmm().unregister_vm_context(timeout_vm.as_str()));
-            // Revoke the gateway session token so it can never be reused.
-            with_global_app(|app| app.tools().vmm().revoke_vm_session(timeout_vm.as_str()));
+            // Drop the container→identity binding so its IP can't be reused.
+            with_global_app(|app| app.tools().vmm().unregister_vm_container(timeout_container.as_str()));
         });
         let container_id_for_logs = container_id.clone();
         let vm_id_for_logs = vm_cache_key.clone();
@@ -185,6 +181,18 @@ impl DockerVmController {
         });
         // DashMap: no lock needed — inserts/removes are concurrency-safe
         with_global_app(|app| app.tools().vmm().register_vm_context(&vm_cache_key, &creature_id, machine_id));
+        // Bind the docker container name to this VM's authoritative identity so
+        // the gateway can resolve a connection's identity from its source IP
+        // (IP → container name → identity). program_id == machine_id for docker.
+        with_global_app(|app| {
+            app.tools().vmm().register_vm_container(
+                &container_id,
+                &vm_cache_key,
+                &creature_id,
+                machine_id,
+                machine_id,
+            )
+        });
         // Begin a lifecycle transaction buffer for this VM execution so all
         // dbOp writes are batched and committed atomically at VM end.
         with_global_app(|app| app.tools().vmm().begin_vm_trx(&vm_cache_key));
@@ -223,8 +231,8 @@ impl DockerVmController {
         with_global_app(|app| app.tools().vmm().commit_vm_trx(vm_cache_key.as_str()));
         // DashMap: no lock needed — inserts/removes are concurrency-safe
         with_global_app(|app| app.tools().vmm().unregister_vm_context(vm_cache_key.as_str()));
-        // Revoke the gateway session token so it can never be reused.
-        with_global_app(|app| app.tools().vmm().revoke_vm_session(vm_cache_key.as_str()));
+        // Drop the container→identity binding so its IP can't be reused.
+        with_global_app(|app| app.tools().vmm().unregister_vm_container(container_id.as_str()));
         Ok(json!({
             "ok": true,
             "machineId": machine_id,
@@ -312,6 +320,41 @@ impl DockerVmController {
             "containerId": container_id,
             "fileName": file_name
         }))
+    }
+
+    /// Resolve the docker container name that owns `ip` on any docker network.
+    ///
+    /// This is the authoritative, spoof-resistant way to identify which creature
+    /// a gateway connection belongs to: the source IP of the connection is fixed
+    /// by the docker bridge (a container cannot forge another container's bridge
+    /// IP), and docker — not the container — reports which container holds it.
+    pub(crate) fn find_container_name_by_ip(&self, ip: &str) -> Result<Option<String>, String> {
+        if ip.is_empty() {
+            return Ok(None);
+        }
+        let summaries = self.with_async(self.docker.list_containers(Some(
+            ListContainersOptions::<String> {
+                all: false,
+                ..Default::default()
+            },
+        )))?;
+        for c in summaries {
+            let matched = c
+                .network_settings
+                .as_ref()
+                .and_then(|ns| ns.networks.as_ref())
+                .map(|nets| nets.values().any(|ep| ep.ip_address.as_deref() == Some(ip)))
+                .unwrap_or(false);
+            if matched {
+                let name = c
+                    .names
+                    .as_ref()
+                    .and_then(|n| n.first())
+                    .map(|s| s.trim_start_matches('/').to_string());
+                return Ok(name);
+            }
+        }
+        Ok(None)
     }
 
     fn stop_and_remove_if_exists(&self, container_id: &str) -> Result<(), String> {
@@ -457,30 +500,21 @@ impl DockerVmController {
 }
 
 /// Build the environment variables that tell a docker creature how to reach the
-/// docker-host bridge gateway and authenticate to it.
+/// docker-host bridge gateway.
 ///
-/// Security: the container receives **only** an opaque, node-issued session
-/// token — never its own `vmId`/`creatureId`/`programId`. The node binds the
-/// token to the VM's authoritative identity (via `tools().vmm()`) and resolves
-/// it on connect, so a malicious container cannot declare another VM's identity
-/// to reach its data.
-fn gateway_container_env(machine_id: &str, creature_id: &str, vm_id: &str) -> Vec<String> {
+/// Security: the container is given **no identity and no secret** — only the
+/// gateway address. The node identifies which creature a connection belongs to
+/// from the connection's docker-network source IP (see
+/// `find_container_name_by_ip` / `IVmm::identify_container_by_ip`), which a
+/// container cannot forge. `CASPAR_VM_ID` is exposed for log readability only
+/// and is never trusted for auth.
+fn gateway_container_env(vm_id: &str) -> Vec<String> {
     let host = std::env::var("DOCKER_HOST_GATEWAY_ADVERTISE_HOST")
         .unwrap_or_else(|_| "host.docker.internal".to_string());
     let port = std::env::var("DOCKER_HOST_GATEWAY_PORT").unwrap_or_else(|_| "8079".to_string());
-    // The owning program of a docker creature is its machine id (matches the
-    // VM-context registry), so program_id == machine_id.
-    let token = with_global_app(|app| {
-        app.tools()
-            .vmm()
-            .issue_vm_session(vm_id, creature_id, machine_id, machine_id)
-    })
-    .unwrap_or_default();
     vec![
         format!("CASPAR_GATEWAY_HOST={}", host),
         format!("CASPAR_GATEWAY_PORT={}", port),
-        format!("CASPAR_SESSION_TOKEN={}", token),
-        // vm_id is provided for log readability only; it is NOT trusted for auth.
         format!("CASPAR_VM_ID={}", vm_id),
     ]
 }

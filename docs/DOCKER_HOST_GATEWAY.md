@@ -41,9 +41,9 @@ node/src/drivers/vmm/network/docker_host/
 
 ```rust
 fn start_docker_gateway(&self, port: i64);
-fn issue_vm_session(&self, vm_id, creature_id, program_id, machine_id) -> String;
-fn resolve_vm_session(&self, token) -> Option<(vm_id, creature_id, program_id, machine_id)>;
-fn revoke_vm_session(&self, vm_id);
+fn register_vm_container(&self, container_name, vm_id, creature_id, program_id, machine_id);
+fn unregister_vm_container(&self, container_name);
+fn identify_container_by_ip(&self, ip) -> Option<(vm_id, creature_id, program_id, machine_id)>;
 fn push_signal_to_machine(&self, machine_id, key, data) -> usize;
 ```
 
@@ -53,41 +53,46 @@ read timeout lets that thread interleave inbound reads with draining an outbound
 MPSC queue, so signal pushes and host-call responses never block on, or deadlock
 against, the read path.
 
-## Security: identity is node-assigned, never container-declared
+## Security: identity is derived from the docker source IP
 
 A container must **never** be trusted to declare its own `vmId`/`creatureId`/
 `programId` — a malicious container could otherwise claim another VM's identity
-and read/write its data. Instead:
+and read/write its data. Nor does the container hold any secret to present.
+Instead the node identifies a connection from facts only docker controls:
 
-* When the node launches a docker creature it calls
-  `tools().vmm().issue_vm_session(...)`, which mints an unguessable token bound
-  to the VM's authoritative identity, and injects **only that token** into the
-  container (`CASPAR_SESSION_TOKEN`).
-* On `HELLO` the container sends just the token. The node resolves it via
-  `tools().vmm().resolve_vm_session(token)` and pins the resulting identity to
-  the connection. Every subsequent request is stamped with that identity; any
-  identity fields in the request are ignored.
-* The token is revoked (`revoke_vm_session`) when the VM terminates or times
-  out, so it can never be reused.
+* When the node launches a docker creature it records the binding
+  `container name → (vm_id, creature_id, program_id, machine_id)` via
+  `tools().vmm().register_vm_container(...)`. The container is given **no
+  identity and no secret** — only the gateway address.
+* On `HELLO` the node takes the connection's docker-network **source IP** and
+  calls `tools().vmm().identify_container_by_ip(ip)`, which asks the docker
+  daemon (bollard `list_containers`) *which container currently owns that IP*,
+  then maps the returned container name to the registered identity. That
+  identity is pinned to the connection for its lifetime and stamped onto every
+  request; any identity fields in a request are ignored.
+* The binding is dropped (`unregister_vm_container`) when the VM terminates or
+  times out.
 
-This gives docker creatures the **same security posture** the in-process wasm
-runtime already has, where `host_call` stamps the node-created runtime's own
-`machine_id`/`vm_id` and never trusts guest-supplied identity.
+This is spoof-resistant: a sandboxed container cannot forge another container's
+bridge source IP, and it is docker — not the container — that reports the
+IP→container mapping. It gives docker creatures the **same security posture** the
+in-process wasm runtime already has, where `host_call` stamps the node-created
+runtime's own `machine_id`/`vm_id` and never trusts guest-supplied identity.
 
 ## Lifecycle
 
-1. The node starts a docker creature (`DockerVmController::run_vm`) and injects:
-   * `CASPAR_GATEWAY_HOST` / `CASPAR_GATEWAY_PORT` — where to dial, and
-   * `CASPAR_SESSION_TOKEN` — the opaque, node-issued credential (the **only**
-     credential; identity is never injected).
+1. The node starts a docker creature (`DockerVmController::run_vm`), records the
+   `container name → identity` binding, and injects only:
+   * `CASPAR_GATEWAY_HOST` / `CASPAR_GATEWAY_PORT` — where to dial.
 
    The container is also given `--add-host host.docker.internal:host-gateway`
    so it can resolve the node host from inside the bridge network.
 
-2. After start/init the container connects and sends `HELLO {token}`. The node
-   resolves the token to the VM's authoritative identity, registers the
-   connection, and replies `WELCOME` echoing that identity (read-only) so the
-   container can address replies without ever declaring its own id.
+2. After start/init the container connects and sends an empty `HELLO`. The node
+   resolves the connection's docker-network source IP → container → identity,
+   registers the connection, and replies `WELCOME` echoing that identity
+   (read-only) so the container can address replies without ever declaring its
+   own id.
 
 3. The container streams `REQUEST` host-calls and receives `RESPONSE`s. The node
    stamps the connection's resolved identity onto every request, so a container
@@ -124,7 +129,7 @@ A message that fits in one chunk uses `seq = 0`, `total = 1`.
 
 | op   | name     | direction          | payload                                                  |
 |------|----------|--------------------|----------------------------------------------------------|
-| 0x01 | HELLO    | container → node   | `{token}` (node-issued session token — no identity)      |
+| 0x01 | HELLO    | container → node   | `{}` (empty — identity is derived from the source IP)    |
 | 0x02 | WELCOME  | node → container   | `{ok, sessionId, vmId, machineId, creatureId, programId}`|
 | 0x10 | REQUEST  | container → node   | `{op, input}`                             |
 | 0x11 | RESPONSE | node → container   | host-function result (JSON)               |
@@ -149,8 +154,8 @@ returned verbatim as the `RESPONSE` payload.
 | `DOCKER_HOST_GATEWAY_ADVERTISE_HOST` | `host.docker.internal`| host injected into containers to dial    |
 
 Per-container env injected by the node: `CASPAR_GATEWAY_HOST`,
-`CASPAR_GATEWAY_PORT`, `CASPAR_SESSION_TOKEN` (auth), and `CASPAR_VM_ID` (for log
-readability only — never trusted for auth).
+`CASPAR_GATEWAY_PORT`, and `CASPAR_VM_ID` (for log readability only — never
+trusted for auth; identity is derived from the connection's docker source IP).
 
 ## Clients
 

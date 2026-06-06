@@ -18,9 +18,11 @@
 //!
 //! ## Security
 //!
-//! Containers authenticate with a node-issued session token; the node resolves
-//! it to the VM's authoritative identity. A container never declares its own
-//! `vmId`/`creatureId`/`programId`, so it cannot impersonate another VM.
+//! A connection's identity is derived from its docker-network **source IP**: the
+//! node asks docker which container owns that IP and maps the container name to
+//! the identity it recorded at launch (`IVmm::identify_container_by_ip`). The
+//! container declares nothing and holds no secret, and it cannot forge its
+//! bridge IP — so it can never impersonate another VM.
 //!
 //! The module is structured into:
 //! * [`protocol`]   — the chunked wire framing,

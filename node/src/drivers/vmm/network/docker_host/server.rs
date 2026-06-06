@@ -6,16 +6,17 @@
 //! responses never block on, or deadlock against, the read path. This mirrors
 //! the proven concurrency model of the federation `netserver`.
 //!
-//! ## Security: identity is node-assigned, never container-declared
+//! ## Security: identity is derived from the source IP, never container-declared
 //!
-//! A container authenticates with a single-use **session token** that the node
-//! issued (out of band) when it launched the container. On `HELLO` the node
-//! resolves the token to the VM's *authoritative* identity via
-//! `tools().vmm().resolve_vm_session` — the container never sends, and can never
-//! spoof, a `vmId`/`creatureId`/`programId`. Every subsequent request is stamped
-//! with that resolved identity. This gives docker creatures the same security
-//! posture the in-process wasm runtime already has (where `host_call` stamps the
-//! node-created runtime's own `machine_id`/`vm_id`).
+//! On `HELLO` the node identifies the connection from its docker-network source
+//! IP via `tools().vmm().identify_container_by_ip`: docker reports which
+//! container owns that IP, and the node maps the container name to the identity
+//! it recorded at launch. The container sends, and holds, nothing identifying —
+//! and it cannot forge its bridge IP — so it can never claim another VM's
+//! identity. Every subsequent request is stamped with the resolved identity.
+//! This gives docker creatures the same security posture the in-process wasm
+//! runtime already has (where `host_call` stamps the node-created runtime's own
+//! `machine_id`/`vm_id`).
 
 use std::collections::VecDeque;
 use std::io::{ErrorKind, Read, Write};
@@ -39,6 +40,12 @@ pub(crate) fn run_connection(gateway: Arc<DockerHostGateway>, stream: TcpStream)
         .peer_addr()
         .map(|a| a.to_string())
         .unwrap_or_else(|_| "unknown".to_string());
+    // Bare source IP (no port), matching docker's reported container IP. This is
+    // the connection's authoritative identity key — see `handle_message`.
+    let peer_ip = stream
+        .peer_addr()
+        .map(|a| a.ip().to_string())
+        .unwrap_or_default();
     let _ = stream.set_read_timeout(Some(Duration::from_millis(20)));
     let _ = stream.set_nodelay(true);
     let mut stream = stream;
@@ -125,7 +132,7 @@ pub(crate) fn run_connection(gateway: Arc<DockerHostGateway>, stream: TcpStream)
                         body_filled = 0;
                         match assembler.push_frame(&body) {
                             Ok(Some(msg)) => {
-                                if !handle_message(&gateway, &peer, &tx, &mut session, msg) {
+                                if !handle_message(&gateway, &peer, &peer_ip, &tx, &mut session, msg) {
                                     break 'io;
                                 }
                             }
@@ -156,6 +163,7 @@ pub(crate) fn run_connection(gateway: Arc<DockerHostGateway>, stream: TcpStream)
 fn handle_message(
     gateway: &Arc<DockerHostGateway>,
     peer: &str,
+    peer_ip: &str,
     tx: &Sender<OutboundFrame>,
     session: &mut Option<Arc<GatewayConnection>>,
     msg: GatewayMessage,
@@ -166,26 +174,20 @@ fn handle_message(
                 // Duplicate handshake — ignore, keep the existing session.
                 return true;
             }
-            // Authenticate by node-issued token ONLY. The container does not (and
-            // cannot) declare its own identity — the node resolves it.
-            let token = msg
-                .json()
-                .get("token")
-                .and_then(JsonValue::as_str)
-                .unwrap_or("")
-                .trim()
-                .to_string();
-            let resolved = if token.is_empty() {
-                None
-            } else {
-                gateway.app.tools().vmm().resolve_vm_session(&token)
-            };
+            // The container declares NOTHING about its identity. The node
+            // resolves it from the connection's docker-network source IP:
+            // IP → (docker) container name → registered identity. A container
+            // cannot forge its bridge IP, making this spoof-resistant.
+            let resolved = gateway.app.tools().vmm().identify_container_by_ip(peer_ip);
             let Some((vm_id, creature_id, program_id, machine_id)) = resolved else {
                 send_local(
                     tx,
                     Opcode::Error,
                     msg.correlation_id,
-                    &json!({ "ok": false, "error": "invalid or missing session token" }),
+                    &json!({
+                        "ok": false,
+                        "error": format!("could not identify a docker creature for source ip {}", peer_ip),
+                    }),
                 );
                 return false;
             };
