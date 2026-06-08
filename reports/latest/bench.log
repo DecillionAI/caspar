@@ -14,292 +14,292 @@
 ──────────────────────────────────────────────────────────────────────
   Workflow 1: chain  [node1]
 ──────────────────────────────────────────────────────────────────────
-  [✓] create workchain                                      162.4 ms
-  [✓] createShard                                           100.8 ms
-  [✓] registerNode                                          150.4 ms
-  [✓] submitBaseTrx                                         146.4 ms
+  [✓] create workchain                                      102.8 ms
+  [✓] createShard                                            94.9 ms
+  [✓] registerNode                                          114.1 ms
+  [✓] submitBaseTrx                                         165.9 ms
 
 ──────────────────────────────────────────────────────────────────────
   Workflow 2: stores  [node1]
 ──────────────────────────────────────────────────────────────────────
-  [✓] create store                                          132.9 ms
-  [✓] list stores                                           117.0 ms
-  [✓] join store                                            129.9 ms
-  [✓] get store                                             133.7 ms
+  [✓] create store                                          125.7 ms
+  [✓] list stores                                           115.8 ms
+  [✓] join store                                             99.9 ms
+  [✓] get store                                              98.9 ms
 
 ──────────────────────────────────────────────────────────────────────
   Workflow 3: storage  [node1]
 ──────────────────────────────────────────────────────────────────────
-  [✓] upload user entity                                    142.6 ms
-  [✓] download entity                                       130.4 ms
-  [✓] delete entity                                         151.7 ms
+  [✓] upload user entity                                     96.9 ms
+  [✓] download entity                                       121.9 ms
+  [✓] delete entity                                         119.6 ms
 
 ──────────────────────────────────────────────────────────────────────
   Workflow 4: invites  [node1]
 ──────────────────────────────────────────────────────────────────────
-  [✓] create invite                                         122.1 ms
-  [✓] listUserInvites                                       126.9 ms
-  [✓] listStoreInvites                                      133.0 ms
+  [✓] create invite                                          92.1 ms
+  [✓] listUserInvites                                       119.8 ms
+  [✓] listStoreInvites                                      120.9 ms
 
 ──────────────────────────────────────────────────────────────────────
   Workflow 6: elpify-chain  [node1]
 ──────────────────────────────────────────────────────────────────────
-  [✓] stake node1 (100)                                     125.3 ms
-  [✓] stake node2 (200)                                     121.9 ms
-  [✓] stake node3 (300)                                     112.8 ms
-  [✓] commit (1@global)                                     128.0 ms
-  [✓] commit (validator-2-1@gl)                             125.7 ms
-  [✓] commit (validator-3-1@gl)                             113.9 ms
-  [✓] reveal (1@global)                                     125.0 ms
-  [✓] reveal (validator-2-1@gl)                             145.7 ms
-  [✓] reveal (validator-3-1@gl)                             127.8 ms
-  [✓] electionTick                                          145.0 ms
+  [✓] stake node1 (100)                                      91.3 ms
+  [✓] stake node2 (200)                                     104.1 ms
+  [✓] stake node3 (300)                                     120.0 ms
+  [✓] commit (1@global)                                      95.5 ms
+  [✓] commit (validator-2-1@gl)                             118.0 ms
+  [✓] commit (validator-3-1@gl)                             123.7 ms
+  [✓] reveal (1@global)                                     121.5 ms
+  [✓] reveal (validator-2-1@gl)                             115.0 ms
+  [✓] reveal (validator-3-1@gl)                             113.9 ms
+  [✓] electionTick                                          119.0 ms
     → Elected 3 validators
-  [✓] status query                                          136.0 ms
-  [✓] executeTrx:fib                                        170.7 ms
-  [✓] executeTrx:hash                                       157.6 ms
-  [✓] executeTrx:hello                                      136.1 ms
-  [✓] tally:fib                                             129.1 ms
-  [✓] tally:hash                                            144.6 ms
+  [✓] status query                                          122.3 ms
+  [✓] executeTrx:fib                                        118.3 ms
+  [✓] executeTrx:hash                                       139.6 ms
+  [✓] executeTrx:hello                                      139.9 ms
+  [✓] tally:fib                                             122.2 ms
+  [✓] tally:hash                                            115.8 ms
 
 ──────────────────────────────────────────────────────────────────────
   Workflow 7: cross-creature orchestration  [node1]
 ──────────────────────────────────────────────────────────────────────
-  [✓] chain:createFromStore                                 129.9 ms
-  [✓] stores:history                                        127.5 ms
-  [✓] storage:uploadStoreEntity(chain proof)                117.1 ms
-  [✓] elpify-chain:status(via store context)                126.1 ms
-  [✓] invites:create(cross-store)                           143.9 ms
-  [✓] chain:submitBaseTrx(elpify proof)                     144.8 ms
+  [✓] chain:createFromStore                                 115.5 ms
+  [✓] stores:history                                         93.8 ms
+  [✓] storage:uploadStoreEntity(chain proof)                 94.8 ms
+  [✓] elpify-chain:status(via store context)                 97.9 ms
+  [✓] invites:create(cross-store)                           117.9 ms
+  [✓] chain:submitBaseTrx(elpify proof)                     114.8 ms
 
 ──────────────────────────────────────────────────────────────────────
   Workflow 8: throughput / TPS  [node1]
 ──────────────────────────────────────────────────────────────────────
   [8a] Per-creature sequential TPS …
-  [✓] elpify-chain:status n=20                             2381.3 ms
-    elpify-chain:status                      tps=  8.40  p50=  124.0ms  p99=  130.1ms  ok=100%
-  [✓] chain:submitBaseTrx n=20                             2435.1 ms
-    chain:submitBaseTrx               tps=  8.21  p50=  124.0ms  p99=  137.2ms  ok=100%
-  [✓] stores:list n=20                                     2578.8 ms
-    stores:list                        tps=  7.76  p50=  130.4ms  p99=  150.9ms  ok=100%
-  [✓] stores:create n=20                                   2546.5 ms
-    stores:create                      tps=  7.85  p50=  127.9ms  p99=  131.7ms  ok=100%
-  [✓] storage:upload n=20                                  2464.9 ms
-    storage:upload                      tps=  8.11  p50=  124.9ms  p99=  130.6ms  ok=100%
-  [✓] storage:download n=20                                2502.2 ms
-    storage:download                    tps=  7.99  p50=  125.4ms  p99=  137.9ms  ok=100%
-  [✓] invites:listUserInvites n=20                         2518.2 ms
-    invites:listUserInvites             tps=  7.94  p50=  127.1ms  p99=  142.0ms  ok=100%
-  [✓] invites:listStoreInvites n=20                        2593.3 ms
-    invites:listStoreInvites            tps=  7.71  p50=  128.0ms  p99=  157.3ms  ok=100%
+  [✓] elpify-chain:status n=20                             1949.4 ms
+    elpify-chain:status                      tps= 10.26  p50=   96.5ms  p99=  114.7ms  ok=100%
+  [✓] chain:submitBaseTrx n=20                             1875.9 ms
+    chain:submitBaseTrx               tps= 10.66  p50=   94.9ms  p99=  100.0ms  ok=100%
+  [✓] stores:list n=20                                     2154.7 ms
+    stores:list                        tps=  9.28  p50=  114.0ms  p99=  126.9ms  ok=100%
+  [✓] stores:create n=20                                   2216.1 ms
+    stores:create                      tps=  9.02  p50=  116.6ms  p99=  123.0ms  ok=100%
+  [✓] storage:upload n=20                                  2019.0 ms
+    storage:upload                      tps=  9.91  p50=   98.7ms  p99=  122.9ms  ok=100%
+  [✓] storage:download n=20                                2157.8 ms
+    storage:download                    tps=  9.27  p50=  108.0ms  p99=  121.3ms  ok=100%
+  [✓] invites:listUserInvites n=20                         2261.8 ms
+    invites:listUserInvites             tps=  8.84  p50=  115.9ms  p99=  123.0ms  ok=100%
+  [✓] invites:listStoreInvites n=20                        2261.2 ms
+    invites:listStoreInvites            tps=  8.84  p50=  115.9ms  p99=  123.8ms  ok=100%
 
   [8b] On-chain elpify-chain executeTrx TPS (n=5, MASM) …
-  [✓] elpify-chain:executeTrx(MASM) n=5                     697.7 ms
-    elpify-chain:executeTrx  tps=7.167  p50=134.5ms  p99=153.9ms
+  [✓] elpify-chain:executeTrx(MASM) n=5                     589.4 ms
+    elpify-chain:executeTrx  tps=8.484  p50=116.4ms  p99=124.7ms
 
   [8c] Mixed workload (n=30, interleaved namespaces) …
-  [✓] mixed-workload n=30                                  4088.9 ms
-    mixed: tps=7.34  mean=136.2ms  p50=132.5ms  p99=176.4ms  errs=0
+  [✓] mixed-workload n=30                                  3518.8 ms
+    mixed: tps=8.53  mean=117.2ms  p50=119.2ms  p99=141.9ms  errs=0
 
   [8d] Concurrent burst (10 parallel connections) …
-  [✓] concurrent-burst n=10 threads                        1146.5 ms
-    concurrent: tps=8.72  p50=1017.2ms  p99=1135.6ms  errs=0
+  [✓] concurrent-burst n=10 threads                         889.4 ms
+    concurrent: tps=11.24  p50=775.0ms  p99=881.2ms  errs=0
 
 ──────────────────────────────────────────────────────────────────────
   Workflow 1: chain  [node2]
 ──────────────────────────────────────────────────────────────────────
-  [✓] create workchain                                      126.8 ms
-  [✓] createShard                                           124.0 ms
-  [✓] registerNode                                          123.9 ms
-  [✓] submitBaseTrx                                         142.9 ms
+  [✓] create workchain                                       99.1 ms
+  [✓] createShard                                            94.9 ms
+  [✓] registerNode                                          119.2 ms
+  [✓] submitBaseTrx                                         117.2 ms
 
 ──────────────────────────────────────────────────────────────────────
   Workflow 2: stores  [node2]
 ──────────────────────────────────────────────────────────────────────
-  [✓] create store                                          117.9 ms
-  [✓] list stores                                           128.9 ms
-  [✓] join store                                            125.0 ms
-  [✓] get store                                             108.1 ms
+  [✓] create store                                          100.8 ms
+  [✓] list stores                                           118.7 ms
+  [✓] join store                                            100.4 ms
+  [✓] get store                                              99.0 ms
 
 ──────────────────────────────────────────────────────────────────────
   Workflow 3: storage  [node2]
 ──────────────────────────────────────────────────────────────────────
-  [✓] upload user entity                                    120.6 ms
-  [✓] download entity                                       122.9 ms
-  [✓] delete entity                                         121.4 ms
+  [✓] upload user entity                                     94.4 ms
+  [✓] download entity                                       116.0 ms
+  [✓] delete entity                                         113.1 ms
 
 ──────────────────────────────────────────────────────────────────────
   Workflow 4: invites  [node2]
 ──────────────────────────────────────────────────────────────────────
-  [✓] create invite                                         131.9 ms
-  [✓] listUserInvites                                       122.4 ms
-  [✓] listStoreInvites                                      123.9 ms
+  [✓] create invite                                         119.9 ms
+  [✓] listUserInvites                                       116.6 ms
+  [✓] listStoreInvites                                      116.9 ms
 
 ──────────────────────────────────────────────────────────────────────
   Workflow 6: elpify-chain  [node2]
 ──────────────────────────────────────────────────────────────────────
-  [✓] stake node1 (100)                                     105.9 ms
-  [✓] stake node2 (200)                                     126.9 ms
-  [✓] stake node3 (300)                                     120.3 ms
-  [✓] commit (1@global)                                     128.6 ms
-  [✓] commit (validator-2-1@gl)                             118.8 ms
-  [✓] commit (validator-3-1@gl)                             123.2 ms
-  [✓] reveal (1@global)                                     143.5 ms
-  [✓] reveal (validator-2-1@gl)                             127.9 ms
-  [✓] reveal (validator-3-1@gl)                             129.8 ms
-  [✓] electionTick                                          141.2 ms
+  [✓] stake node1 (100)                                      99.7 ms
+  [✓] stake node2 (200)                                      94.9 ms
+  [✓] stake node3 (300)                                      96.8 ms
+  [✓] commit (1@global)                                      99.9 ms
+  [✓] commit (validator-2-1@gl)                             119.8 ms
+  [✓] commit (validator-3-1@gl)                             121.6 ms
+  [✓] reveal (1@global)                                     119.1 ms
+  [✓] reveal (validator-2-1@gl)                             119.0 ms
+  [✓] reveal (validator-3-1@gl)                             120.7 ms
+  [✓] electionTick                                          121.1 ms
     → Elected 3 validators
-  [✓] status query                                          144.8 ms
-  [✓] executeTrx:fib                                        150.9 ms
-  [✓] executeTrx:hash                                       170.6 ms
-  [✓] executeTrx:hello                                      142.8 ms
-  [✓] tally:fib                                             139.9 ms
-  [✓] tally:hash                                            145.9 ms
+  [✓] status query                                          119.3 ms
+  [✓] executeTrx:fib                                        143.5 ms
+  [✓] executeTrx:hash                                       117.9 ms
+  [✓] executeTrx:hello                                      144.7 ms
+  [✓] tally:fib                                             122.0 ms
+  [✓] tally:hash                                            115.9 ms
 
 ──────────────────────────────────────────────────────────────────────
   Workflow 7: cross-creature orchestration  [node2]
 ──────────────────────────────────────────────────────────────────────
-  [✓] chain:createFromStore                                 123.9 ms
-  [✓] stores:history                                        124.5 ms
-  [✓] storage:uploadStoreEntity(chain proof)                100.2 ms
-  [✓] elpify-chain:status(via store context)                126.9 ms
-  [✓] invites:create(cross-store)                           148.0 ms
-  [✓] chain:submitBaseTrx(elpify proof)                     125.9 ms
+  [✓] chain:createFromStore                                 118.9 ms
+  [✓] stores:history                                        108.9 ms
+  [✓] storage:uploadStoreEntity(chain proof)                120.9 ms
+  [✓] elpify-chain:status(via store context)                120.7 ms
+  [✓] invites:create(cross-store)                           108.0 ms
+  [✓] chain:submitBaseTrx(elpify proof)                      97.1 ms
 
 ──────────────────────────────────────────────────────────────────────
   Workflow 8: throughput / TPS  [node2]
 ──────────────────────────────────────────────────────────────────────
   [8a] Per-creature sequential TPS …
-  [✓] elpify-chain:status n=20                             2241.0 ms
-    elpify-chain:status                      tps=  8.92  p50=  112.2ms  p99=  135.5ms  ok=100%
-  [✓] chain:submitBaseTrx n=20                             2298.1 ms
-    chain:submitBaseTrx               tps=  8.70  p50=  121.8ms  p99=  130.8ms  ok=100%
-  [✓] stores:list n=20                                     2437.9 ms
-    stores:list                        tps=  8.20  p50=  124.0ms  p99=  135.4ms  ok=100%
-  [✓] stores:create n=20                                   2500.4 ms
-    stores:create                      tps=  8.00  p50=  127.0ms  p99=  132.9ms  ok=100%
-  [✓] storage:upload n=20                                  2528.3 ms
-    storage:upload                      tps=  7.91  p50=  127.7ms  p99=  139.2ms  ok=100%
-  [✓] storage:download n=20                                2533.5 ms
-    storage:download                    tps=  7.89  p50=  125.9ms  p99=  147.1ms  ok=100%
-  [✓] invites:listUserInvites n=20                         2484.1 ms
-    invites:listUserInvites             tps=  8.05  p50=  124.0ms  p99=  152.7ms  ok=100%
-  [✓] invites:listStoreInvites n=20                        2458.5 ms
-    invites:listStoreInvites            tps=  8.13  p50=  124.5ms  p99=  127.9ms  ok=100%
+  [✓] elpify-chain:status n=20                             2034.3 ms
+    elpify-chain:status                      tps=  9.83  p50=   98.8ms  p99=  118.4ms  ok=100%
+  [✓] chain:submitBaseTrx n=20                             1965.7 ms
+    chain:submitBaseTrx               tps= 10.17  p50=   96.9ms  p99=  117.9ms  ok=100%
+  [✓] stores:list n=20                                     2183.0 ms
+    stores:list                        tps=  9.16  p50=  115.9ms  p99=  123.9ms  ok=100%
+  [✓] stores:create n=20                                   2166.3 ms
+    stores:create                      tps=  9.23  p50=  113.9ms  p99=  122.3ms  ok=100%
+  [✓] storage:upload n=20                                  2101.6 ms
+    storage:upload                      tps=  9.52  p50=  101.1ms  p99=  122.0ms  ok=100%
+  [✓] storage:download n=20                                2101.9 ms
+    storage:download                    tps=  9.52  p50=  100.2ms  p99=  116.9ms  ok=100%
+  [✓] invites:listUserInvites n=20                         2187.7 ms
+    invites:listUserInvites             tps=  9.14  p50=  114.8ms  p99=  124.6ms  ok=100%
+  [✓] invites:listStoreInvites n=20                        2277.1 ms
+    invites:listStoreInvites            tps=  8.78  p50=  117.8ms  p99=  126.0ms  ok=100%
 
   [8b] On-chain elpify-chain executeTrx TPS (n=5, MASM) …
-  [✓] elpify-chain:executeTrx(MASM) n=5                     650.7 ms
-    elpify-chain:executeTrx  tps=7.684  p50=126.7ms  p99=141.9ms
+  [✓] elpify-chain:executeTrx(MASM) n=5                     578.5 ms
+    elpify-chain:executeTrx  tps=8.644  p50=116.1ms  p99=118.1ms
 
   [8c] Mixed workload (n=30, interleaved namespaces) …
-  [✓] mixed-workload n=30                                  4077.7 ms
-    mixed: tps=7.36  mean=135.8ms  p50=128.7ms  p99=172.0ms  errs=0
+  [✓] mixed-workload n=30                                  3526.6 ms
+    mixed: tps=8.51  mean=117.5ms  p50=120.0ms  p99=145.1ms  errs=0
 
   [8d] Concurrent burst (10 parallel connections) …
-  [✓] concurrent-burst n=10 threads                        1006.0 ms
-    concurrent: tps=9.94  p50=902.7ms  p99=988.2ms  errs=0
+  [✓] concurrent-burst n=10 threads                         883.6 ms
+    concurrent: tps=11.32  p50=755.4ms  p99=870.9ms  errs=0
 
 ──────────────────────────────────────────────────────────────────────
   Workflow 1: chain  [node3]
 ──────────────────────────────────────────────────────────────────────
-  [✓] create workchain                                      124.1 ms
-  [✓] createShard                                           129.9 ms
-  [✓] registerNode                                          112.9 ms
-  [✓] submitBaseTrx                                         122.0 ms
+  [✓] create workchain                                      122.0 ms
+  [✓] createShard                                           114.6 ms
+  [✓] registerNode                                           87.9 ms
+  [✓] submitBaseTrx                                         115.9 ms
 
 ──────────────────────────────────────────────────────────────────────
   Workflow 2: stores  [node3]
 ──────────────────────────────────────────────────────────────────────
-  [✓] create store                                          125.9 ms
-  [✓] list stores                                           127.2 ms
-  [✓] join store                                            104.6 ms
-  [✓] get store                                             126.0 ms
+  [✓] create store                                           98.6 ms
+  [✓] list stores                                           119.1 ms
+  [✓] join store                                             91.9 ms
+  [✓] get store                                              97.1 ms
 
 ──────────────────────────────────────────────────────────────────────
   Workflow 3: storage  [node3]
 ──────────────────────────────────────────────────────────────────────
-  [✓] upload user entity                                    102.7 ms
-  [✓] download entity                                       132.1 ms
-  [✓] delete entity                                         126.9 ms
+  [✓] upload user entity                                     99.1 ms
+  [✓] download entity                                       117.4 ms
+  [✓] delete entity                                         117.8 ms
 
 ──────────────────────────────────────────────────────────────────────
   Workflow 4: invites  [node3]
 ──────────────────────────────────────────────────────────────────────
-  [✓] create invite                                         105.8 ms
-  [✓] listUserInvites                                       122.0 ms
-  [✓] listStoreInvites                                      118.9 ms
+  [✓] create invite                                         103.4 ms
+  [✓] listUserInvites                                       124.5 ms
+  [✓] listStoreInvites                                      117.9 ms
 
 ──────────────────────────────────────────────────────────────────────
   Workflow 6: elpify-chain  [node3]
 ──────────────────────────────────────────────────────────────────────
-  [✓] stake node1 (100)                                     123.9 ms
-  [✓] stake node2 (200)                                     125.7 ms
-  [✓] stake node3 (300)                                     126.9 ms
-  [✓] commit (1@global)                                     125.0 ms
-  [✓] commit (validator-2-1@gl)                             119.7 ms
-  [✓] commit (validator-3-1@gl)                             122.8 ms
-  [✓] reveal (1@global)                                     129.9 ms
-  [✓] reveal (validator-2-1@gl)                             121.0 ms
-  [✓] reveal (validator-3-1@gl)                             123.7 ms
-  [✓] electionTick                                          150.9 ms
+  [✓] stake node1 (100)                                     120.3 ms
+  [✓] stake node2 (200)                                      93.5 ms
+  [✓] stake node3 (300)                                      91.9 ms
+  [✓] commit (1@global)                                     113.1 ms
+  [✓] commit (validator-2-1@gl)                             116.0 ms
+  [✓] commit (validator-3-1@gl)                              97.5 ms
+  [✓] reveal (1@global)                                     106.4 ms
+  [✓] reveal (validator-2-1@gl)                             120.1 ms
+  [✓] reveal (validator-3-1@gl)                             116.9 ms
+  [✓] electionTick                                          117.9 ms
     → Elected 3 validators
-  [✓] status query                                          150.0 ms
-  [✓] executeTrx:fib                                        142.1 ms
-  [✓] executeTrx:hash                                       146.4 ms
-  [✓] executeTrx:hello                                      141.1 ms
-  [✓] tally:fib                                             144.8 ms
-  [✓] tally:hash                                            122.9 ms
+  [✓] status query                                          120.9 ms
+  [✓] executeTrx:fib                                        130.7 ms
+  [✓] executeTrx:hash                                       117.9 ms
+  [✓] executeTrx:hello                                      137.8 ms
+  [✓] tally:fib                                             119.9 ms
+  [✓] tally:hash                                            116.7 ms
 
 ──────────────────────────────────────────────────────────────────────
   Workflow 7: cross-creature orchestration  [node3]
 ──────────────────────────────────────────────────────────────────────
-  [✓] chain:createFromStore                                 124.3 ms
-  [✓] stores:history                                         98.6 ms
-  [✓] storage:uploadStoreEntity(chain proof)                127.9 ms
-  [✓] elpify-chain:status(via store context)                112.4 ms
-  [✓] invites:create(cross-store)                           122.4 ms
-  [✓] chain:submitBaseTrx(elpify proof)                     127.8 ms
+  [✓] chain:createFromStore                                 121.2 ms
+  [✓] stores:history                                         99.6 ms
+  [✓] storage:uploadStoreEntity(chain proof)                 93.0 ms
+  [✓] elpify-chain:status(via store context)                 94.9 ms
+  [✓] invites:create(cross-store)                           110.7 ms
+  [✓] chain:submitBaseTrx(elpify proof)                      96.0 ms
 
 ──────────────────────────────────────────────────────────────────────
   Workflow 8: throughput / TPS  [node3]
 ──────────────────────────────────────────────────────────────────────
   [8a] Per-creature sequential TPS …
-  [✓] elpify-chain:status n=20                             2434.0 ms
-    elpify-chain:status                      tps=  8.22  p50=  124.3ms  p99=  132.3ms  ok=100%
-  [✓] chain:submitBaseTrx n=20                             2326.9 ms
-    chain:submitBaseTrx               tps=  8.60  p50=  122.2ms  p99=  130.1ms  ok=100%
-  [✓] stores:list n=20                                     2481.9 ms
-    stores:list                        tps=  8.06  p50=  124.9ms  p99=  135.8ms  ok=100%
-  [✓] stores:create n=20                                   2514.0 ms
-    stores:create                      tps=  7.96  p50=  126.1ms  p99=  134.9ms  ok=100%
-  [✓] storage:upload n=20                                  2380.0 ms
-    storage:upload                      tps=  8.40  p50=  121.7ms  p99=  129.1ms  ok=100%
-  [✓] storage:download n=20                                2522.7 ms
-    storage:download                    tps=  7.93  p50=  125.8ms  p99=  148.8ms  ok=100%
-  [✓] invites:listUserInvites n=20                         2462.8 ms
-    invites:listUserInvites             tps=  8.12  p50=  123.7ms  p99=  146.8ms  ok=100%
-  [✓] invites:listStoreInvites n=20                        2541.9 ms
-    invites:listStoreInvites            tps=  7.87  p50=  125.0ms  p99=  159.1ms  ok=100%
+  [✓] elpify-chain:status n=20                             1912.2 ms
+    elpify-chain:status                      tps= 10.46  p50=   96.9ms  p99=  103.2ms  ok=100%
+  [✓] chain:submitBaseTrx n=20                             1997.9 ms
+    chain:submitBaseTrx               tps= 10.01  p50=   97.1ms  p99=  118.4ms  ok=100%
+  [✓] stores:list n=20                                     2225.9 ms
+    stores:list                        tps=  8.98  p50=  115.9ms  p99=  121.0ms  ok=100%
+  [✓] stores:create n=20                                   2219.1 ms
+    stores:create                      tps=  9.01  p50=  116.7ms  p99=  121.9ms  ok=100%
+  [✓] storage:upload n=20                                  1968.0 ms
+    storage:upload                      tps= 10.16  p50=   97.9ms  p99=  114.9ms  ok=100%
+  [✓] storage:download n=20                                2157.0 ms
+    storage:download                    tps=  9.27  p50=  112.1ms  p99=  123.4ms  ok=100%
+  [✓] invites:listUserInvites n=20                         2246.0 ms
+    invites:listUserInvites             tps=  8.90  p50=  116.9ms  p99=  143.4ms  ok=100%
+  [✓] invites:listStoreInvites n=20                        2254.0 ms
+    invites:listStoreInvites            tps=  8.87  p50=  115.9ms  p99=  130.4ms  ok=100%
 
   [8b] On-chain elpify-chain executeTrx TPS (n=5, MASM) …
-  [✓] elpify-chain:executeTrx(MASM) n=5                     703.2 ms
-    elpify-chain:executeTrx  tps=7.111  p50=141.9ms  p99=154.5ms
+  [✓] elpify-chain:executeTrx(MASM) n=5                     591.7 ms
+    elpify-chain:executeTrx  tps=8.451  p50=117.0ms  p99=121.5ms
 
   [8c] Mixed workload (n=30, interleaved namespaces) …
-  [✓] mixed-workload n=30                                  3917.7 ms
-    mixed: tps=7.66  mean=130.5ms  p50=126.7ms  p99=178.2ms  errs=0
+  [✓] mixed-workload n=30                                  3432.1 ms
+    mixed: tps=8.74  mean=114.3ms  p50=113.4ms  p99=143.7ms  errs=0
 
   [8d] Concurrent burst (10 parallel connections) …
-  [✓] concurrent-burst n=10 threads                         918.0 ms
-    concurrent: tps=10.89  p50=805.7ms  p99=913.0ms  errs=0
+  [✓] concurrent-burst n=10 threads                         853.2 ms
+    concurrent: tps=11.72  p50=729.8ms  p99=834.7ms  errs=0
 
 ──────────────────────────────────────────────────────────────────────
   Workflow 9: federation cross-node propagation
 ──────────────────────────────────────────────────────────────────────
-  [✓] chain:create on node1                                  86.9 ms
-  [✓] chain:submitBaseTrx on node1                          116.7 ms
-  [✓] elpify-chain:status on node2                          123.9 ms
-  [✓] elpify-chain:status on node3                          147.3 ms
+  [✓] chain:create on node1                                  96.0 ms
+  [✓] chain:submitBaseTrx on node1                          117.1 ms
+  [✓] elpify-chain:status on node2                          101.6 ms
+  [✓] elpify-chain:status on node3                          114.7 ms
 
 ──────────────────────────────────────────────────────────────────────
   Workflow 10: concurrent load + resource KPIs  [node1]
@@ -307,26 +307,26 @@
   Monitoring node pids: none (resource KPIs unavailable)
 
   [10a] WASM execution load — elpify-chain:status (reqs/conn=20)
-    c=1   n=20   tps=    8.82  p50=   111.5ms  p99=   131.8ms  err=0    cpu=—%/core  rssPeak=—MB
-    c=4   n=80   tps=   12.63  p50=   315.4ms  p99=   528.7ms  err=0    cpu=—%/core  rssPeak=—MB
-    c=8   n=160  tps=   12.30  p50=   664.9ms  p99=   951.1ms  err=0    cpu=—%/core  rssPeak=—MB
-    c=16  n=320  tps=   11.74  p50=  1345.4ms  p99=  1894.4ms  err=0    cpu=—%/core  rssPeak=—MB
-    c=32  n=640  tps=    8.95  p50=  3523.2ms  p99=  4895.3ms  err=0    cpu=—%/core  rssPeak=—MB
+    c=1   n=20   tps=   10.10  p50=    97.5ms  p99=   119.6ms  err=0    cpu=—%/core  rssPeak=—MB
+    c=4   n=80   tps=   15.46  p50=   257.8ms  p99=   372.7ms  err=0    cpu=—%/core  rssPeak=—MB
+    c=8   n=160  tps=   13.87  p50=   549.5ms  p99=   830.4ms  err=0    cpu=—%/core  rssPeak=—MB
+    c=16  n=320  tps=   12.73  p50=  1222.3ms  p99=  1820.2ms  err=0    cpu=—%/core  rssPeak=—MB
+    c=32  n=640  tps=    9.96  p50=  3168.9ms  p99=  4649.3ms  err=0    cpu=—%/core  rssPeak=—MB
 
   [10b] MASM execution load — elpify-chain:executeTrx (STARK proof, reqs/conn=5)
-    c=1   n=5    tps=    6.72  p50=   150.1ms  p99=   151.8ms  err=0    cpu=—%/core  rssPeak=—MB
-    c=2   n=10   tps=    9.62  p50=   192.4ms  p99=   278.5ms  err=0    cpu=—%/core  rssPeak=—MB
-    c=4   n=20   tps=   11.70  p50=   328.4ms  p99=   512.4ms  err=0    cpu=—%/core  rssPeak=—MB
-    c=8   n=40   tps=   11.77  p50=   619.9ms  p99=   970.7ms  err=0    cpu=—%/core  rssPeak=—MB
-  [✓] wasm:status c=1 (n=20)                               2268.3 ms
-  [✓] wasm:status c=4 (n=80)                               6335.8 ms
-  [✓] wasm:status c=8 (n=160)                             13004.8 ms
-  [✓] wasm:status c=16 (n=320)                            27261.7 ms
-  [✓] wasm:status c=32 (n=640)                            71542.1 ms
-  [✓] masm:executeTrx c=1 (n=5)                             743.6 ms
-  [✓] masm:executeTrx c=2 (n=10)                           1039.7 ms
-  [✓] masm:executeTrx c=4 (n=20)                           1709.9 ms
-  [✓] masm:executeTrx c=8 (n=40)                           3398.2 ms
+    c=1   n=5    tps=    8.43  p50=   118.0ms  p99=   121.9ms  err=0    cpu=—%/core  rssPeak=—MB
+    c=2   n=10   tps=    9.83  p50=   194.0ms  p99=   275.9ms  err=0    cpu=—%/core  rssPeak=—MB
+    c=4   n=20   tps=   12.56  p50=   283.2ms  p99=   508.3ms  err=0    cpu=—%/core  rssPeak=—MB
+    c=8   n=40   tps=   12.70  p50=   619.2ms  p99=   960.1ms  err=0    cpu=—%/core  rssPeak=—MB
+  [✓] wasm:status c=1 (n=20)                               1979.8 ms
+  [✓] wasm:status c=4 (n=80)                               5175.7 ms
+  [✓] wasm:status c=8 (n=160)                             11536.9 ms
+  [✓] wasm:status c=16 (n=320)                            25138.7 ms
+  [✓] wasm:status c=32 (n=640)                            64243.0 ms
+  [✓] masm:executeTrx c=1 (n=5)                             593.1 ms
+  [✓] masm:executeTrx c=2 (n=10)                           1017.6 ms
+  [✓] masm:executeTrx c=4 (n=20)                           1591.8 ms
+  [✓] masm:executeTrx c=8 (n=40)                           3150.0 ms
 
 ======================================================================
   TOTAL: 154/154 steps passed
