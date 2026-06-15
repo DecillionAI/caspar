@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-06-08T08:40:03Z",
+  "timestamp": "2026-06-15T09:52:47Z",
   "nodes": [
     "node1",
     "node2",
@@ -11,7 +11,7 @@
       "step": "create workchain",
       "node": "node1",
       "ok": true,
-      "elapsed_ms": 102.83449600001404,
+      "elapsed_ms": 131.2566159999733,
       "detail": {
         "chainId": "1@chain.create.id"
       },
@@ -22,7 +22,7 @@
       "step": "createShard",
       "node": "node1",
       "ok": true,
-      "elapsed_ms": 94.85115400002542,
+      "elapsed_ms": 115.07404100007079,
       "detail": {
         "shardId": "2@chain.shard.id"
       },
@@ -33,7 +33,7 @@
       "step": "registerNode",
       "node": "node1",
       "ok": true,
-      "elapsed_ms": 114.06378600008793,
+      "elapsed_ms": 165.56488400010494,
       "detail": {
         "chainId": "1@chain.create.id",
         "endpoint": "127.0.0.1:8074",
@@ -48,7 +48,7 @@
       "step": "submitBaseTrx",
       "node": "node1",
       "ok": true,
-      "elapsed_ms": 165.8566090000022,
+      "elapsed_ms": 138.05174699996314,
       "detail": {
         "trxId": "3@chain.trx.id"
       },
@@ -59,7 +59,7 @@
       "step": "create store",
       "node": "node1",
       "ok": true,
-      "elapsed_ms": 125.74640699995143,
+      "elapsed_ms": 126.72556000006807,
       "detail": {
         "storeId": "4@store"
       },
@@ -70,7 +70,7 @@
       "step": "list stores",
       "node": "node1",
       "ok": true,
-      "elapsed_ms": 115.78475199985405,
+      "elapsed_ms": 147.00890399990385,
       "detail": {
         "count": 0
       },
@@ -81,7 +81,7 @@
       "step": "join store",
       "node": "node1",
       "ok": true,
-      "elapsed_ms": 99.90468000000874,
+      "elapsed_ms": 128.14398399996207,
       "detail": {},
       "error": ""
     },
@@ -90,7 +90,7 @@
       "step": "get store",
       "node": "node1",
       "ok": true,
-      "elapsed_ms": 98.87895400015623,
+      "elapsed_ms": 127.42516599996634,
       "detail": {},
       "error": ""
     },
@@ -99,7 +99,7 @@
       "step": "upload user entity",
       "node": "node1",
       "ok": true,
-      "elapsed_ms": 96.86429700013832,
+      "elapsed_ms": 134.06236199989507,
       "detail": {},
       "error": ""
     },
@@ -108,7 +108,7 @@
       "step": "download entity",
       "node": "node1",
       "ok": true,
-      "elapsed_ms": 121.88212700016265,
+      "elapsed_ms": 139.90546000013637,
       "detail": {
         "size": 0
       },
@@ -119,7 +119,7 @@
       "step": "delete entity",
       "node": "node1",
       "ok": true,
-      "elapsed_ms": 119.64690799982236,
+      "elapsed_ms": 156.0634800000571,
       "detail": {},
       "error": ""
     },
@@ -128,7 +128,7 @@
       "step": "create invite",
       "node": "node1",
       "ok": true,
-      "elapsed_ms": 92.1098549999897,
+      "elapsed_ms": 107.67109500011429,
       "detail": {
         "inviteId": ""
       },
@@ -139,7 +139,7 @@
       "step": "listUserInvites",
       "node": "node1",
       "ok": true,
-      "elapsed_ms": 119.82449600009204,
+      "elapsed_ms": 121.97799299997314,
       "detail": {
         "count": 0
       },
@@ -150,7 +150,7 @@
       "step": "listStoreInvites",
       "node": "node1",
       "ok": true,
-      "elapsed_ms": 120.92346099984752,
+      "elapsed_ms": 119.86646899981679,
       "detail": {
         "count": 0
       },
@@ -161,7 +161,7 @@
       "step": "stake node1 (100)",
       "node": "node1",
       "ok": true,
-      "elapsed_ms": 91.34462499991969,
+      "elapsed_ms": 130.04013999989184,
       "detail": {
         "nodeId": "1@global",
         "stake": 100.0
@@ -173,7 +173,7 @@
       "step": "stake node2 (200)",
       "node": "node1",
       "ok": true,
-      "elapsed_ms": 104.1147999999339,
+      "elapsed_ms": 116.58260000012888,
       "detail": {
         "nodeId": "validator-2-1@global",
         "stake": 200.0
@@ -185,7 +185,7 @@
       "step": "stake node3 (300)",
       "node": "node1",
       "ok": true,
-      "elapsed_ms": 120.03844300011224,
+      "elapsed_ms": 107.73920500014356,
       "detail": {
         "nodeId": "validator-3-1@global",
         "stake": 300.0
@@ -197,9 +197,9 @@
       "step": "commit (1@global)",
       "node": "node1",
       "ok": true,
-      "elapsed_ms": 95.53053300010106,
+      "elapsed_ms": 126.97218299990709,
       "detail": {
-        "hash": "d6ca311949aa8fef"
+        "hash": "fe4993d3416c0dcd"
       },
       "error": ""
     },
@@ -208,9 +208,9 @@
       "step": "commit (validator-2-1@gl)",
       "node": "node1",
       "ok": true,
-      "elapsed_ms": 118.03157800000008,
+      "elapsed_ms": 135.00509400000738,
       "detail": {
-        "hash": "b5bb57f4fcb05646"
+        "hash": "f081ef0b18a8b13a"
       },
       "error": ""
     },
@@ -219,9 +219,9 @@
       "step": "commit (validator-3-1@gl)",
       "node": "node1",
       "ok": true,
-      "elapsed_ms": 123.72544599998037,
+      "elapsed_ms": 151.83598599992365,
       "detail": {
-        "hash": "dce8b994c73555ae"
+        "hash": "9779fa27ed9dcdbb"
       },
       "error": ""
     },
@@ -230,7 +230,7 @@
       "step": "reveal (1@global)",
       "node": "node1",
       "ok": true,
-      "elapsed_ms": 121.46006700004364,
+      "elapsed_ms": 115.16032000008636,
       "detail": {},
       "error": ""
     },
@@ -239,7 +239,7 @@
       "step": "reveal (validator-2-1@gl)",
       "node": "node1",
       "ok": true,
-      "elapsed_ms": 115.02020299985816,
+      "elapsed_ms": 132.36581099999967,
       "detail": {},
       "error": ""
     },
@@ -248,7 +248,7 @@
       "step": "reveal (validator-3-1@gl)",
       "node": "node1",
       "ok": true,
-      "elapsed_ms": 113.94268399999419,
+      "elapsed_ms": 136.66540000008354,
       "detail": {},
       "error": ""
     },
@@ -257,7 +257,7 @@
       "step": "electionTick",
       "node": "node1",
       "ok": true,
-      "elapsed_ms": 118.97530500004905,
+      "elapsed_ms": 149.05066699998315,
       "detail": {
         "winners": 3
       },
@@ -268,7 +268,7 @@
       "step": "status query",
       "node": "node1",
       "ok": true,
-      "elapsed_ms": 122.307039999896,
+      "elapsed_ms": 147.81387100015309,
       "detail": {
         "validators": 3
       },
@@ -279,9 +279,9 @@
       "step": "executeTrx:fib",
       "node": "node1",
       "ok": true,
-      "elapsed_ms": 118.31153799994354,
+      "elapsed_ms": 149.03886400020383,
       "detail": {
-        "trxId": "trx-fib-c7df2c32",
+        "trxId": "trx-fib-2924769a",
         "status": "pending",
         "consensus_validators": 3
       },
@@ -292,9 +292,9 @@
       "step": "executeTrx:hash",
       "node": "node1",
       "ok": true,
-      "elapsed_ms": 139.60693000012725,
+      "elapsed_ms": 153.51848299997073,
       "detail": {
-        "trxId": "trx-hash-d3837a8c",
+        "trxId": "trx-hash-2fd7cf3f",
         "status": "pending",
         "consensus_validators": 3
       },
@@ -305,9 +305,9 @@
       "step": "executeTrx:hello",
       "node": "node1",
       "ok": true,
-      "elapsed_ms": 139.87403100009033,
+      "elapsed_ms": 168.2442409999112,
       "detail": {
-        "trxId": "trx-hello-4410507f",
+        "trxId": "trx-hello-54bf5001",
         "status": "pending",
         "consensus_validators": 3
       },
@@ -318,7 +318,7 @@
       "step": "tally:fib",
       "node": "node1",
       "ok": true,
-      "elapsed_ms": 122.2190529999807,
+      "elapsed_ms": 153.54078799987292,
       "detail": {},
       "error": ""
     },
@@ -327,7 +327,7 @@
       "step": "tally:hash",
       "node": "node1",
       "ok": true,
-      "elapsed_ms": 115.81462699996337,
+      "elapsed_ms": 153.93556800017905,
       "detail": {},
       "error": ""
     },
@@ -336,7 +336,7 @@
       "step": "chain:createFromStore",
       "node": "node1",
       "ok": true,
-      "elapsed_ms": 115.49875300011081,
+      "elapsed_ms": 127.57655900009013,
       "detail": {
         "chainId": "6@chain.create.id"
       },
@@ -347,7 +347,7 @@
       "step": "stores:history",
       "node": "node1",
       "ok": true,
-      "elapsed_ms": 93.78394999998818,
+      "elapsed_ms": 129.8470440001438,
       "detail": {
         "events": 0
       },
@@ -358,7 +358,7 @@
       "step": "storage:uploadStoreEntity(chain proof)",
       "node": "node1",
       "ok": true,
-      "elapsed_ms": 94.81176400004188,
+      "elapsed_ms": 130.87381900004402,
       "detail": {},
       "error": ""
     },
@@ -367,7 +367,7 @@
       "step": "elpify-chain:status(via store context)",
       "node": "node1",
       "ok": true,
-      "elapsed_ms": 97.93688899981134,
+      "elapsed_ms": 120.93813100000261,
       "detail": {
         "validators": 0
       },
@@ -378,7 +378,7 @@
       "step": "invites:create(cross-store)",
       "node": "node1",
       "ok": true,
-      "elapsed_ms": 117.87154699982239,
+      "elapsed_ms": 121.91439000002902,
       "detail": {},
       "error": ""
     },
@@ -387,7 +387,7 @@
       "step": "chain:submitBaseTrx(elpify proof)",
       "node": "node1",
       "ok": true,
-      "elapsed_ms": 114.7918199999367,
+      "elapsed_ms": 129.69144699991375,
       "detail": {
         "trxId": "9@chain.trx.id"
       },
@@ -398,11 +398,11 @@
       "step": "elpify-chain:status n=20",
       "node": "node1",
       "ok": true,
-      "elapsed_ms": 1949.4023160000324,
+      "elapsed_ms": 2445.966596999824,
       "detail": {
-        "tps": 10.26,
-        "p50_ms": 96.5,
-        "p99_ms": 114.7,
+        "tps": 8.18,
+        "p50_ms": 127.6,
+        "p99_ms": 140.5,
         "ok_rate": 100.0
       },
       "error": ""
@@ -412,11 +412,11 @@
       "step": "chain:submitBaseTrx n=20",
       "node": "node1",
       "ok": true,
-      "elapsed_ms": 1875.9358239999528,
+      "elapsed_ms": 2431.961286999922,
       "detail": {
-        "tps": 10.66,
-        "p50_ms": 94.9,
-        "p99_ms": 100.0,
+        "tps": 8.22,
+        "p50_ms": 126.2,
+        "p99_ms": 133.9,
         "ok_rate": 100.0
       },
       "error": ""
@@ -426,11 +426,11 @@
       "step": "stores:list n=20",
       "node": "node1",
       "ok": true,
-      "elapsed_ms": 2154.6884780000255,
+      "elapsed_ms": 2582.6565720001327,
       "detail": {
-        "tps": 9.28,
-        "p50_ms": 114.0,
-        "p99_ms": 126.9,
+        "tps": 7.74,
+        "p50_ms": 128.6,
+        "p99_ms": 140.9,
         "ok_rate": 100.0
       },
       "error": ""
@@ -440,11 +440,11 @@
       "step": "stores:create n=20",
       "node": "node1",
       "ok": true,
-      "elapsed_ms": 2216.0875120000583,
+      "elapsed_ms": 2605.345360000001,
       "detail": {
-        "tps": 9.02,
-        "p50_ms": 116.6,
-        "p99_ms": 123.0,
+        "tps": 7.68,
+        "p50_ms": 130.2,
+        "p99_ms": 148.8,
         "ok_rate": 100.0
       },
       "error": ""
@@ -454,11 +454,11 @@
       "step": "storage:upload n=20",
       "node": "node1",
       "ok": true,
-      "elapsed_ms": 2018.9770509998652,
+      "elapsed_ms": 2549.027385000045,
       "detail": {
-        "tps": 9.91,
-        "p50_ms": 98.7,
-        "p99_ms": 122.9,
+        "tps": 7.85,
+        "p50_ms": 128.6,
+        "p99_ms": 136.2,
         "ok_rate": 100.0
       },
       "error": ""
@@ -468,11 +468,11 @@
       "step": "storage:download n=20",
       "node": "node1",
       "ok": true,
-      "elapsed_ms": 2157.840548999957,
+      "elapsed_ms": 2550.586118999945,
       "detail": {
-        "tps": 9.27,
-        "p50_ms": 108.0,
-        "p99_ms": 121.3,
+        "tps": 7.84,
+        "p50_ms": 128.2,
+        "p99_ms": 137.0,
         "ok_rate": 100.0
       },
       "error": ""
@@ -482,11 +482,11 @@
       "step": "invites:listUserInvites n=20",
       "node": "node1",
       "ok": true,
-      "elapsed_ms": 2261.812715999895,
+      "elapsed_ms": 2555.0375209998037,
       "detail": {
-        "tps": 8.84,
-        "p50_ms": 115.9,
-        "p99_ms": 123.0,
+        "tps": 7.83,
+        "p50_ms": 128.0,
+        "p99_ms": 136.7,
         "ok_rate": 100.0
       },
       "error": ""
@@ -496,11 +496,11 @@
       "step": "invites:listStoreInvites n=20",
       "node": "node1",
       "ok": true,
-      "elapsed_ms": 2261.2251470000047,
+      "elapsed_ms": 3552.0098089998555,
       "detail": {
-        "tps": 8.84,
-        "p50_ms": 115.9,
-        "p99_ms": 123.8,
+        "tps": 5.63,
+        "p50_ms": 160.0,
+        "p99_ms": 312.0,
         "ok_rate": 100.0
       },
       "error": ""
@@ -510,11 +510,11 @@
       "step": "elpify-chain:executeTrx(MASM) n=5",
       "node": "node1",
       "ok": true,
-      "elapsed_ms": 589.3647360001069,
+      "elapsed_ms": 695.6027490000452,
       "detail": {
-        "tps": 8.484,
-        "p50_ms": 116.4,
-        "p99_ms": 124.7
+        "tps": 7.188,
+        "p50_ms": 142.9,
+        "p99_ms": 146.8
       },
       "error": ""
     },
@@ -523,12 +523,12 @@
       "step": "mixed-workload n=30",
       "node": "node1",
       "ok": true,
-      "elapsed_ms": 3518.758961000003,
+      "elapsed_ms": 4100.921816999971,
       "detail": {
-        "tps": 8.53,
-        "mean_ms": 117.2,
-        "p50_ms": 119.2,
-        "p99_ms": 141.9,
+        "tps": 7.32,
+        "mean_ms": 136.6,
+        "p50_ms": 130.7,
+        "p99_ms": 179.4,
         "read_write_ratio": "5:3",
         "errors": 0
       },
@@ -539,11 +539,11 @@
       "step": "concurrent-burst n=10 threads",
       "node": "node1",
       "ok": true,
-      "elapsed_ms": 889.4351450001068,
+      "elapsed_ms": 1022.8107489999729,
       "detail": {
-        "tps": 11.24,
-        "p50_ms": 775.0,
-        "p99_ms": 881.2,
+        "tps": 9.78,
+        "p50_ms": 887.2,
+        "p99_ms": 974.8,
         "errors": 0,
         "effective_concurrency": 10
       },
@@ -554,7 +554,7 @@
       "step": "create workchain",
       "node": "node2",
       "ok": true,
-      "elapsed_ms": 99.0734209999573,
+      "elapsed_ms": 116.47649999986243,
       "detail": {
         "chainId": "1@chain.create.id"
       },
@@ -565,7 +565,7 @@
       "step": "createShard",
       "node": "node2",
       "ok": true,
-      "elapsed_ms": 94.93020100012473,
+      "elapsed_ms": 114.71597700005987,
       "detail": {
         "shardId": "2@chain.shard.id"
       },
@@ -576,7 +576,7 @@
       "step": "registerNode",
       "node": "node2",
       "ok": true,
-      "elapsed_ms": 119.21037699994486,
+      "elapsed_ms": 123.90237699992213,
       "detail": {
         "chainId": "1@chain.create.id",
         "endpoint": "127.0.0.1:8174",
@@ -591,7 +591,7 @@
       "step": "submitBaseTrx",
       "node": "node2",
       "ok": true,
-      "elapsed_ms": 117.19793800011757,
+      "elapsed_ms": 123.17093199999363,
       "detail": {
         "trxId": "3@chain.trx.id"
       },
@@ -602,7 +602,7 @@
       "step": "create store",
       "node": "node2",
       "ok": true,
-      "elapsed_ms": 100.81103099992106,
+      "elapsed_ms": 102.58415900011641,
       "detail": {
         "storeId": "4@store"
       },
@@ -613,7 +613,7 @@
       "step": "list stores",
       "node": "node2",
       "ok": true,
-      "elapsed_ms": 118.71070600000166,
+      "elapsed_ms": 123.12183699987145,
       "detail": {
         "count": 0
       },
@@ -624,7 +624,7 @@
       "step": "join store",
       "node": "node2",
       "ok": true,
-      "elapsed_ms": 100.36896299993714,
+      "elapsed_ms": 128.68489099992075,
       "detail": {},
       "error": ""
     },
@@ -633,7 +633,7 @@
       "step": "get store",
       "node": "node2",
       "ok": true,
-      "elapsed_ms": 99.0027600000758,
+      "elapsed_ms": 115.0331000001188,
       "detail": {},
       "error": ""
     },
@@ -642,7 +642,7 @@
       "step": "upload user entity",
       "node": "node2",
       "ok": true,
-      "elapsed_ms": 94.44019900001877,
+      "elapsed_ms": 120.04236199982188,
       "detail": {},
       "error": ""
     },
@@ -651,7 +651,7 @@
       "step": "download entity",
       "node": "node2",
       "ok": true,
-      "elapsed_ms": 116.00389900013397,
+      "elapsed_ms": 123.89721199997439,
       "detail": {
         "size": 0
       },
@@ -662,7 +662,7 @@
       "step": "delete entity",
       "node": "node2",
       "ok": true,
-      "elapsed_ms": 113.12115200007611,
+      "elapsed_ms": 103.76251599996067,
       "detail": {},
       "error": ""
     },
@@ -671,7 +671,7 @@
       "step": "create invite",
       "node": "node2",
       "ok": true,
-      "elapsed_ms": 119.87728300005074,
+      "elapsed_ms": 122.03761299997495,
       "detail": {
         "inviteId": ""
       },
@@ -682,7 +682,7 @@
       "step": "listUserInvites",
       "node": "node2",
       "ok": true,
-      "elapsed_ms": 116.63102600005004,
+      "elapsed_ms": 121.62733099989964,
       "detail": {
         "count": 0
       },
@@ -693,7 +693,7 @@
       "step": "listStoreInvites",
       "node": "node2",
       "ok": true,
-      "elapsed_ms": 116.93525800001225,
+      "elapsed_ms": 123.0163329998959,
       "detail": {
         "count": 0
       },
@@ -704,7 +704,7 @@
       "step": "stake node1 (100)",
       "node": "node2",
       "ok": true,
-      "elapsed_ms": 99.66847500004405,
+      "elapsed_ms": 124.8046120001618,
       "detail": {
         "nodeId": "1@global",
         "stake": 100.0
@@ -716,7 +716,7 @@
       "step": "stake node2 (200)",
       "node": "node2",
       "ok": true,
-      "elapsed_ms": 94.94595500018477,
+      "elapsed_ms": 118.9798340001289,
       "detail": {
         "nodeId": "validator-2-1@global",
         "stake": 200.0
@@ -728,7 +728,7 @@
       "step": "stake node3 (300)",
       "node": "node2",
       "ok": true,
-      "elapsed_ms": 96.8054080001366,
+      "elapsed_ms": 126.80842100007794,
       "detail": {
         "nodeId": "validator-3-1@global",
         "stake": 300.0
@@ -740,9 +740,9 @@
       "step": "commit (1@global)",
       "node": "node2",
       "ok": true,
-      "elapsed_ms": 99.88048799982607,
+      "elapsed_ms": 126.19542399988859,
       "detail": {
-        "hash": "5842e4d8ca287be5"
+        "hash": "f337a2bde0894eef"
       },
       "error": ""
     },
@@ -751,9 +751,9 @@
       "step": "commit (validator-2-1@gl)",
       "node": "node2",
       "ok": true,
-      "elapsed_ms": 119.82820999992327,
+      "elapsed_ms": 146.5751260000161,
       "detail": {
-        "hash": "af2894a44eb56d18"
+        "hash": "513986c148074a3d"
       },
       "error": ""
     },
@@ -762,9 +762,9 @@
       "step": "commit (validator-3-1@gl)",
       "node": "node2",
       "ok": true,
-      "elapsed_ms": 121.55875999997079,
+      "elapsed_ms": 122.86437200009459,
       "detail": {
-        "hash": "cb838403b1549a22"
+        "hash": "5eb4898fc5997062"
       },
       "error": ""
     },
@@ -773,7 +773,7 @@
       "step": "reveal (1@global)",
       "node": "node2",
       "ok": true,
-      "elapsed_ms": 119.09239900001012,
+      "elapsed_ms": 125.002319000032,
       "detail": {},
       "error": ""
     },
@@ -782,7 +782,7 @@
       "step": "reveal (validator-2-1@gl)",
       "node": "node2",
       "ok": true,
-      "elapsed_ms": 118.99333999986084,
+      "elapsed_ms": 125.74031500003002,
       "detail": {},
       "error": ""
     },
@@ -791,7 +791,7 @@
       "step": "reveal (validator-3-1@gl)",
       "node": "node2",
       "ok": true,
-      "elapsed_ms": 120.70709499994337,
+      "elapsed_ms": 123.94706500003849,
       "detail": {},
       "error": ""
     },
@@ -800,7 +800,7 @@
       "step": "electionTick",
       "node": "node2",
       "ok": true,
-      "elapsed_ms": 121.10444299992196,
+      "elapsed_ms": 146.8963069999063,
       "detail": {
         "winners": 3
       },
@@ -811,7 +811,7 @@
       "step": "status query",
       "node": "node2",
       "ok": true,
-      "elapsed_ms": 119.3293700000595,
+      "elapsed_ms": 150.8698650000042,
       "detail": {
         "validators": 3
       },
@@ -822,9 +822,9 @@
       "step": "executeTrx:fib",
       "node": "node2",
       "ok": true,
-      "elapsed_ms": 143.4716229998685,
+      "elapsed_ms": 153.7648010000794,
       "detail": {
-        "trxId": "trx-fib-a1484900",
+        "trxId": "trx-fib-a36a8a2c",
         "status": "pending",
         "consensus_validators": 3
       },
@@ -835,9 +835,9 @@
       "step": "executeTrx:hash",
       "node": "node2",
       "ok": true,
-      "elapsed_ms": 117.93190100001993,
+      "elapsed_ms": 150.9377099998801,
       "detail": {
-        "trxId": "trx-hash-72e17643",
+        "trxId": "trx-hash-c3b0bd55",
         "status": "pending",
         "consensus_validators": 3
       },
@@ -848,9 +848,9 @@
       "step": "executeTrx:hello",
       "node": "node2",
       "ok": true,
-      "elapsed_ms": 144.72544300019763,
+      "elapsed_ms": 123.24426599980143,
       "detail": {
-        "trxId": "trx-hello-ada0f5c2",
+        "trxId": "trx-hello-1b614b02",
         "status": "pending",
         "consensus_validators": 3
       },
@@ -861,7 +861,7 @@
       "step": "tally:fib",
       "node": "node2",
       "ok": true,
-      "elapsed_ms": 121.96157600010338,
+      "elapsed_ms": 148.3366659999774,
       "detail": {},
       "error": ""
     },
@@ -870,7 +870,7 @@
       "step": "tally:hash",
       "node": "node2",
       "ok": true,
-      "elapsed_ms": 115.85451500013733,
+      "elapsed_ms": 120.90529299985064,
       "detail": {},
       "error": ""
     },
@@ -879,7 +879,7 @@
       "step": "chain:createFromStore",
       "node": "node2",
       "ok": true,
-      "elapsed_ms": 118.86291099995105,
+      "elapsed_ms": 120.31077000006007,
       "detail": {
         "chainId": "6@chain.create.id"
       },
@@ -890,7 +890,7 @@
       "step": "stores:history",
       "node": "node2",
       "ok": true,
-      "elapsed_ms": 108.87245899994014,
+      "elapsed_ms": 105.41823800008387,
       "detail": {
         "events": 0
       },
@@ -901,7 +901,7 @@
       "step": "storage:uploadStoreEntity(chain proof)",
       "node": "node2",
       "ok": true,
-      "elapsed_ms": 120.9432470000138,
+      "elapsed_ms": 128.8645809997888,
       "detail": {},
       "error": ""
     },
@@ -910,7 +910,7 @@
       "step": "elpify-chain:status(via store context)",
       "node": "node2",
       "ok": true,
-      "elapsed_ms": 120.69820800002162,
+      "elapsed_ms": 121.0455660000207,
       "detail": {
         "validators": 0
       },
@@ -921,7 +921,7 @@
       "step": "invites:create(cross-store)",
       "node": "node2",
       "ok": true,
-      "elapsed_ms": 107.96189100005904,
+      "elapsed_ms": 127.29650899996159,
       "detail": {},
       "error": ""
     },
@@ -930,7 +930,7 @@
       "step": "chain:submitBaseTrx(elpify proof)",
       "node": "node2",
       "ok": true,
-      "elapsed_ms": 97.10253999992347,
+      "elapsed_ms": 104.1181929999766,
       "detail": {
         "trxId": "9@chain.trx.id"
       },
@@ -941,11 +941,11 @@
       "step": "elpify-chain:status n=20",
       "node": "node2",
       "ok": true,
-      "elapsed_ms": 2034.3151590000161,
+      "elapsed_ms": 2287.738169999784,
       "detail": {
-        "tps": 9.83,
-        "p50_ms": 98.8,
-        "p99_ms": 118.4,
+        "tps": 8.74,
+        "p50_ms": 118.7,
+        "p99_ms": 131.9,
         "ok_rate": 100.0
       },
       "error": ""
@@ -955,11 +955,11 @@
       "step": "chain:submitBaseTrx n=20",
       "node": "node2",
       "ok": true,
-      "elapsed_ms": 1965.681350000068,
+      "elapsed_ms": 2313.848744000097,
       "detail": {
-        "tps": 10.17,
-        "p50_ms": 96.9,
-        "p99_ms": 117.9,
+        "tps": 8.64,
+        "p50_ms": 121.9,
+        "p99_ms": 128.1,
         "ok_rate": 100.0
       },
       "error": ""
@@ -969,11 +969,11 @@
       "step": "stores:list n=20",
       "node": "node2",
       "ok": true,
-      "elapsed_ms": 2183.0044450000514,
+      "elapsed_ms": 2486.0128489999624,
       "detail": {
-        "tps": 9.16,
-        "p50_ms": 115.9,
-        "p99_ms": 123.9,
+        "tps": 8.05,
+        "p50_ms": 124.0,
+        "p99_ms": 138.0,
         "ok_rate": 100.0
       },
       "error": ""
@@ -983,11 +983,11 @@
       "step": "stores:create n=20",
       "node": "node2",
       "ok": true,
-      "elapsed_ms": 2166.2872360000165,
+      "elapsed_ms": 2446.188914000004,
       "detail": {
-        "tps": 9.23,
-        "p50_ms": 113.9,
-        "p99_ms": 122.3,
+        "tps": 8.18,
+        "p50_ms": 123.9,
+        "p99_ms": 134.9,
         "ok_rate": 100.0
       },
       "error": ""
@@ -997,11 +997,11 @@
       "step": "storage:upload n=20",
       "node": "node2",
       "ok": true,
-      "elapsed_ms": 2101.613974999964,
+      "elapsed_ms": 2409.041699999989,
       "detail": {
-        "tps": 9.52,
-        "p50_ms": 101.1,
-        "p99_ms": 122.0,
+        "tps": 8.3,
+        "p50_ms": 121.9,
+        "p99_ms": 132.2,
         "ok_rate": 100.0
       },
       "error": ""
@@ -1011,11 +1011,11 @@
       "step": "storage:download n=20",
       "node": "node2",
       "ok": true,
-      "elapsed_ms": 2101.8798239999796,
+      "elapsed_ms": 2460.4920799999945,
       "detail": {
-        "tps": 9.52,
-        "p50_ms": 100.2,
-        "p99_ms": 116.9,
+        "tps": 8.13,
+        "p50_ms": 123.9,
+        "p99_ms": 130.4,
         "ok_rate": 100.0
       },
       "error": ""
@@ -1025,11 +1025,11 @@
       "step": "invites:listUserInvites n=20",
       "node": "node2",
       "ok": true,
-      "elapsed_ms": 2187.738696999986,
+      "elapsed_ms": 2475.4841369999667,
       "detail": {
-        "tps": 9.14,
-        "p50_ms": 114.8,
-        "p99_ms": 124.6,
+        "tps": 8.08,
+        "p50_ms": 125.8,
+        "p99_ms": 134.1,
         "ok_rate": 100.0
       },
       "error": ""
@@ -1039,11 +1039,11 @@
       "step": "invites:listStoreInvites n=20",
       "node": "node2",
       "ok": true,
-      "elapsed_ms": 2277.088776000028,
+      "elapsed_ms": 2529.9951419999616,
       "detail": {
-        "tps": 8.78,
-        "p50_ms": 117.8,
-        "p99_ms": 126.0,
+        "tps": 7.91,
+        "p50_ms": 126.9,
+        "p99_ms": 146.1,
         "ok_rate": 100.0
       },
       "error": ""
@@ -1053,11 +1053,11 @@
       "step": "elpify-chain:executeTrx(MASM) n=5",
       "node": "node2",
       "ok": true,
-      "elapsed_ms": 578.4615739999026,
+      "elapsed_ms": 689.6118019999449,
       "detail": {
-        "tps": 8.644,
-        "p50_ms": 116.1,
-        "p99_ms": 118.1
+        "tps": 7.25,
+        "p50_ms": 144.8,
+        "p99_ms": 145.8
       },
       "error": ""
     },
@@ -1066,12 +1066,12 @@
       "step": "mixed-workload n=30",
       "node": "node2",
       "ok": true,
-      "elapsed_ms": 3526.5870210000685,
+      "elapsed_ms": 4016.745683999943,
       "detail": {
-        "tps": 8.51,
-        "mean_ms": 117.5,
-        "p50_ms": 120.0,
-        "p99_ms": 145.1,
+        "tps": 7.47,
+        "mean_ms": 133.8,
+        "p50_ms": 127.0,
+        "p99_ms": 170.9,
         "read_write_ratio": "5:3",
         "errors": 0
       },
@@ -1082,11 +1082,11 @@
       "step": "concurrent-burst n=10 threads",
       "node": "node2",
       "ok": true,
-      "elapsed_ms": 883.5965630000828,
+      "elapsed_ms": 969.519986000023,
       "detail": {
-        "tps": 11.32,
-        "p50_ms": 755.4,
-        "p99_ms": 870.9,
+        "tps": 10.31,
+        "p50_ms": 857.1,
+        "p99_ms": 935.1,
         "errors": 0,
         "effective_concurrency": 10
       },
@@ -1097,7 +1097,7 @@
       "step": "create workchain",
       "node": "node3",
       "ok": true,
-      "elapsed_ms": 122.02459099989937,
+      "elapsed_ms": 123.02477599996564,
       "detail": {
         "chainId": "1@chain.create.id"
       },
@@ -1108,7 +1108,7 @@
       "step": "createShard",
       "node": "node3",
       "ok": true,
-      "elapsed_ms": 114.55495299992435,
+      "elapsed_ms": 128.65568400002303,
       "detail": {
         "shardId": "2@chain.shard.id"
       },
@@ -1119,7 +1119,7 @@
       "step": "registerNode",
       "node": "node3",
       "ok": true,
-      "elapsed_ms": 87.90256399993268,
+      "elapsed_ms": 132.14747100005297,
       "detail": {
         "chainId": "1@chain.create.id",
         "endpoint": "127.0.0.1:8274",
@@ -1134,7 +1134,7 @@
       "step": "submitBaseTrx",
       "node": "node3",
       "ok": true,
-      "elapsed_ms": 115.92424900004517,
+      "elapsed_ms": 123.79786599990439,
       "detail": {
         "trxId": "3@chain.trx.id"
       },
@@ -1145,7 +1145,7 @@
       "step": "create store",
       "node": "node3",
       "ok": true,
-      "elapsed_ms": 98.63480699982574,
+      "elapsed_ms": 121.05017999988377,
       "detail": {
         "storeId": "4@store"
       },
@@ -1156,7 +1156,7 @@
       "step": "list stores",
       "node": "node3",
       "ok": true,
-      "elapsed_ms": 119.10412999986875,
+      "elapsed_ms": 115.78539100014495,
       "detail": {
         "count": 0
       },
@@ -1167,7 +1167,7 @@
       "step": "join store",
       "node": "node3",
       "ok": true,
-      "elapsed_ms": 91.87818999998854,
+      "elapsed_ms": 134.9441190000107,
       "detail": {},
       "error": ""
     },
@@ -1176,7 +1176,7 @@
       "step": "get store",
       "node": "node3",
       "ok": true,
-      "elapsed_ms": 97.11181000011493,
+      "elapsed_ms": 119.037556999956,
       "detail": {},
       "error": ""
     },
@@ -1185,7 +1185,7 @@
       "step": "upload user entity",
       "node": "node3",
       "ok": true,
-      "elapsed_ms": 99.08932500002265,
+      "elapsed_ms": 103.5304360000282,
       "detail": {},
       "error": ""
     },
@@ -1194,7 +1194,7 @@
       "step": "download entity",
       "node": "node3",
       "ok": true,
-      "elapsed_ms": 117.41639000001669,
+      "elapsed_ms": 120.12585000002218,
       "detail": {
         "size": 0
       },
@@ -1205,7 +1205,7 @@
       "step": "delete entity",
       "node": "node3",
       "ok": true,
-      "elapsed_ms": 117.81381199989482,
+      "elapsed_ms": 135.8559249999871,
       "detail": {},
       "error": ""
     },
@@ -1214,7 +1214,7 @@
       "step": "create invite",
       "node": "node3",
       "ok": true,
-      "elapsed_ms": 103.40626300012445,
+      "elapsed_ms": 115.34532499990746,
       "detail": {
         "inviteId": ""
       },
@@ -1225,7 +1225,7 @@
       "step": "listUserInvites",
       "node": "node3",
       "ok": true,
-      "elapsed_ms": 124.45435500012536,
+      "elapsed_ms": 126.44243599993388,
       "detail": {
         "count": 0
       },
@@ -1236,7 +1236,7 @@
       "step": "listStoreInvites",
       "node": "node3",
       "ok": true,
-      "elapsed_ms": 117.9202019998229,
+      "elapsed_ms": 125.88961200003723,
       "detail": {
         "count": 0
       },
@@ -1247,7 +1247,7 @@
       "step": "stake node1 (100)",
       "node": "node3",
       "ok": true,
-      "elapsed_ms": 120.2856800000518,
+      "elapsed_ms": 131.93116600018584,
       "detail": {
         "nodeId": "1@global",
         "stake": 100.0
@@ -1259,7 +1259,7 @@
       "step": "stake node2 (200)",
       "node": "node3",
       "ok": true,
-      "elapsed_ms": 93.46137299985458,
+      "elapsed_ms": 107.94304099999863,
       "detail": {
         "nodeId": "validator-2-1@global",
         "stake": 200.0
@@ -1271,7 +1271,7 @@
       "step": "stake node3 (300)",
       "node": "node3",
       "ok": true,
-      "elapsed_ms": 91.86714299994492,
+      "elapsed_ms": 109.42048200013232,
       "detail": {
         "nodeId": "validator-3-1@global",
         "stake": 300.0
@@ -1283,9 +1283,9 @@
       "step": "commit (1@global)",
       "node": "node3",
       "ok": true,
-      "elapsed_ms": 113.10471999991023,
+      "elapsed_ms": 122.29086999991523,
       "detail": {
-        "hash": "ab7b22e1d35178b7"
+        "hash": "983a7996f66ba393"
       },
       "error": ""
     },
@@ -1294,9 +1294,9 @@
       "step": "commit (validator-2-1@gl)",
       "node": "node3",
       "ok": true,
-      "elapsed_ms": 115.99416900003234,
+      "elapsed_ms": 133.54716599997118,
       "detail": {
-        "hash": "1817c8fbafa5d591"
+        "hash": "2b62d986d2dbef8d"
       },
       "error": ""
     },
@@ -1305,9 +1305,9 @@
       "step": "commit (validator-3-1@gl)",
       "node": "node3",
       "ok": true,
-      "elapsed_ms": 97.52220599989414,
+      "elapsed_ms": 122.47652700011713,
       "detail": {
-        "hash": "a29dfee6329b29dd"
+        "hash": "c1260edaa7eea667"
       },
       "error": ""
     },
@@ -1316,7 +1316,7 @@
       "step": "reveal (1@global)",
       "node": "node3",
       "ok": true,
-      "elapsed_ms": 106.4290730000721,
+      "elapsed_ms": 128.66985300001943,
       "detail": {},
       "error": ""
     },
@@ -1325,7 +1325,7 @@
       "step": "reveal (validator-2-1@gl)",
       "node": "node3",
       "ok": true,
-      "elapsed_ms": 120.09394100005011,
+      "elapsed_ms": 129.60771000007298,
       "detail": {},
       "error": ""
     },
@@ -1334,7 +1334,7 @@
       "step": "reveal (validator-3-1@gl)",
       "node": "node3",
       "ok": true,
-      "elapsed_ms": 116.93473599984827,
+      "elapsed_ms": 130.8502629999566,
       "detail": {},
       "error": ""
     },
@@ -1343,7 +1343,7 @@
       "step": "electionTick",
       "node": "node3",
       "ok": true,
-      "elapsed_ms": 117.94736299998476,
+      "elapsed_ms": 147.93177199999263,
       "detail": {
         "winners": 3
       },
@@ -1354,7 +1354,7 @@
       "step": "status query",
       "node": "node3",
       "ok": true,
-      "elapsed_ms": 120.9074480000254,
+      "elapsed_ms": 151.69477399990683,
       "detail": {
         "validators": 3
       },
@@ -1365,9 +1365,9 @@
       "step": "executeTrx:fib",
       "node": "node3",
       "ok": true,
-      "elapsed_ms": 130.73859399992216,
+      "elapsed_ms": 146.0384059998887,
       "detail": {
-        "trxId": "trx-fib-bd33abbe",
+        "trxId": "trx-fib-7d0d987c",
         "status": "pending",
         "consensus_validators": 3
       },
@@ -1378,9 +1378,9 @@
       "step": "executeTrx:hash",
       "node": "node3",
       "ok": true,
-      "elapsed_ms": 117.89424800008419,
+      "elapsed_ms": 143.31259300001875,
       "detail": {
-        "trxId": "trx-hash-3799510f",
+        "trxId": "trx-hash-fda4789d",
         "status": "pending",
         "consensus_validators": 3
       },
@@ -1391,9 +1391,9 @@
       "step": "executeTrx:hello",
       "node": "node3",
       "ok": true,
-      "elapsed_ms": 137.77603800008364,
+      "elapsed_ms": 151.51383500005977,
       "detail": {
-        "trxId": "trx-hello-91398d7e",
+        "trxId": "trx-hello-05c03430",
         "status": "pending",
         "consensus_validators": 3
       },
@@ -1404,7 +1404,7 @@
       "step": "tally:fib",
       "node": "node3",
       "ok": true,
-      "elapsed_ms": 119.8899700000311,
+      "elapsed_ms": 148.67481200008115,
       "detail": {},
       "error": ""
     },
@@ -1413,7 +1413,7 @@
       "step": "tally:hash",
       "node": "node3",
       "ok": true,
-      "elapsed_ms": 116.66227700015952,
+      "elapsed_ms": 130.49537599999894,
       "detail": {},
       "error": ""
     },
@@ -1422,7 +1422,7 @@
       "step": "chain:createFromStore",
       "node": "node3",
       "ok": true,
-      "elapsed_ms": 121.21307200004594,
+      "elapsed_ms": 124.17069100001754,
       "detail": {
         "chainId": "6@chain.create.id"
       },
@@ -1433,7 +1433,7 @@
       "step": "stores:history",
       "node": "node3",
       "ok": true,
-      "elapsed_ms": 99.55968700000994,
+      "elapsed_ms": 99.96568399992611,
       "detail": {
         "events": 0
       },
@@ -1444,7 +1444,7 @@
       "step": "storage:uploadStoreEntity(chain proof)",
       "node": "node3",
       "ok": true,
-      "elapsed_ms": 93.02735500000381,
+      "elapsed_ms": 120.16675399991072,
       "detail": {},
       "error": ""
     },
@@ -1453,7 +1453,7 @@
       "step": "elpify-chain:status(via store context)",
       "node": "node3",
       "ok": true,
-      "elapsed_ms": 94.91573199989034,
+      "elapsed_ms": 125.66666900011114,
       "detail": {
         "validators": 0
       },
@@ -1464,7 +1464,7 @@
       "step": "invites:create(cross-store)",
       "node": "node3",
       "ok": true,
-      "elapsed_ms": 110.65062900001976,
+      "elapsed_ms": 121.90125999995871,
       "detail": {},
       "error": ""
     },
@@ -1473,7 +1473,7 @@
       "step": "chain:submitBaseTrx(elpify proof)",
       "node": "node3",
       "ok": true,
-      "elapsed_ms": 96.00525300015761,
+      "elapsed_ms": 122.79423700010739,
       "detail": {
         "trxId": "9@chain.trx.id"
       },
@@ -1484,11 +1484,11 @@
       "step": "elpify-chain:status n=20",
       "node": "node3",
       "ok": true,
-      "elapsed_ms": 1912.2068859999217,
+      "elapsed_ms": 2315.964878999921,
       "detail": {
-        "tps": 10.46,
-        "p50_ms": 96.9,
-        "p99_ms": 103.2,
+        "tps": 8.64,
+        "p50_ms": 121.9,
+        "p99_ms": 131.2,
         "ok_rate": 100.0
       },
       "error": ""
@@ -1498,11 +1498,11 @@
       "step": "chain:submitBaseTrx n=20",
       "node": "node3",
       "ok": true,
-      "elapsed_ms": 1997.93429500005,
+      "elapsed_ms": 2292.024739999988,
       "detail": {
-        "tps": 10.01,
-        "p50_ms": 97.1,
-        "p99_ms": 118.4,
+        "tps": 8.73,
+        "p50_ms": 116.5,
+        "p99_ms": 131.6,
         "ok_rate": 100.0
       },
       "error": ""
@@ -1512,11 +1512,11 @@
       "step": "stores:list n=20",
       "node": "node3",
       "ok": true,
-      "elapsed_ms": 2225.941636000016,
+      "elapsed_ms": 2516.533711999955,
       "detail": {
-        "tps": 8.98,
-        "p50_ms": 115.9,
-        "p99_ms": 121.0,
+        "tps": 7.95,
+        "p50_ms": 125.9,
+        "p99_ms": 152.8,
         "ok_rate": 100.0
       },
       "error": ""
@@ -1526,11 +1526,11 @@
       "step": "stores:create n=20",
       "node": "node3",
       "ok": true,
-      "elapsed_ms": 2219.067297000038,
+      "elapsed_ms": 2405.778729999838,
       "detail": {
-        "tps": 9.01,
-        "p50_ms": 116.7,
-        "p99_ms": 121.9,
+        "tps": 8.31,
+        "p50_ms": 121.9,
+        "p99_ms": 175.0,
         "ok_rate": 100.0
       },
       "error": ""
@@ -1540,11 +1540,11 @@
       "step": "storage:upload n=20",
       "node": "node3",
       "ok": true,
-      "elapsed_ms": 1967.9763179999554,
+      "elapsed_ms": 2459.646197999973,
       "detail": {
-        "tps": 10.16,
-        "p50_ms": 97.9,
-        "p99_ms": 114.9,
+        "tps": 8.13,
+        "p50_ms": 124.8,
+        "p99_ms": 130.1,
         "ok_rate": 100.0
       },
       "error": ""
@@ -1554,11 +1554,11 @@
       "step": "storage:download n=20",
       "node": "node3",
       "ok": true,
-      "elapsed_ms": 2157.039389999909,
+      "elapsed_ms": 2413.317673999927,
       "detail": {
-        "tps": 9.27,
-        "p50_ms": 112.1,
-        "p99_ms": 123.4,
+        "tps": 8.29,
+        "p50_ms": 123.0,
+        "p99_ms": 127.4,
         "ok_rate": 100.0
       },
       "error": ""
@@ -1568,11 +1568,11 @@
       "step": "invites:listUserInvites n=20",
       "node": "node3",
       "ok": true,
-      "elapsed_ms": 2245.985565999945,
+      "elapsed_ms": 2444.029945000011,
       "detail": {
-        "tps": 8.9,
-        "p50_ms": 116.9,
-        "p99_ms": 143.4,
+        "tps": 8.18,
+        "p50_ms": 122.0,
+        "p99_ms": 135.1,
         "ok_rate": 100.0
       },
       "error": ""
@@ -1582,11 +1582,11 @@
       "step": "invites:listStoreInvites n=20",
       "node": "node3",
       "ok": true,
-      "elapsed_ms": 2253.969245999997,
+      "elapsed_ms": 2459.514436999825,
       "detail": {
-        "tps": 8.87,
-        "p50_ms": 115.9,
-        "p99_ms": 130.4,
+        "tps": 8.13,
+        "p50_ms": 124.9,
+        "p99_ms": 132.5,
         "ok_rate": 100.0
       },
       "error": ""
@@ -1596,11 +1596,11 @@
       "step": "elpify-chain:executeTrx(MASM) n=5",
       "node": "node3",
       "ok": true,
-      "elapsed_ms": 591.6658389999156,
+      "elapsed_ms": 684.7223269999176,
       "detail": {
-        "tps": 8.451,
-        "p50_ms": 117.0,
-        "p99_ms": 121.5
+        "tps": 7.302,
+        "p50_ms": 143.7,
+        "p99_ms": 149.0
       },
       "error": ""
     },
@@ -1609,12 +1609,12 @@
       "step": "mixed-workload n=30",
       "node": "node3",
       "ok": true,
-      "elapsed_ms": 3432.0625959999234,
+      "elapsed_ms": 4011.1866760000794,
       "detail": {
-        "tps": 8.74,
-        "mean_ms": 114.3,
-        "p50_ms": 113.4,
-        "p99_ms": 143.7,
+        "tps": 7.48,
+        "mean_ms": 133.6,
+        "p50_ms": 128.6,
+        "p99_ms": 169.0,
         "read_write_ratio": "5:3",
         "errors": 0
       },
@@ -1625,11 +1625,11 @@
       "step": "concurrent-burst n=10 threads",
       "node": "node3",
       "ok": true,
-      "elapsed_ms": 853.2244200000605,
+      "elapsed_ms": 1028.4832229999665,
       "detail": {
-        "tps": 11.72,
-        "p50_ms": 729.8,
-        "p99_ms": 834.7,
+        "tps": 9.72,
+        "p50_ms": 920.2,
+        "p99_ms": 1022.7,
         "errors": 0,
         "effective_concurrency": 10
       },
@@ -1640,7 +1640,7 @@
       "step": "chain:create on node1",
       "node": "node1",
       "ok": true,
-      "elapsed_ms": 95.99600100000316,
+      "elapsed_ms": 125.60630500001935,
       "detail": {
         "chainId": "61@chain.create.id"
       },
@@ -1651,7 +1651,7 @@
       "step": "chain:submitBaseTrx on node1",
       "node": "node1",
       "ok": true,
-      "elapsed_ms": 117.14517499990507,
+      "elapsed_ms": 124.91079100004754,
       "detail": {},
       "error": ""
     },
@@ -1660,7 +1660,7 @@
       "step": "elpify-chain:status on node2",
       "node": "node2",
       "ok": true,
-      "elapsed_ms": 101.5633549998256,
+      "elapsed_ms": 122.2270750001826,
       "detail": {
         "validators": 0
       },
@@ -1671,7 +1671,7 @@
       "step": "elpify-chain:status on node3",
       "node": "node3",
       "ok": true,
-      "elapsed_ms": 114.73507400000926,
+      "elapsed_ms": 120.52923999999621,
       "detail": {
         "validators": 0
       },
@@ -1682,10 +1682,10 @@
       "step": "wasm:status c=1 (n=20)",
       "node": "node1",
       "ok": true,
-      "elapsed_ms": 1979.816387000028,
+      "elapsed_ms": 2234.6969239999908,
       "detail": {
-        "tps": 10.1,
-        "p99_ms": 119.6,
+        "tps": 8.95,
+        "p99_ms": 132.6,
         "ok_rate": 100.0,
         "rss_peak_mb": "\u2014",
         "cpu_pct_core": "\u2014"
@@ -1697,10 +1697,10 @@
       "step": "wasm:status c=4 (n=80)",
       "node": "node1",
       "ok": true,
-      "elapsed_ms": 5175.747809000086,
+      "elapsed_ms": 6678.110840000045,
       "detail": {
-        "tps": 15.46,
-        "p99_ms": 372.7,
+        "tps": 11.98,
+        "p99_ms": 475.3,
         "ok_rate": 100.0,
         "rss_peak_mb": "\u2014",
         "cpu_pct_core": "\u2014"
@@ -1712,10 +1712,10 @@
       "step": "wasm:status c=8 (n=160)",
       "node": "node1",
       "ok": true,
-      "elapsed_ms": 11536.902208000129,
+      "elapsed_ms": 13941.661436999993,
       "detail": {
-        "tps": 13.87,
-        "p99_ms": 830.4,
+        "tps": 11.48,
+        "p99_ms": 1119.1,
         "ok_rate": 100.0,
         "rss_peak_mb": "\u2014",
         "cpu_pct_core": "\u2014"
@@ -1727,10 +1727,10 @@
       "step": "wasm:status c=16 (n=320)",
       "node": "node1",
       "ok": true,
-      "elapsed_ms": 25138.663149999957,
+      "elapsed_ms": 33636.46849699989,
       "detail": {
-        "tps": 12.73,
-        "p99_ms": 1820.2,
+        "tps": 9.51,
+        "p99_ms": 2658.8,
         "ok_rate": 100.0,
         "rss_peak_mb": "\u2014",
         "cpu_pct_core": "\u2014"
@@ -1742,10 +1742,10 @@
       "step": "wasm:status c=32 (n=640)",
       "node": "node1",
       "ok": true,
-      "elapsed_ms": 64242.972925,
+      "elapsed_ms": 74202.88420400016,
       "detail": {
-        "tps": 9.96,
-        "p99_ms": 4649.3,
+        "tps": 8.63,
+        "p99_ms": 5471.5,
         "ok_rate": 100.0,
         "rss_peak_mb": "\u2014",
         "cpu_pct_core": "\u2014"
@@ -1757,10 +1757,10 @@
       "step": "masm:executeTrx c=1 (n=5)",
       "node": "node1",
       "ok": true,
-      "elapsed_ms": 593.0882180000481,
+      "elapsed_ms": 667.7400910000415,
       "detail": {
-        "tps": 8.43,
-        "p99_ms": 121.9,
+        "tps": 7.49,
+        "p99_ms": 145.2,
         "ok_rate": 100.0,
         "rss_peak_mb": "\u2014",
         "cpu_pct_core": "\u2014"
@@ -1772,10 +1772,10 @@
       "step": "masm:executeTrx c=2 (n=10)",
       "node": "node1",
       "ok": true,
-      "elapsed_ms": 1017.556390999971,
+      "elapsed_ms": 968.6299089999011,
       "detail": {
-        "tps": 9.83,
-        "p99_ms": 275.9,
+        "tps": 10.32,
+        "p99_ms": 246.7,
         "ok_rate": 100.0,
         "rss_peak_mb": "\u2014",
         "cpu_pct_core": "\u2014"
@@ -1787,10 +1787,10 @@
       "step": "masm:executeTrx c=4 (n=20)",
       "node": "node1",
       "ok": true,
-      "elapsed_ms": 1591.7798169998605,
+      "elapsed_ms": 1914.9235679999492,
       "detail": {
-        "tps": 12.56,
-        "p99_ms": 508.3,
+        "tps": 10.44,
+        "p99_ms": 591.7,
         "ok_rate": 100.0,
         "rss_peak_mb": "\u2014",
         "cpu_pct_core": "\u2014"
@@ -1802,10 +1802,10 @@
       "step": "masm:executeTrx c=8 (n=40)",
       "node": "node1",
       "ok": true,
-      "elapsed_ms": 3149.9558349999006,
+      "elapsed_ms": 4082.9462530000455,
       "detail": {
-        "tps": 12.7,
-        "p99_ms": 960.1,
+        "tps": 9.8,
+        "p99_ms": 1438.0,
         "ok_rate": 100.0,
         "rss_peak_mb": "\u2014",
         "cpu_pct_core": "\u2014"
@@ -1820,15 +1820,15 @@
       "action": "status",
       "node": "node1",
       "n": 20,
-      "duration_s": 1.9494023160000324,
-      "tps": 10.259554857325648,
-      "mean_ms": 97.37629960001186,
-      "p50_ms": 96.45469299994147,
-      "p95_ms": 114.72307700000783,
-      "p99_ms": 114.72307700000783,
-      "min_ms": 89.89953500008596,
-      "max_ms": 114.72307700000783,
-      "stddev_ms": 5.2029613657756375,
+      "duration_s": 2.445966596999824,
+      "tps": 8.176726544234748,
+      "mean_ms": 122.20178940002597,
+      "p50_ms": 127.58783499998572,
+      "p95_ms": 140.5437930000062,
+      "p99_ms": 140.5437930000062,
+      "min_ms": 95.91087300009349,
+      "max_ms": 140.5437930000062,
+      "stddev_ms": 12.870860732540832,
       "errors": 0,
       "ok_rate": 100.0
     },
@@ -1838,15 +1838,15 @@
       "action": "submitBaseTrx",
       "node": "node1",
       "n": 20,
-      "duration_s": 1.8759358239999528,
-      "tps": 10.661345523726457,
-      "mean_ms": 93.69479349998073,
-      "p50_ms": 94.88280499999746,
-      "p95_ms": 100.00966799998423,
-      "p99_ms": 100.00966799998423,
-      "min_ms": 85.88401900010467,
-      "max_ms": 100.00966799998423,
-      "stddev_ms": 3.6509391398862103,
+      "duration_s": 2.431961286999922,
+      "tps": 8.223815118649396,
+      "mean_ms": 121.45813504997705,
+      "p50_ms": 126.16447299978972,
+      "p95_ms": 133.93064399997456,
+      "p99_ms": 133.93064399997456,
+      "min_ms": 97.88580999997976,
+      "max_ms": 133.93064399997456,
+      "stddev_ms": 10.15890450763427,
       "errors": 0,
       "ok_rate": 100.0
     },
@@ -1856,15 +1856,15 @@
       "action": "list",
       "node": "node1",
       "n": 20,
-      "duration_s": 2.1546884780000255,
-      "tps": 9.282084256822095,
-      "mean_ms": 107.6296973999888,
-      "p50_ms": 113.99278699991555,
-      "p95_ms": 126.87562499991145,
-      "p99_ms": 126.87562499991145,
-      "min_ms": 82.4805549998473,
-      "max_ms": 126.87562499991145,
-      "stddev_ms": 12.811715552598322,
+      "duration_s": 2.5826565720001327,
+      "tps": 7.743964186655698,
+      "mean_ms": 129.02550999996265,
+      "p50_ms": 128.63673599986214,
+      "p95_ms": 140.91681099989728,
+      "p99_ms": 140.91681099989728,
+      "min_ms": 121.01417099984246,
+      "max_ms": 140.91681099989728,
+      "stddev_ms": 5.03303627064865,
       "errors": 0,
       "ok_rate": 100.0
     },
@@ -1874,15 +1874,15 @@
       "action": "create",
       "node": "node1",
       "n": 20,
-      "duration_s": 2.2160875120000583,
-      "tps": 9.024914355457762,
-      "mean_ms": 110.70727229999875,
-      "p50_ms": 116.60329999995156,
-      "p95_ms": 122.98806900003001,
-      "p99_ms": 122.98806900003001,
-      "min_ms": 92.63689499994143,
-      "max_ms": 122.98806900003001,
-      "stddev_ms": 10.809357329472729,
+      "duration_s": 2.605345360000001,
+      "tps": 7.676525464554914,
+      "mean_ms": 130.185715000016,
+      "p50_ms": 130.21573399987574,
+      "p95_ms": 148.75033199996324,
+      "p99_ms": 148.75033199996324,
+      "min_ms": 109.26678500004527,
+      "max_ms": 148.75033199996324,
+      "stddev_ms": 8.839080249115634,
       "errors": 0,
       "ok_rate": 100.0
     },
@@ -1892,15 +1892,15 @@
       "action": "upload",
       "node": "node1",
       "n": 20,
-      "duration_s": 2.0189770509998652,
-      "tps": 9.906006603737932,
-      "mean_ms": 100.84756304999019,
-      "p50_ms": 98.7417019998702,
-      "p95_ms": 122.88625599990155,
-      "p99_ms": 122.88625599990155,
-      "min_ms": 86.90395600001466,
-      "max_ms": 122.88625599990155,
-      "stddev_ms": 9.322313765690465,
+      "duration_s": 2.549027385000045,
+      "tps": 7.846129907309587,
+      "mean_ms": 127.36139055000422,
+      "p50_ms": 128.63648999996258,
+      "p95_ms": 136.1862779999683,
+      "p99_ms": 136.1862779999683,
+      "min_ms": 114.37037099994996,
+      "max_ms": 136.1862779999683,
+      "stddev_ms": 5.279367716275621,
       "errors": 0,
       "ok_rate": 100.0
     },
@@ -1910,15 +1910,15 @@
       "action": "download",
       "node": "node1",
       "n": 20,
-      "duration_s": 2.157840548999957,
-      "tps": 9.268525428938169,
-      "mean_ms": 107.79845395002212,
-      "p50_ms": 107.9687300000387,
-      "p95_ms": 121.29444500010322,
-      "p99_ms": 121.29444500010322,
-      "min_ms": 88.153580999915,
-      "max_ms": 121.29444500010322,
-      "stddev_ms": 10.277591603384534,
+      "duration_s": 2.550586118999945,
+      "tps": 7.841334919458342,
+      "mean_ms": 127.45000259996004,
+      "p50_ms": 128.22294399984457,
+      "p95_ms": 136.98309599999448,
+      "p99_ms": 136.98309599999448,
+      "min_ms": 113.76340300012089,
+      "max_ms": 136.98309599999448,
+      "stddev_ms": 5.649478111939314,
       "errors": 0,
       "ok_rate": 100.0
     },
@@ -1928,15 +1928,15 @@
       "action": "listUserInvites",
       "node": "node1",
       "n": 20,
-      "duration_s": 2.261812715999895,
-      "tps": 8.842465098246857,
-      "mean_ms": 112.97747174999131,
-      "p50_ms": 115.86299500004316,
-      "p95_ms": 123.03756899996188,
-      "p99_ms": 123.03756899996188,
-      "min_ms": 97.5105679999615,
-      "max_ms": 123.03756899996188,
-      "stddev_ms": 7.408910007086026,
+      "duration_s": 2.5550375209998037,
+      "tps": 7.827673697791281,
+      "mean_ms": 127.6714284499576,
+      "p50_ms": 128.04417500001364,
+      "p95_ms": 136.6608369999085,
+      "p99_ms": 136.6608369999085,
+      "min_ms": 110.41191999993316,
+      "max_ms": 136.6608369999085,
+      "stddev_ms": 6.133410762496084,
       "errors": 0,
       "ok_rate": 100.0
     },
@@ -1946,15 +1946,15 @@
       "action": "listStoreInvites",
       "node": "node1",
       "n": 20,
-      "duration_s": 2.2612251470000047,
-      "tps": 8.844762772311395,
-      "mean_ms": 112.95546149997335,
-      "p50_ms": 115.90498399982607,
-      "p95_ms": 123.77188199980083,
-      "p99_ms": 123.77188199980083,
-      "min_ms": 89.99180099999649,
-      "max_ms": 123.77188199980083,
-      "stddev_ms": 8.538172092683165,
+      "duration_s": 3.5520098089998555,
+      "tps": 5.630615081446362,
+      "mean_ms": 177.5062266999953,
+      "p50_ms": 159.95866000002934,
+      "p95_ms": 312.0336580000185,
+      "p99_ms": 312.0336580000185,
+      "min_ms": 130.86054499990496,
+      "max_ms": 312.0336580000185,
+      "stddev_ms": 53.44010455619309,
       "errors": 0,
       "ok_rate": 100.0
     },
@@ -1964,15 +1964,15 @@
       "action": "executeTrx",
       "node": "node1",
       "n": 5,
-      "duration_s": 0.5893647360001069,
-      "tps": 8.483710840818093,
-      "mean_ms": 117.76040219997412,
-      "p50_ms": 116.39426799979447,
-      "p95_ms": 124.71160600011899,
-      "p99_ms": 124.71160600011899,
-      "min_ms": 114.98609399995985,
-      "max_ms": 124.71160600011899,
-      "stddev_ms": 3.9445661646674144,
+      "duration_s": 0.6956027490000452,
+      "tps": 7.1880106960297185,
+      "mean_ms": 138.9926763999938,
+      "p50_ms": 142.9408550000062,
+      "p95_ms": 146.81917600000816,
+      "p99_ms": 146.81917600000816,
+      "min_ms": 128.76948300004187,
+      "max_ms": 146.81917600000816,
+      "stddev_ms": 8.695407036857075,
       "errors": 0,
       "ok_rate": 100.0
     },
@@ -1982,15 +1982,15 @@
       "action": "status",
       "node": "node2",
       "n": 20,
-      "duration_s": 2.034315159000016,
-      "tps": 9.831318373418187,
-      "mean_ms": 101.61940110001524,
-      "p50_ms": 98.81470699997408,
-      "p95_ms": 118.40258799998082,
-      "p99_ms": 118.40258799998082,
-      "min_ms": 91.8615549999231,
-      "max_ms": 118.40258799998082,
-      "stddev_ms": 7.989224016207193,
+      "duration_s": 2.287738169999784,
+      "tps": 8.74225917208082,
+      "mean_ms": 114.26566289998163,
+      "p50_ms": 118.68972999991456,
+      "p95_ms": 131.87382899991462,
+      "p99_ms": 131.87382899991462,
+      "min_ms": 88.72289900000396,
+      "max_ms": 131.87382899991462,
+      "stddev_ms": 12.257065112170016,
       "errors": 0,
       "ok_rate": 100.0
     },
@@ -2000,15 +2000,15 @@
       "action": "submitBaseTrx",
       "node": "node2",
       "n": 20,
-      "duration_s": 1.965681350000068,
-      "tps": 10.174589080778178,
-      "mean_ms": 98.18361355003162,
-      "p50_ms": 96.89337500003603,
-      "p95_ms": 117.8542049999578,
-      "p99_ms": 117.8542049999578,
-      "min_ms": 87.91029799999706,
-      "max_ms": 117.8542049999578,
-      "stddev_ms": 6.843259061187739,
+      "duration_s": 2.313848744000097,
+      "tps": 8.643607345493436,
+      "mean_ms": 115.61299709999275,
+      "p50_ms": 121.88310300007288,
+      "p95_ms": 128.09050099986052,
+      "p99_ms": 128.09050099986052,
+      "min_ms": 93.80102299996906,
+      "max_ms": 128.09050099986052,
+      "stddev_ms": 11.701618329086369,
       "errors": 0,
       "ok_rate": 100.0
     },
@@ -2018,15 +2018,15 @@
       "action": "list",
       "node": "node2",
       "n": 20,
-      "duration_s": 2.1830044450000514,
-      "tps": 9.161685422037484,
-      "mean_ms": 109.06314245004296,
-      "p50_ms": 115.92070899996543,
-      "p95_ms": 123.91201699983867,
-      "p99_ms": 123.91201699983867,
-      "min_ms": 84.95677000018986,
-      "max_ms": 123.91201699983867,
-      "stddev_ms": 12.307775269932643,
+      "duration_s": 2.4860128489999624,
+      "tps": 8.045010711849423,
+      "mean_ms": 124.22196979999853,
+      "p50_ms": 123.97843600001579,
+      "p95_ms": 137.98678200009817,
+      "p99_ms": 137.98678200009817,
+      "min_ms": 114.20300700001462,
+      "max_ms": 137.98678200009817,
+      "stddev_ms": 5.175247922904042,
       "errors": 0,
       "ok_rate": 100.0
     },
@@ -2036,15 +2036,15 @@
       "action": "create",
       "node": "node2",
       "n": 20,
-      "duration_s": 2.1662872360000165,
-      "tps": 9.232386023253957,
-      "mean_ms": 108.22090140002274,
-      "p50_ms": 113.8973409999835,
-      "p95_ms": 122.27793900001416,
-      "p99_ms": 122.27793900001416,
-      "min_ms": 92.35043600006065,
-      "max_ms": 122.27793900001416,
-      "stddev_ms": 11.212245679836734,
+      "duration_s": 2.446188914000004,
+      "tps": 8.175983418752411,
+      "mean_ms": 122.22703500002581,
+      "p50_ms": 123.93137499998375,
+      "p95_ms": 134.91174900013903,
+      "p99_ms": 134.91174900013903,
+      "min_ms": 101.21240800003761,
+      "max_ms": 134.91174900013903,
+      "stddev_ms": 8.061252621689132,
       "errors": 0,
       "ok_rate": 100.0
     },
@@ -2054,15 +2054,15 @@
       "action": "upload",
       "node": "node2",
       "n": 20,
-      "duration_s": 2.101613974999964,
-      "tps": 9.516495530536403,
-      "mean_ms": 104.98592770001096,
-      "p50_ms": 101.06826599985652,
-      "p95_ms": 121.95049100000688,
-      "p99_ms": 121.95049100000688,
-      "min_ms": 89.75729700000556,
-      "max_ms": 121.95049100000688,
-      "stddev_ms": 9.086799737601124,
+      "duration_s": 2.409041699999989,
+      "tps": 8.302056373702495,
+      "mean_ms": 120.33748024998658,
+      "p50_ms": 121.92011600018304,
+      "p95_ms": 132.19226100000014,
+      "p99_ms": 132.19226100000014,
+      "min_ms": 95.89757300000201,
+      "max_ms": 132.19226100000014,
+      "stddev_ms": 8.969627558177638,
       "errors": 0,
       "ok_rate": 100.0
     },
@@ -2072,15 +2072,15 @@
       "action": "download",
       "node": "node2",
       "n": 20,
-      "duration_s": 2.1018798239999796,
-      "tps": 9.515291869512799,
-      "mean_ms": 105.00794345003897,
-      "p50_ms": 100.21129899996595,
-      "p95_ms": 116.90949500007264,
-      "p99_ms": 116.90949500007264,
-      "min_ms": 88.0503140001565,
-      "max_ms": 116.90949500007264,
-      "stddev_ms": 9.125334753111124,
+      "duration_s": 2.4604920799999945,
+      "tps": 8.128455345403934,
+      "mean_ms": 122.94690319999972,
+      "p50_ms": 123.92148500020994,
+      "p95_ms": 130.36154100018393,
+      "p99_ms": 130.36154100018393,
+      "min_ms": 106.39444499997808,
+      "max_ms": 130.36154100018393,
+      "stddev_ms": 6.02799829085028,
       "errors": 0,
       "ok_rate": 100.0
     },
@@ -2090,15 +2090,15 @@
       "action": "listUserInvites",
       "node": "node2",
       "n": 20,
-      "duration_s": 2.187738696999986,
-      "tps": 9.141859595675529,
-      "mean_ms": 109.29179944997713,
-      "p50_ms": 114.77442599993992,
-      "p95_ms": 124.620258999812,
-      "p99_ms": 124.620258999812,
-      "min_ms": 87.1908669998902,
-      "max_ms": 124.620258999812,
-      "stddev_ms": 11.404114056230698,
+      "duration_s": 2.4754841369999667,
+      "tps": 8.079227695733875,
+      "mean_ms": 123.6958303999927,
+      "p50_ms": 125.81688900013432,
+      "p95_ms": 134.1044379998948,
+      "p99_ms": 134.1044379998948,
+      "min_ms": 97.77003999988665,
+      "max_ms": 134.1044379998948,
+      "stddev_ms": 7.775526205122727,
       "errors": 0,
       "ok_rate": 100.0
     },
@@ -2108,15 +2108,15 @@
       "action": "listStoreInvites",
       "node": "node2",
       "n": 20,
-      "duration_s": 2.277088776000028,
-      "tps": 8.783144605864834,
-      "mean_ms": 113.71635290000768,
-      "p50_ms": 117.82647099994392,
-      "p95_ms": 125.96185400002469,
-      "p99_ms": 125.96185400002469,
-      "min_ms": 89.99867500006076,
-      "max_ms": 125.96185400002469,
-      "stddev_ms": 10.723233947633274,
+      "duration_s": 2.5299951419999616,
+      "tps": 7.905153519065652,
+      "mean_ms": 126.41679280001199,
+      "p50_ms": 126.87276399992697,
+      "p95_ms": 146.12902499993652,
+      "p99_ms": 146.12902499993652,
+      "min_ms": 111.8953180000517,
+      "max_ms": 146.12902499993652,
+      "stddev_ms": 7.549015273447145,
       "errors": 0,
       "ok_rate": 100.0
     },
@@ -2126,15 +2126,15 @@
       "action": "executeTrx",
       "node": "node2",
       "n": 5,
-      "duration_s": 0.5784615739999026,
-      "tps": 8.643616490247357,
-      "mean_ms": 115.58582680004292,
-      "p50_ms": 116.13824500000192,
-      "p95_ms": 118.12662200009072,
-      "p99_ms": 118.12662200009072,
-      "min_ms": 111.93602100001954,
-      "max_ms": 118.12662200009072,
-      "stddev_ms": 2.650460799247488,
+      "duration_s": 0.6896118019999449,
+      "tps": 7.2504559601495915,
+      "mean_ms": 137.83225799998036,
+      "p50_ms": 144.84267399984674,
+      "p95_ms": 145.7525779999287,
+      "p99_ms": 145.7525779999287,
+      "min_ms": 122.9295110001658,
+      "max_ms": 145.7525779999287,
+      "stddev_ms": 10.710171661366862,
       "errors": 0,
       "ok_rate": 100.0
     },
@@ -2144,15 +2144,15 @@
       "action": "status",
       "node": "node3",
       "n": 20,
-      "duration_s": 1.9122068859999217,
-      "tps": 10.459119327740366,
-      "mean_ms": 95.51674600000979,
-      "p50_ms": 96.89715199988314,
-      "p95_ms": 103.21330900001158,
-      "p99_ms": 103.21330900001158,
-      "min_ms": 82.95010100005129,
-      "max_ms": 103.21330900001158,
-      "stddev_ms": 4.3878264055444935,
+      "duration_s": 2.315964878999921,
+      "tps": 8.635709540049843,
+      "mean_ms": 115.68248959999892,
+      "p50_ms": 121.91349399995488,
+      "p95_ms": 131.15222800001902,
+      "p99_ms": 131.15222800001902,
+      "min_ms": 94.67890500013709,
+      "max_ms": 131.15222800001902,
+      "stddev_ms": 12.107430140484254,
       "errors": 0,
       "ok_rate": 100.0
     },
@@ -2162,15 +2162,15 @@
       "action": "submitBaseTrx",
       "node": "node3",
       "n": 20,
-      "duration_s": 1.99793429500005,
-      "tps": 10.010339203872316,
-      "mean_ms": 99.79745914994282,
-      "p50_ms": 97.07774499997868,
-      "p95_ms": 118.44001000008575,
-      "p99_ms": 118.44001000008575,
-      "min_ms": 88.95873500000562,
-      "max_ms": 118.44001000008575,
-      "stddev_ms": 7.861414985999633,
+      "duration_s": 2.292024739999988,
+      "tps": 8.725909302357751,
+      "mean_ms": 114.52076199998373,
+      "p50_ms": 116.51597700006278,
+      "p95_ms": 131.61051399993084,
+      "p99_ms": 131.61051399993084,
+      "min_ms": 95.69566899995152,
+      "max_ms": 131.61051399993084,
+      "stddev_ms": 10.992326568358715,
       "errors": 0,
       "ok_rate": 100.0
     },
@@ -2180,15 +2180,15 @@
       "action": "list",
       "node": "node3",
       "n": 20,
-      "duration_s": 2.225941636000016,
-      "tps": 8.984961544607119,
-      "mean_ms": 111.2060243999963,
-      "p50_ms": 115.85570399984135,
-      "p95_ms": 120.97194700004366,
-      "p99_ms": 120.97194700004366,
-      "min_ms": 92.62936400000399,
-      "max_ms": 120.97194700004366,
-      "stddev_ms": 9.075918908339075,
+      "duration_s": 2.516533711999955,
+      "tps": 7.947439728159047,
+      "mean_ms": 125.74925135004378,
+      "p50_ms": 125.91539000004559,
+      "p95_ms": 152.80533600002855,
+      "p99_ms": 152.80533600002855,
+      "min_ms": 111.94915900000524,
+      "max_ms": 152.80533600002855,
+      "stddev_ms": 7.770721833950878,
       "errors": 0,
       "ok_rate": 100.0
     },
@@ -2198,15 +2198,15 @@
       "action": "create",
       "node": "node3",
       "n": 20,
-      "duration_s": 2.219067297000038,
-      "tps": 9.012795613291244,
-      "mean_ms": 110.86090990000912,
-      "p50_ms": 116.6801110000506,
-      "p95_ms": 121.8747190000613,
-      "p99_ms": 121.8747190000613,
-      "min_ms": 92.97006500014504,
-      "max_ms": 121.8747190000613,
-      "stddev_ms": 10.235952701772558,
+      "duration_s": 2.405778729999838,
+      "tps": 8.313316495237842,
+      "mean_ms": 120.21098239999901,
+      "p50_ms": 121.94843199995375,
+      "p95_ms": 174.95403700013412,
+      "p99_ms": 174.95403700013412,
+      "min_ms": 86.90879600021617,
+      "max_ms": 174.95403700013412,
+      "stddev_ms": 19.52504248588736,
       "errors": 0,
       "ok_rate": 100.0
     },
@@ -2216,15 +2216,15 @@
       "action": "upload",
       "node": "node3",
       "n": 20,
-      "duration_s": 1.9679763179999554,
-      "tps": 10.162723919526583,
-      "mean_ms": 98.30384830000867,
-      "p50_ms": 97.92363599990495,
-      "p95_ms": 114.90824499992414,
-      "p99_ms": 114.90824499992414,
-      "min_ms": 90.02778600006422,
-      "max_ms": 114.90824499992414,
-      "stddev_ms": 5.750090437191767,
+      "duration_s": 2.459646197999973,
+      "tps": 8.131250753162272,
+      "mean_ms": 122.90126794998741,
+      "p50_ms": 124.84881599993969,
+      "p95_ms": 130.09597900008885,
+      "p99_ms": 130.09597900008885,
+      "min_ms": 94.88091499997608,
+      "max_ms": 130.09597900008885,
+      "stddev_ms": 8.473249286219255,
       "errors": 0,
       "ok_rate": 100.0
     },
@@ -2234,15 +2234,15 @@
       "action": "download",
       "node": "node3",
       "n": 20,
-      "duration_s": 2.157039389999909,
-      "tps": 9.271967907827982,
-      "mean_ms": 107.58909195001252,
-      "p50_ms": 112.13951700005964,
-      "p95_ms": 123.37690499998644,
-      "p99_ms": 123.37690499998644,
-      "min_ms": 87.9246360000252,
-      "max_ms": 123.37690499998644,
-      "stddev_ms": 11.865451640997316,
+      "duration_s": 2.413317673999927,
+      "tps": 8.28734659157044,
+      "mean_ms": 120.58254075001287,
+      "p50_ms": 122.98401600014586,
+      "p95_ms": 127.43675999990955,
+      "p99_ms": 127.43675999990955,
+      "min_ms": 98.2997979999709,
+      "max_ms": 127.43675999990955,
+      "stddev_ms": 7.151770932075138,
       "errors": 0,
       "ok_rate": 100.0
     },
@@ -2252,15 +2252,15 @@
       "action": "listUserInvites",
       "node": "node3",
       "n": 20,
-      "duration_s": 2.245985565999945,
-      "tps": 8.904776728204713,
-      "mean_ms": 112.21367715002089,
-      "p50_ms": 116.9346620001761,
-      "p95_ms": 143.35080999990168,
-      "p99_ms": 143.35080999990168,
-      "min_ms": 92.4047469998186,
-      "max_ms": 143.35080999990168,
-      "stddev_ms": 12.637182813382852,
+      "duration_s": 2.444029945000011,
+      "tps": 8.183205791285797,
+      "mean_ms": 122.12431489999744,
+      "p50_ms": 122.02897599991047,
+      "p95_ms": 135.09332900002846,
+      "p99_ms": 135.09332900002846,
+      "min_ms": 114.4810939999843,
+      "max_ms": 135.09332900002846,
+      "stddev_ms": 5.4073149353351555,
       "errors": 0,
       "ok_rate": 100.0
     },
@@ -2270,15 +2270,15 @@
       "action": "listStoreInvites",
       "node": "node3",
       "n": 20,
-      "duration_s": 2.253969245999997,
-      "tps": 8.87323553127132,
-      "mean_ms": 112.60826469999756,
-      "p50_ms": 115.9173030000602,
-      "p95_ms": 130.364795000105,
-      "p99_ms": 130.364795000105,
-      "min_ms": 88.90145800000937,
-      "max_ms": 130.364795000105,
-      "stddev_ms": 11.332258167468137,
+      "duration_s": 2.459514436999825,
+      "tps": 8.131686360172978,
+      "mean_ms": 122.89150585000925,
+      "p50_ms": 124.91267500013237,
+      "p95_ms": 132.45236000011573,
+      "p99_ms": 132.45236000011573,
+      "min_ms": 99.87193300003128,
+      "max_ms": 132.45236000011573,
+      "stddev_ms": 7.742456802200232,
       "errors": 0,
       "ok_rate": 100.0
     },
@@ -2288,15 +2288,15 @@
       "action": "executeTrx",
       "node": "node3",
       "n": 5,
-      "duration_s": 0.5916658389999156,
-      "tps": 8.450716046833849,
-      "mean_ms": 118.24161000004096,
-      "p50_ms": 117.00572800009468,
-      "p95_ms": 121.456094999985,
-      "p99_ms": 121.456094999985,
-      "min_ms": 116.86190199998236,
-      "max_ms": 121.456094999985,
-      "stddev_ms": 1.9863917637547879,
+      "duration_s": 0.6847223269999176,
+      "tps": 7.302230119919255,
+      "mean_ms": 136.85475980000774,
+      "p50_ms": 143.696220000038,
+      "p95_ms": 149.02416600011748,
+      "p99_ms": 149.02416600011748,
+      "min_ms": 122.7752969998619,
+      "max_ms": 149.02416600011748,
+      "stddev_ms": 12.50500863278388,
       "errors": 0,
       "ok_rate": 100.0
     }
@@ -2308,14 +2308,14 @@
       "node": "node1",
       "concurrency": 1,
       "total_reqs": 20,
-      "duration_s": 1.979816387000028,
-      "tps": 10.101946893320525,
-      "mean_ms": 98.80832289998125,
-      "p50_ms": 97.49222899995402,
-      "p95_ms": 119.55463399999644,
-      "p99_ms": 119.55463399999644,
-      "min_ms": 92.8927179998027,
-      "max_ms": 119.55463399999644,
+      "duration_s": 2.2346969239999908,
+      "tps": 8.949759488727913,
+      "mean_ms": 111.511586849997,
+      "p50_ms": 109.64359700005843,
+      "p95_ms": 132.5617750001129,
+      "p99_ms": 132.5617750001129,
+      "min_ms": 97.92309699992074,
+      "max_ms": 132.5617750001129,
       "errors": 0,
       "ok_rate": 100.0,
       "resources": {}
@@ -2326,14 +2326,14 @@
       "node": "node1",
       "concurrency": 4,
       "total_reqs": 80,
-      "duration_s": 5.175747809000086,
-      "tps": 15.456703640175114,
-      "mean_ms": 252.61301719999096,
-      "p50_ms": 257.7833109999119,
-      "p95_ms": 351.9870840000294,
-      "p99_ms": 372.6993459999903,
-      "min_ms": 98.70685999999296,
-      "max_ms": 372.6993459999903,
+      "duration_s": 6.678110840000045,
+      "tps": 11.97943578905909,
+      "mean_ms": 323.80116422499725,
+      "p50_ms": 331.75982500006285,
+      "p95_ms": 458.2544360000611,
+      "p99_ms": 475.2666760000466,
+      "min_ms": 124.07098199992106,
+      "max_ms": 475.2666760000466,
       "errors": 0,
       "ok_rate": 100.0,
       "resources": {}
@@ -2344,14 +2344,14 @@
       "node": "node1",
       "concurrency": 8,
       "total_reqs": 160,
-      "duration_s": 11.536902208000129,
-      "tps": 13.868540888649457,
-      "mean_ms": 561.7360937500109,
-      "p50_ms": 549.4784789998448,
-      "p95_ms": 758.7707739999132,
-      "p99_ms": 830.4119679999076,
-      "min_ms": 186.5421069999229,
-      "max_ms": 969.2133680000552,
+      "duration_s": 13.941661436999993,
+      "tps": 11.476394023984366,
+      "mean_ms": 682.6877980749913,
+      "p50_ms": 694.9625729998843,
+      "p95_ms": 1069.8303130000113,
+      "p99_ms": 1119.1040389999216,
+      "min_ms": 138.9427419999265,
+      "max_ms": 1123.4878999998728,
       "errors": 0,
       "ok_rate": 100.0,
       "resources": {}
@@ -2362,14 +2362,14 @@
       "node": "node1",
       "concurrency": 16,
       "total_reqs": 320,
-      "duration_s": 25.138663149999957,
-      "tps": 12.729396073712875,
-      "mean_ms": 1235.4547770031224,
-      "p50_ms": 1222.289106000062,
-      "p95_ms": 1663.7882400000308,
-      "p99_ms": 1820.1634619999822,
-      "min_ms": 248.29351700009283,
-      "max_ms": 2179.2610630000127,
+      "duration_s": 33.636468496999896,
+      "tps": 9.51348385543332,
+      "mean_ms": 1654.0731866656251,
+      "p50_ms": 1633.2579670001905,
+      "p95_ms": 2399.5106489999216,
+      "p99_ms": 2658.780385,
+      "min_ms": 622.929527999986,
+      "max_ms": 2732.400837000114,
       "errors": 0,
       "ok_rate": 100.0,
       "resources": {}
@@ -2380,14 +2380,14 @@
       "node": "node1",
       "concurrency": 32,
       "total_reqs": 640,
-      "duration_s": 64.242972925,
-      "tps": 9.962179065828154,
-      "mean_ms": 3148.6373037484323,
-      "p50_ms": 3168.9451830000053,
-      "p95_ms": 4148.7597830000595,
-      "p99_ms": 4649.253989999806,
-      "min_ms": 172.6670020000256,
-      "max_ms": 4918.899999000132,
+      "duration_s": 74.20288420400016,
+      "tps": 8.625001667596885,
+      "mean_ms": 3634.2665034312517,
+      "p50_ms": 3658.08699299987,
+      "p95_ms": 4855.221465000113,
+      "p99_ms": 5471.513333999837,
+      "min_ms": 639.6993180001118,
+      "max_ms": 6105.015178000031,
       "errors": 0,
       "ok_rate": 100.0,
       "resources": {}
@@ -2398,14 +2398,14 @@
       "node": "node1",
       "concurrency": 1,
       "total_reqs": 5,
-      "duration_s": 0.5930882180000481,
-      "tps": 8.43044904324772,
-      "mean_ms": 118.21672999999464,
-      "p50_ms": 118.00834099994972,
-      "p95_ms": 121.89737499988951,
-      "p99_ms": 121.89737499988951,
-      "min_ms": 114.84461300005933,
-      "max_ms": 121.89737499988951,
+      "duration_s": 0.6677400910000415,
+      "tps": 7.487943389038908,
+      "mean_ms": 133.1232502000148,
+      "p50_ms": 134.6737530000155,
+      "p95_ms": 145.2201680001508,
+      "p99_ms": 145.2201680001508,
+      "min_ms": 118.9017460001196,
+      "max_ms": 145.2201680001508,
       "errors": 0,
       "ok_rate": 100.0,
       "resources": {}
@@ -2416,14 +2416,14 @@
       "node": "node1",
       "concurrency": 2,
       "total_reqs": 10,
-      "duration_s": 1.017556390999971,
-      "tps": 9.827465178782692,
-      "mean_ms": 197.98788180000884,
-      "p50_ms": 193.9926119998745,
-      "p95_ms": 275.94008300002315,
-      "p99_ms": 275.94008300002315,
-      "min_ms": 145.01452399986192,
-      "max_ms": 275.94008300002315,
+      "duration_s": 0.9686299089999011,
+      "tps": 10.323860441522895,
+      "mean_ms": 188.75497950000408,
+      "p50_ms": 185.86516999994274,
+      "p95_ms": 246.67386600003738,
+      "p99_ms": 246.67386600003738,
+      "min_ms": 147.65469300004952,
+      "max_ms": 246.67386600003738,
       "errors": 0,
       "ok_rate": 100.0,
       "resources": {}
@@ -2434,14 +2434,14 @@
       "node": "node1",
       "concurrency": 4,
       "total_reqs": 20,
-      "duration_s": 1.5917798169998605,
-      "tps": 12.564551822057531,
-      "mean_ms": 304.88262369996164,
-      "p50_ms": 283.17789799984894,
-      "p95_ms": 508.27871499996036,
-      "p99_ms": 508.27871499996036,
-      "min_ms": 188.49569399981192,
-      "max_ms": 508.27871499996036,
+      "duration_s": 1.9149235679999492,
+      "tps": 10.44428108474799,
+      "mean_ms": 367.378203450005,
+      "p50_ms": 398.53904599999623,
+      "p95_ms": 591.7334709999977,
+      "p99_ms": 591.7334709999977,
+      "min_ms": 143.956677999995,
+      "max_ms": 591.7334709999977,
       "errors": 0,
       "ok_rate": 100.0,
       "resources": {}
@@ -2452,14 +2452,14 @@
       "node": "node1",
       "concurrency": 8,
       "total_reqs": 40,
-      "duration_s": 3.1499558349999006,
-      "tps": 12.698590740717881,
-      "mean_ms": 568.7022578499977,
-      "p50_ms": 619.1889870001432,
-      "p95_ms": 933.333606999895,
-      "p99_ms": 960.1120620000074,
-      "min_ms": 121.48676299989347,
-      "max_ms": 960.1120620000074,
+      "duration_s": 4.0829462530000455,
+      "tps": 9.796847061263422,
+      "mean_ms": 770.8240383749796,
+      "p50_ms": 733.4433649998573,
+      "p95_ms": 1233.1267459999253,
+      "p99_ms": 1438.029510999968,
+      "min_ms": 174.75453699989885,
+      "max_ms": 1438.029510999968,
       "errors": 0,
       "ok_rate": 100.0,
       "resources": {}
@@ -2469,8 +2469,8 @@
     "total": 154,
     "passed": 154,
     "failed": 0,
-    "best_tps": 10.661345523726457,
-    "worst_tps": 8.450716046833849,
-    "peak_load_tps": 15.456703640175114
+    "best_tps": 8.74225917208082,
+    "worst_tps": 5.630615081446362,
+    "peak_load_tps": 11.97943578905909
   }
 }
