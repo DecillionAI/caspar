@@ -90,7 +90,7 @@ impl FireVmController {
         // Resolve (and create) the non-escapable per-session sandbox directory
         // before doing anything else, so a bad store/vm id is rejected early.
         let vm_dir = if persistent {
-            Some(session_vm_dir(&stream_store_id, machine_id, vm_id)?)
+            Some(session_vm_dir(vm_id)?)
         } else {
             None
         };
@@ -286,7 +286,6 @@ impl FireVmController {
             return Err("machineId is required".to_string());
         }
         let vm_id = packet["vmId"].as_str().unwrap_or("main").trim();
-        let store_id = packet["storeId"].as_str().unwrap_or("").trim();
         let purge = packet["purge"].as_bool().unwrap_or(false);
         let vm_cache_key = if vm_id.is_empty() { "main" } else { vm_id };
         let process_key = fire_process_key(machine_id, vm_id);
@@ -304,7 +303,7 @@ impl FireVmController {
 
         let mut purged = false;
         if purge {
-            let target = captured_dir.or_else(|| vm_dir_path(store_id, machine_id, vm_id));
+            let target = captured_dir.or_else(|| vm_dir_path(vm_id));
             if let Some(dir) = target {
                 if dir.exists() && is_within_vms_root(&dir) {
                     match std::fs::remove_dir_all(&dir) {
@@ -612,31 +611,25 @@ fn sanitize_component(raw: &str) -> String {
     }
 }
 
-/// Deterministic on-disk path for a sandbox (no side effects). A fire VM is
-/// owned by the creature (machine) that ran it; the store id is just
-/// informational and is not part of the path. A single creature — store member
-/// or not — can run unlimited fire VMs side by side, each in its own dir.
-fn vm_dir_path(_store_id: &str, machine_id: &str, vm_id: &str) -> Option<PathBuf> {
-    let machine = sanitize_component(if machine_id.is_empty() {
-        "_nomachine"
-    } else {
-        machine_id
-    });
+/// Deterministic on-disk path for a sandbox (no side effects). A VM is keyed
+/// solely by its globally-unique `vm_id` — the same id the rest of the vmm
+/// module uses — so its persistent disk lives at `{storage}/vms/<vm>`.
+fn vm_dir_path(vm_id: &str) -> Option<PathBuf> {
     let vm = sanitize_component(if vm_id.is_empty() { "main" } else { vm_id });
-    Some(fire_vms_root().join(machine).join(vm))
+    Some(fire_vms_root().join(vm))
 }
 
 /// Resolve (and create) the per-VM sandbox directory under
-/// `{storage}/vms/<machine>/<vm>`, guaranteeing — by canonicalising the
-/// result and asserting containment — that it can never resolve outside the vms
-/// root. This is the persistent, non-escapable storage for the VM.
-fn session_vm_dir(store_id: &str, machine_id: &str, vm_id: &str) -> Result<PathBuf, String> {
+/// `{storage}/vms/<vm>`, guaranteeing — by canonicalising the result and
+/// asserting containment — that it can never resolve outside the vms root.
+/// This is the persistent, non-escapable storage for the VM.
+fn session_vm_dir(vm_id: &str) -> Result<PathBuf, String> {
     let root = fire_vms_root();
     std::fs::create_dir_all(&root)
         .map_err(|e| format!("failed to prepare vms root {}: {}", root.display(), e))?;
     let canon_root = std::fs::canonicalize(&root)
         .map_err(|e| format!("failed to canonicalize vms root: {}", e))?;
-    let dir = vm_dir_path(store_id, machine_id, vm_id)
+    let dir = vm_dir_path(vm_id)
         .ok_or_else(|| "failed to resolve sandbox dir".to_string())?;
     std::fs::create_dir_all(&dir)
         .map_err(|e| format!("failed to create session vm dir {}: {}", dir.display(), e))?;

@@ -52,7 +52,7 @@ impl DockerVmController {
 
         // Sandbox semantics for docker (parallel to the fire runtime):
         //   - `persistent: true` (the default for sandboxes) carves a
-        //     non-escapable per-VM dir under `{storage}/vms/<machine>/<vm>`
+        //     non-escapable per-VM dir under `{storage}/vms/<vm>`
         //     and bind-mounts it as the container's `/data`, so software
         //     installed and data written there survive across suspend/resume.
         //   - `forceRestart: false` makes `run_vm` idempotent: if the
@@ -61,7 +61,7 @@ impl DockerVmController {
         let persistent = packet["persistent"].as_bool().unwrap_or(true);
         let force_restart = packet["forceRestart"].as_bool().unwrap_or(false);
         let mount_dir = if persistent {
-            Some(docker_session_vm_dir(machine_id, &vm_cache_key)?)
+            Some(docker_session_vm_dir(&vm_cache_key)?)
         } else {
             None
         };
@@ -144,7 +144,7 @@ impl DockerVmController {
                         format!("{}G", limits.disk_gb),
                     )])),
                     // Per-session persistent storage: the non-escapable host
-                    // dir under `{storage}/vms/<machine>/<vm>` is bind-mounted
+                    // dir under `{storage}/vms/<vm>` is bind-mounted
                     // as `/data` in the container so the guest's data and
                     // installed software survive across suspend/resume.
                     binds: mount_dir
@@ -269,7 +269,7 @@ impl DockerVmController {
 
     /// Turn a docker VM off. By default this is a *suspend*: the container is
     /// STOPPED but not removed, and its persistent bind mount under
-    /// `{storage}/vms/<machine>/<vm>` is retained, so a later `run_vm` resumes
+    /// `{storage}/vms/<vm>` is retained, so a later `run_vm` resumes
     /// the same sandbox with installed software and saved data intact.
     /// Callers pass `purge: true` to *delete* the sandbox: stop + remove the
     /// container, then remove its persistent directory.
@@ -317,7 +317,7 @@ impl DockerVmController {
 
         let mut purged = false;
         if purge {
-            let dir = docker_vm_dir_path(machine_id, &vm_cache_key);
+            let dir = docker_vm_dir_path(&vm_cache_key);
             if dir.exists() && docker_is_within_vms_root(&dir) {
                 std::fs::remove_dir_all(&dir).map_err(|e| {
                     format!("failed to purge sandbox dir {}: {}", dir.display(), e)
@@ -830,7 +830,7 @@ fn run_local_build_script(script_path: &str) -> Result<(), String> {
 
 // ── Persistent, non-escapable per-VM storage for docker sandboxes ────────────
 //
-// Mirrors the fire runtime layout: `{STORAGE_ROOT_PATH}/vms/<machine>/<vm>`.
+// Mirrors the fire runtime layout: `{STORAGE_ROOT_PATH}/vms/<vm>`.
 // The dir is canonicalised and asserted to live inside the vms root before any
 // read/write/purge — so a crafted `vmId` cannot escape the sandbox tree.
 
@@ -868,23 +868,18 @@ fn docker_sanitize_component(raw: &str) -> String {
     }
 }
 
-fn docker_vm_dir_path(machine_id: &str, vm_id: &str) -> PathBuf {
-    let machine = docker_sanitize_component(if machine_id.is_empty() {
-        "_nomachine"
-    } else {
-        machine_id
-    });
+fn docker_vm_dir_path(vm_id: &str) -> PathBuf {
     let vm = docker_sanitize_component(if vm_id.is_empty() { "main" } else { vm_id });
-    docker_vms_root().join(machine).join(vm)
+    docker_vms_root().join(vm)
 }
 
-fn docker_session_vm_dir(machine_id: &str, vm_id: &str) -> Result<PathBuf, String> {
+fn docker_session_vm_dir(vm_id: &str) -> Result<PathBuf, String> {
     let root = docker_vms_root();
     std::fs::create_dir_all(&root)
         .map_err(|e| format!("failed to prepare vms root {}: {}", root.display(), e))?;
     let canon_root = std::fs::canonicalize(&root)
         .map_err(|e| format!("failed to canonicalize vms root: {}", e))?;
-    let dir = docker_vm_dir_path(machine_id, vm_id);
+    let dir = docker_vm_dir_path(vm_id);
     std::fs::create_dir_all(&dir)
         .map_err(|e| format!("failed to create session vm dir {}: {}", dir.display(), e))?;
     let canon_dir = std::fs::canonicalize(&dir)
