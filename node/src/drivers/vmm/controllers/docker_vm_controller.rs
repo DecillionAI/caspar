@@ -50,7 +50,59 @@ impl DockerVmController {
             .unwrap_or_else(|| docker_image_ref(machine_id, &entity_id));
         let limits = parse_vm_resource_limits(packet);
 
-        self.stop_and_remove_if_exists(&container_id)?;
+        // Sandbox semantics for docker (parallel to the fire runtime):
+        //   - `persistent: true` (the default for sandboxes) carves a
+        //     non-escapable per-VM dir under `{storage}/vms/<machine>/<vm>`
+        //     and bind-mounts it as the container's `/data`, so software
+        //     installed and data written there survive across suspend/resume.
+        //   - `forceRestart: false` makes `run_vm` idempotent: if the
+        //     container exists, it's started (resumed) instead of being
+        //     removed and rebuilt — that's the "wake" path.
+        let persistent = packet["persistent"].as_bool().unwrap_or(true);
+        let force_restart = packet["forceRestart"].as_bool().unwrap_or(false);
+        let mount_dir = if persistent {
+            Some(docker_session_vm_dir(machine_id, &vm_cache_key)?)
+        } else {
+            None
+        };
+
+        if !force_restart {
+            if let Some(status) = self.container_state(&container_id)? {
+                if status == "running" {
+                    return Ok(json!({
+                        "ok": true,
+                        "machineId": machine_id,
+                        "vmId": vm_cache_key,
+                        "containerId": container_id,
+                        "runtime": "docker",
+                        "status": "already-running",
+                        "persistent": persistent,
+                        "vmDir": mount_dir.as_ref().map(|p| p.display().to_string()).unwrap_or_default(),
+                    }));
+                }
+                // Container exists but is stopped (suspended). Start it again
+                // — its writable layer and any persistent bind mount survive.
+                self.with_async(self.docker.start_container::<String>(
+                    &container_id,
+                    None::<StartContainerOptions<String>>,
+                ))?;
+                with_global_app(|app| {
+                    app.tools().vmm().register_vm_context(&vm_cache_key, &creature_id, machine_id)
+                });
+                return Ok(json!({
+                    "ok": true,
+                    "machineId": machine_id,
+                    "vmId": vm_cache_key,
+                    "containerId": container_id,
+                    "runtime": "docker",
+                    "status": "resumed",
+                    "persistent": persistent,
+                    "vmDir": mount_dir.as_ref().map(|p| p.display().to_string()).unwrap_or_default(),
+                }));
+            }
+        } else {
+            self.stop_and_remove_if_exists(&container_id)?;
+        }
 
         // Base env from the caller, then append the docker-host bridge gateway
         // coordinates + this container's verified identity. The container uses
@@ -91,6 +143,13 @@ impl DockerVmController {
                         "size".to_string(),
                         format!("{}G", limits.disk_gb),
                     )])),
+                    // Per-session persistent storage: the non-escapable host
+                    // dir under `{storage}/vms/<machine>/<vm>` is bind-mounted
+                    // as `/data` in the container so the guest's data and
+                    // installed software survive across suspend/resume.
+                    binds: mount_dir
+                        .as_ref()
+                        .map(|d| vec![format!("{}:/data", d.display())]),
                     ..Default::default()
                 }),
                 ..Default::default()
@@ -197,14 +256,23 @@ impl DockerVmController {
         // dbOp writes are batched and committed atomically at VM end.
         with_global_app(|app| app.tools().vmm().begin_vm_trx(&vm_cache_key));
         Ok(json!({
-        "ok": true,
-        "machineId": machine_id,
+            "ok": true,
+            "machineId": machine_id,
             "vmId": vm_cache_key,
             "containerId": container_id,
-            "runtime": "docker"
+            "runtime": "docker",
+            "status": "running",
+            "persistent": persistent,
+            "vmDir": mount_dir.as_ref().map(|p| p.display().to_string()).unwrap_or_default(),
         }))
     }
 
+    /// Turn a docker VM off. By default this is a *suspend*: the container is
+    /// STOPPED but not removed, and its persistent bind mount under
+    /// `{storage}/vms/<machine>/<vm>` is retained, so a later `run_vm` resumes
+    /// the same sandbox with installed software and saved data intact.
+    /// Callers pass `purge: true` to *delete* the sandbox: stop + remove the
+    /// container, then remove its persistent directory.
     pub(crate) fn terminate_vm(&self, packet: &JsonValue) -> Result<JsonValue, String> {
         let machine_id = packet["machineId"].as_str().unwrap_or("");
         if machine_id.is_empty() {
@@ -225,19 +293,46 @@ impl DockerVmController {
         } else {
             vm_id.clone()
         };
+        let purge = packet["purge"].as_bool().unwrap_or(false);
         let container_id = docker_container_id(machine_id, &entity_id, &container_name, &vm_id);
-        self.stop_and_remove_if_exists(&container_id)?;
-        // Commit and remove the lifecycle transaction buffer before cleanup.
+
+        if purge {
+            self.stop_and_remove_if_exists(&container_id)?;
+        } else {
+            // Suspend: stop the container but DO NOT remove it. Its writable
+            // layer, env, and bind mounts survive so a later `run_vm` resumes
+            // exactly the same sandbox state.
+            let _ = self.with_async(
+                self.docker
+                    .stop_container(&container_id, Some(StopContainerOptions { t: 1 })),
+            );
+        }
+
         with_global_app(|app| app.tools().vmm().commit_vm_trx(vm_cache_key.as_str()));
-        // DashMap: no lock needed — inserts/removes are concurrency-safe
         with_global_app(|app| app.tools().vmm().unregister_vm_context(vm_cache_key.as_str()));
-        // Drop the container→identity binding so its IP can't be reused.
+        // The container→identity binding is tied to a *running* IP; once the
+        // container is stopped its IP is released, so the binding must be
+        // dropped on both suspend and purge.
         with_global_app(|app| app.tools().vmm().unregister_vm_container(container_id.as_str()));
+
+        let mut purged = false;
+        if purge {
+            let dir = docker_vm_dir_path(machine_id, &vm_cache_key);
+            if dir.exists() && docker_is_within_vms_root(&dir) {
+                std::fs::remove_dir_all(&dir).map_err(|e| {
+                    format!("failed to purge sandbox dir {}: {}", dir.display(), e)
+                })?;
+                purged = true;
+            }
+        }
+
         Ok(json!({
             "ok": true,
             "machineId": machine_id,
             "containerId": container_id,
-            "runtime": "docker"
+            "runtime": "docker",
+            "status": if purge { "deleted" } else { "suspended" },
+            "purged": purged,
         }))
     }
 
@@ -252,6 +347,16 @@ impl DockerVmController {
             return Err("command is required".to_string());
         }
         let container_id = docker_container_id(machine_id, &entity_id, &container_name, &vm_id);
+        // Wake-on-exec: if this sandbox is suspended (container exists but is
+        // stopped) or has never been started, bring it back up on its
+        // persistent volume before writing the command — so a session resumes
+        // transparently on the next prompt.
+        match self.container_state(&container_id)? {
+            Some(s) if s == "running" => {}
+            _ => {
+                let _ = self.run_vm(packet);
+            }
+        }
         let create_res = self.with_async(self.docker.create_exec(
             &container_id,
             CreateExecOptions {
@@ -352,6 +457,33 @@ impl DockerVmController {
                     .and_then(|n| n.first())
                     .map(|s| s.trim_start_matches('/').to_string());
                 return Ok(name);
+            }
+        }
+        Ok(None)
+    }
+
+    /// Returns the docker container state (`"running"` / `"exited"` / ...)
+    /// for a given container id, or `None` if the container does not exist.
+    /// Used to drive the suspend/resume + wake-on-exec semantics.
+    fn container_state(&self, container_id: &str) -> Result<Option<String>, String> {
+        let summaries = self.with_async(self.docker.list_containers(Some(
+            ListContainersOptions::<String> {
+                all: true,
+                ..Default::default()
+            },
+        )))?;
+        for c in summaries {
+            let is_match = c
+                .names
+                .as_ref()
+                .map(|names| {
+                    names
+                        .iter()
+                        .any(|n| n.trim_start_matches('/') == container_id)
+                })
+                .unwrap_or(false);
+            if is_match {
+                return Ok(c.state.clone());
             }
         }
         Ok(None)
@@ -694,6 +826,85 @@ fn run_local_build_script(script_path: &str) -> Result<(), String> {
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     ))
+}
+
+// ── Persistent, non-escapable per-VM storage for docker sandboxes ────────────
+//
+// Mirrors the fire runtime layout: `{STORAGE_ROOT_PATH}/vms/<machine>/<vm>`.
+// The dir is canonicalised and asserted to live inside the vms root before any
+// read/write/purge — so a crafted `vmId` cannot escape the sandbox tree.
+
+fn docker_storage_root() -> PathBuf {
+    if let Ok(p) = std::env::var("STORAGE_ROOT_PATH") {
+        let trimmed = p.trim();
+        if !trimmed.is_empty() {
+            return PathBuf::from(trimmed);
+        }
+    }
+    let in_container = PathBuf::from("/app/data/storage");
+    if in_container.exists() {
+        return in_container;
+    }
+    PathBuf::from("/tmp/caspar/storage")
+}
+
+fn docker_vms_root() -> PathBuf {
+    docker_storage_root().join("vms")
+}
+
+fn docker_sanitize_component(raw: &str) -> String {
+    let mut out = String::with_capacity(raw.len());
+    for ch in raw.chars() {
+        if ch.is_ascii_alphanumeric() || ch == '-' || ch == '_' {
+            out.push(ch);
+        } else {
+            out.push('_');
+        }
+    }
+    if out.is_empty() {
+        "default".to_string()
+    } else {
+        out
+    }
+}
+
+fn docker_vm_dir_path(machine_id: &str, vm_id: &str) -> PathBuf {
+    let machine = docker_sanitize_component(if machine_id.is_empty() {
+        "_nomachine"
+    } else {
+        machine_id
+    });
+    let vm = docker_sanitize_component(if vm_id.is_empty() { "main" } else { vm_id });
+    docker_vms_root().join(machine).join(vm)
+}
+
+fn docker_session_vm_dir(machine_id: &str, vm_id: &str) -> Result<PathBuf, String> {
+    let root = docker_vms_root();
+    std::fs::create_dir_all(&root)
+        .map_err(|e| format!("failed to prepare vms root {}: {}", root.display(), e))?;
+    let canon_root = std::fs::canonicalize(&root)
+        .map_err(|e| format!("failed to canonicalize vms root: {}", e))?;
+    let dir = docker_vm_dir_path(machine_id, vm_id);
+    std::fs::create_dir_all(&dir)
+        .map_err(|e| format!("failed to create session vm dir {}: {}", dir.display(), e))?;
+    let canon_dir = std::fs::canonicalize(&dir)
+        .map_err(|e| format!("failed to canonicalize session vm dir: {}", e))?;
+    if !canon_dir.starts_with(&canon_root) || canon_dir == canon_root {
+        return Err(format!(
+            "refusing to use vm dir outside sandbox root: {}",
+            canon_dir.display()
+        ));
+    }
+    Ok(canon_dir)
+}
+
+fn docker_is_within_vms_root(dir: &Path) -> bool {
+    let root = docker_vms_root();
+    let canon_root = std::fs::canonicalize(&root).unwrap_or(root);
+    match std::fs::canonicalize(dir) {
+        Ok(c) => c.starts_with(&canon_root) && c != canon_root,
+        Err(_) => dir.starts_with(&canon_root) && dir != canon_root,
+    }
 }
 
 impl VmController for DockerVmController {
