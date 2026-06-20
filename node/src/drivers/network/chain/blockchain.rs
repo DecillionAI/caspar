@@ -479,7 +479,11 @@ impl IChain for Blockchain {
         // mutexes; re-locking either here self-deadlocks the node. The cache is
         // kept current by the consensus core on every `set_peers`, so it
         // reflects dynamic membership. See `ShardChain.peer_hosts`.
-        main_shard.peer_hosts.lock().unwrap().clone()
+        //
+        // Bind to a local so the `MutexGuard` temporary is dropped before the
+        // DashMap `Ref`s (`main_chain`/`main_shard`) at end of scope.
+        let hosts = main_shard.peer_hosts.lock().unwrap().clone();
+        hosts
     }
 
     fn user_owns_origin(&self, _user_id: &str, _origin: &str) -> bool {
