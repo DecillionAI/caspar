@@ -3,3 +3,6 @@ machines/docker/appbox/src/credentials.json
 target/
 **/target/
 Cargo.lock.bak
+
+# Node runtime telemetry store (created in cwd at runtime)
+telemetry-rocks/
