@@ -124,6 +124,15 @@ impl Babble {
         }
     }
 
+    /// Attach an external peer-host mirror to the consensus node so it tracks
+    /// dynamic membership and can be read without locking the engine/core.
+    /// See `Core::peer_host_cache`.
+    pub fn attach_peer_cache(&self, cache: Arc<std::sync::Mutex<Vec<String>>>) {
+        if let Some(n) = &self.node {
+            n.attach_peer_cache(cache);
+        }
+    }
+
     fn validate_config(&self) -> Result<()> {
         // Note: SetDataDir would mutate the config; the Rust translation keeps
         // Config behind an `Arc` so callers configure it before constructing
