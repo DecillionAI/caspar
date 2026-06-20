@@ -1069,6 +1069,14 @@ fn deploy(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
                             .vmm()
                             .build_vm_image(&mid, &eid, &path, &etype);
                     });
+                    // Register the machine signal listener for non-wasm (e.g.
+                    // docker) creatures too. Without this, signals addressed to a
+                    // docker creature's program are dropped (no listener), so a
+                    // running docker tool/agent can never be reached over the
+                    // signaling API — every creature-to-creature signal silently
+                    // times out. The wasm branch above already does this.
+                    program.push(&*trx);
+                    app_for_handler.tools().vmm().assign(&program.id);
                 }
             } else {
                 let file_name = entity_runtime_file_name(&entity_type);
