@@ -73,7 +73,21 @@ pub struct Core {
     pub promises: HashMap<String, JoinPromise>,
     /// Queue the hashgraph's commit callback pushes committed blocks onto.
     pub committed_blocks: Arc<Mutex<Vec<Block>>>,
+    /// Optional external mirror of the current peer hosts (`host` of each
+    /// peer's `net_addr`). When set, it is refreshed on every `set_peers` so
+    /// readers outside the consensus engine (e.g. `Blockchain::peers()`, called
+    /// from the commit handler while this `core` mutex is held) can obtain the
+    /// live peer set from an independent lock instead of re-locking `core`.
+    pub peer_host_cache: Option<Arc<Mutex<Vec<String>>>>,
     pub logger: Entry,
+}
+
+/// Host portions (`host` of `host:port`) of every peer in `ps`.
+fn peer_hosts_of(ps: &PeerSet) -> Vec<String> {
+    ps.peers
+        .iter()
+        .map(|p| p.net_addr.split(':').next().unwrap_or(&p.net_addr).to_string())
+        .collect()
 }
 
 impl Core {
@@ -123,8 +137,17 @@ impl Core {
             maintenance_mode,
             promises: HashMap::new(),
             committed_blocks,
+            peer_host_cache: None,
             logger,
         }
+    }
+
+    /// Attach an external peer-host mirror and seed it with the current peers.
+    /// The cache is refreshed by every subsequent `set_peers`, so it tracks
+    /// dynamic membership. See `Core::peer_host_cache`.
+    pub fn attach_peer_cache(&mut self, cache: Arc<Mutex<Vec<String>>>) {
+        *cache.lock().unwrap() = peer_hosts_of(&self.peers);
+        self.peer_host_cache = Some(cache);
     }
 
     /// Sets the head and seq of this `Core`.
@@ -178,6 +201,11 @@ impl Core {
     /// Sets the peers and a new `RandomPeerSelector`.
     pub fn set_peers(&mut self, ps: Arc<PeerSet>) {
         self.peers = ps;
+        // Keep the external peer-host mirror current so commit-time readers see
+        // membership changes (see `Core::peer_host_cache`).
+        if let Some(cache) = &self.peer_host_cache {
+            *cache.lock().unwrap() = peer_hosts_of(&self.peers);
+        }
         self.peer_selector = Box::new(RandomPeerSelector::new(
             self.peers.clone(),
             self.validator.id(),

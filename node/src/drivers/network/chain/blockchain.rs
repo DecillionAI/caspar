@@ -34,6 +34,11 @@ use crate::drivers::network::chain::proxy::{
 };
 use crate::shell::api::model::{Chain, ChainShard, Machine, Program};
 
+/// Extract the host portion of a peer's `net_addr` (`host:port` → `host`).
+fn peer_host(net_addr: &str) -> String {
+    net_addr.split(':').next().unwrap_or(net_addr).to_string()
+}
+
 /// A work chain: one main shard + many sub-shards.
 struct WorkChain {
     id: String,
@@ -49,6 +54,21 @@ struct ShardChain {
     id: String,
     shard_ledger: Arc<Mutex<Babble>>,
     shard_proxy: Arc<InmemProxy>,
+    /// Live, dynamically-updated set of the shard's consensus peer hosts.
+    ///
+    /// This is the source `Blockchain::peers()` reads — it MUST NOT re-lock
+    /// `shard_ledger` or the consensus `core` from there. `peers()` runs inside
+    /// the block-commit handler, which executes while:
+    ///   * the consensus run loop holds the `shard_ledger` mutex for the
+    ///     engine's whole lifetime (`engine.run()` blocks until shutdown), and
+    ///   * `Core::insert_event_and_run_consensus` holds the `core` mutex.
+    /// Re-locking either from `peers()` self-deadlocks the node (and, transi-
+    /// tively, every thread needing consensus / the core / the TCP API).
+    ///
+    /// The consensus `Core` updates this cache on every `set_peers`, so it
+    /// tracks dynamic membership changes (joins/leaves) rather than freezing at
+    /// the init snapshot, while staying readable under its own independent lock.
+    peer_hosts: Arc<Mutex<Vec<String>>>,
 }
 
 /// Top-level blockchain driver.
@@ -241,11 +261,27 @@ impl Blockchain {
         if let Err(e) = engine.init(transport, &wchain.id, chain_id, None) {
             eprintln!("babble init {}/{}: {}", wchain.id, chain_id, e);
         }
+        // Independent, lock-free-of-the-engine peer-host cache. Seed it with the
+        // engine's current peer set and hand a clone to the consensus core so
+        // every `set_peers` keeps it current (dynamic membership). `peers()`
+        // reads this cache instead of locking `shard_ledger`/`core`, which the
+        // commit handler already holds — see `ShardChain.peer_hosts`. Installed
+        // here, while we still own `engine` exclusively (before `run()`), so the
+        // brief `core` lock inside `attach_peer_cache` never contends.
+        let peer_hosts: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(
+            engine
+                .peers
+                .as_ref()
+                .map(|ps| ps.peers.iter().map(|p| peer_host(&p.net_addr)).collect())
+                .unwrap_or_default(),
+        ));
+        engine.attach_peer_cache(peer_hosts.clone());
         let engine = Arc::new(Mutex::new(engine));
         let shard_chain = Arc::new(ShardChain {
             id: chain_id.to_string(),
             shard_ledger: engine.clone(),
             shard_proxy: proxy.clone(),
+            peer_hosts,
         });
         wchain
             .shard_chains
@@ -438,21 +474,12 @@ impl IChain for Blockchain {
         let Some(main_shard) = main_chain.shard_chains.get("shard-main") else {
             return Vec::new();
         };
-        let babble = main_shard.shard_ledger.lock().unwrap();
-        if let Some(peers) = &babble.peers {
-            return peers
-                .peers
-                .iter()
-                .map(|p| {
-                    p.net_addr
-                        .split(':')
-                        .next()
-                        .unwrap_or(&p.net_addr)
-                        .to_string()
-                })
-                .collect();
-        }
-        Vec::new()
+        // Read the live peer-host cache, NOT `shard_ledger`/`core`. This runs
+        // inside the block-commit handler, which already holds both of those
+        // mutexes; re-locking either here self-deadlocks the node. The cache is
+        // kept current by the consensus core on every `set_peers`, so it
+        // reflects dynamic membership. See `ShardChain.peer_hosts`.
+        main_shard.peer_hosts.lock().unwrap().clone()
     }
 
     fn user_owns_origin(&self, _user_id: &str, _origin: &str) -> bool {

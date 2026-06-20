@@ -319,6 +319,13 @@ impl Node {
         self.core.lock().unwrap().peers.peers.clone()
     }
 
+    /// Attach an external peer-host mirror to the consensus core so it is kept
+    /// current on every `set_peers`. Lets readers outside the engine obtain the
+    /// live peer set without locking `core`. See `Core::peer_host_cache`.
+    pub fn attach_peer_cache(&self, cache: Arc<Mutex<Vec<String>>>) {
+        self.core.lock().unwrap().attach_peer_cache(cache);
+    }
+
     /// The validator-set authoritative at a given round.
     pub fn get_validator_set(&self, round: i64) -> Result<Vec<Peer>> {
         let core = self.core.lock().unwrap();
