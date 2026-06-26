@@ -122,6 +122,47 @@ impl DockerVmController {
             .as_str()
             .map(|command| vec!["sh".to_string(), "-lc".to_string(), command.to_string()]);
 
+        // Container sandbox runtime. Defaults to gVisor ("runsc") so the
+        // production security posture is preserved: every creature runs
+        // sandboxed. Environments without gVisor installed (local dev / CI,
+        // `run-nodes.sh --no-gvisor`) set `CASPAR_DOCKER_RUNTIME=runc` (or
+        // `default`/empty) so containers fall back to the stock Docker runtime
+        // instead of failing to start against an unregistered `runsc`.
+        let runtime = match std::env::var("CASPAR_DOCKER_RUNTIME") {
+            Ok(v) => {
+                let v = v.trim();
+                if v.is_empty()
+                    || v.eq_ignore_ascii_case("default")
+                    || v.eq_ignore_ascii_case("runc")
+                {
+                    None
+                } else {
+                    Some(v.to_string())
+                }
+            }
+            Err(_) => Some("runsc".to_string()),
+        };
+
+        // Per-container disk quota via `storage_opt` only works on a backing
+        // storage driver that supports it (overlay2 on XFS with pquota, or
+        // btrfs/zfs). Applied by default to match production; drivers that
+        // reject the option (e.g. plain overlayfs in dev/CI) opt out with
+        // `CASPAR_DOCKER_DISK_QUOTA=0` (also accepts off/false/no).
+        let storage_opt = match std::env::var("CASPAR_DOCKER_DISK_QUOTA") {
+            Ok(v)
+                if matches!(
+                    v.trim().to_ascii_lowercase().as_str(),
+                    "0" | "off" | "false" | "no"
+                ) =>
+            {
+                None
+            }
+            _ => Some(HashMap::from([(
+                "size".to_string(),
+                format!("{}G", limits.disk_gb),
+            )])),
+        };
+
         self.with_async(self.docker.create_container(
             Some(CreateContainerOptions {
                 name: container_id.clone(),
@@ -132,12 +173,14 @@ impl DockerVmController {
                 env,
                 cmd,
                 host_config: Some(HostConfig {
+                    runtime,
                     network_mode: Some(VmNetworkService::gateway_network_name().to_string()),
                     // Resolve `host.docker.internal` to the node host inside the
                     // bridge network so the container can dial the gateway.
                     extra_hosts: Some(vec!["host.docker.internal:host-gateway".to_string()]),
                     memory: Some((limits.ram_mb * 1024 * 1024) as i64),
                     cpu_count: Some(limits.cpu_cores as i64),
+                    storage_opt,
                     // Per-session persistent storage: the non-escapable host
                     // dir under `{storage}/vms/<vm>` is bind-mounted
                     // as `/data` in the container so the guest's data and
