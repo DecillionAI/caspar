@@ -959,13 +959,39 @@ fi
 # user-defined ``kasper`` bridge network (see VmNetworkService::gateway_network_name
 # in node/src/drivers/vmm/network). The node does not create it, so we ensure it
 # exists here — otherwise container creation fails with "network kasper not found".
+#
+# We pin an explicit subnet/gateway so the bridge gateway IP is deterministic
+# (172.18.0.1). That address matters for more than NAT: the docker-host bridge
+# gateway authenticates each creature purely from its connection's *source IP*
+# (node/src/drivers/vmm/.../server.rs → find_container_name_by_ip, which matches
+# the container's kasper endpoint IP). A creature must therefore reach the
+# gateway over the SAME kasper bridge it is attached to — if it instead dials
+# `host.docker.internal` (Docker's `host-gateway`, the *default* docker0 bridge
+# 172.17.0.1), its source IP is masqueraded across bridges and no longer matches
+# any kasper endpoint, so the HELLO handshake is rejected with "could not
+# identify a docker creature for source ip ..." and every tool/agent silently
+# fails to serve. See `DOCKER_HOST_GATEWAY_ADVERTISE_HOST` export below.
 if command -v docker &>/dev/null && docker info >/dev/null 2>&1; then
   if docker network inspect kasper >/dev/null 2>&1; then
     ok "Docker network 'kasper' already present"
+  elif docker network create --subnet 172.18.0.0/16 --gateway 172.18.0.1 kasper >/dev/null 2>&1; then
+    ok "Created docker network 'kasper' (172.18.0.0/16) for VM creatures"
   elif docker network create kasper >/dev/null 2>&1; then
-    ok "Created docker network 'kasper' for VM creatures"
+    ok "Created docker network 'kasper' for VM creatures (auto subnet)"
   else
     warn "Could not create docker network 'kasper' — docker creatures may fail to start"
+  fi
+
+  # Advertise the docker-host bridge gateway to creatures on the kasper bridge
+  # itself (its gateway IP, where the node listens on 0.0.0.0:8079), NOT on
+  # `host.docker.internal`. This keeps each creature's source IP equal to its
+  # kasper endpoint so the gateway can identify it (see comment above). Respect
+  # an explicit override if the operator already set one.
+  if [[ -z "${DOCKER_HOST_GATEWAY_ADVERTISE_HOST:-}" ]]; then
+    KASPER_GW="$(docker network inspect kasper \
+      -f '{{ range .IPAM.Config }}{{ .Gateway }}{{ end }}' 2>/dev/null | head -n1)"
+    export DOCKER_HOST_GATEWAY_ADVERTISE_HOST="${KASPER_GW:-172.18.0.1}"
+    ok "Gateway advertise host for creatures: $DOCKER_HOST_GATEWAY_ADVERTISE_HOST (kasper bridge)"
   fi
 fi
 
