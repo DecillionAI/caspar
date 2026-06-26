@@ -1301,6 +1301,15 @@ local_start_node() {
   [[ -f "$env_file" ]] && { set -a; source "$env_file"; set +a; }
 
   info "Starting node$n locally (TCP=${NODE_TCP[$n]})…"
+  # Without gVisor, tell the node to launch docker creatures under the stock
+  # runc runtime and skip the storage_opt disk quota (which needs overlay2+XFS
+  # pquota), so containers start on hosts where `runsc` isn't registered.
+  # With gVisor (the default), these stay unset and the node keeps its
+  # sandboxed `runsc` + disk-quota posture.
+  if ! $SETUP_GVISOR; then
+    export CASPAR_DOCKER_RUNTIME=runc
+    export CASPAR_DOCKER_DISK_QUOTA=0
+  fi
   # Ensure dist/lib/wasmedge is on the dynamic linker path so libwasmedge.so.0 is found.
   local wasmedge_lib_dir="$REPO_DIR/dist/lib/wasmedge"
   local launch_ld_path="${wasmedge_lib_dir}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
