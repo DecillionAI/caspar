@@ -678,6 +678,21 @@ impl DockerVmController {
 /// `find_container_name_by_ip` / `IVmm::identify_container_by_ip`), which a
 /// container cannot forge. `CASPAR_VM_ID` is exposed for log readability only
 /// and is never trusted for auth.
+///
+/// IMPORTANT — bridge consistency: because identity is keyed on the source IP,
+/// the advertised host MUST resolve to the node over the SAME bridge the
+/// creature is attached to (`VmNetworkService::gateway_network_name`, i.e.
+/// `kasper`). Its bridge-gateway IP (e.g. 172.18.0.1) is the host on that
+/// network and the node already listens there (0.0.0.0:8079). The
+/// `host.docker.internal` fallback is Docker's `host-gateway`, which points at
+/// the *default* docker0 bridge (172.17.0.1); a `kasper` creature reaching the
+/// host across that other bridge has its source IP masqueraded, so it no longer
+/// matches any `kasper` endpoint and the HELLO handshake is rejected with
+/// "could not identify a docker creature for source ip ..." — every tool/agent
+/// then silently fails to serve. Deployments therefore set
+/// `DOCKER_HOST_GATEWAY_ADVERTISE_HOST` to the kasper bridge gateway (run-nodes.sh
+/// derives it from `docker network inspect kasper`); the fallback below is only
+/// for the legacy single-default-bridge case.
 fn gateway_container_env(vm_id: &str) -> Vec<String> {
     let host = std::env::var("DOCKER_HOST_GATEWAY_ADVERTISE_HOST")
         .unwrap_or_else(|_| "host.docker.internal".to_string());
