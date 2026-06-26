@@ -132,17 +132,12 @@ impl DockerVmController {
                 env,
                 cmd,
                 host_config: Some(HostConfig {
-                    runtime: Some("runsc".to_string()),
                     network_mode: Some(VmNetworkService::gateway_network_name().to_string()),
                     // Resolve `host.docker.internal` to the node host inside the
                     // bridge network so the container can dial the gateway.
                     extra_hosts: Some(vec!["host.docker.internal:host-gateway".to_string()]),
                     memory: Some((limits.ram_mb * 1024 * 1024) as i64),
                     cpu_count: Some(limits.cpu_cores as i64),
-                    storage_opt: Some(HashMap::from([(
-                        "size".to_string(),
-                        format!("{}G", limits.disk_gb),
-                    )])),
                     // Per-session persistent storage: the non-escapable host
                     // dir under `{storage}/vms/<vm>` is bind-mounted
                     // as `/data` in the container so the guest's data and
