@@ -82,13 +82,32 @@ fn dispatch_run_vm_packet(packet: &JsonValue, env: &VmPacketContext) -> String {
     if env.runtime == "docker" {
         return match with_docker_controller(|controller| controller.run_vm(packet)) {
             Ok(res) => res.to_string(),
-            Err(err) => json!({"ok": false, "error": err}).to_string(),
+            // runEntity launches docker creatures fire-and-forget, so this Result
+            // is discarded by the caller; without logging here a failed
+            // create/start (e.g. a storage_opt disk quota smaller than the image,
+            // an unknown runtime, or out-of-space) is completely silent and the
+            // creature merely "never serves". Log it to the node log (the
+            // controller also emits the failure into the creature's readVmLogs
+            // stream where the launcher is polling for readiness).
+            Err(err) => {
+                log(format!(
+                    "run_vm(docker) failed: machine={} vm={} err={}",
+                    env.machine_id, env.vm_id, err
+                ));
+                json!({"ok": false, "error": err}).to_string()
+            }
         };
     }
     if env.runtime == "fire" {
         return match with_fire_controller(|controller| controller.run_vm(packet)) {
             Ok(res) => res.to_string(),
-            Err(err) => json!({"ok": false, "error": err}).to_string(),
+            Err(err) => {
+                log(format!(
+                    "run_vm(fire) failed: machine={} vm={} err={}",
+                    env.machine_id, env.vm_id, err
+                ));
+                json!({"ok": false, "error": err}).to_string()
+            }
         };
     }
 

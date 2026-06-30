@@ -163,6 +163,13 @@ impl DockerVmController {
             )])),
         };
 
+        // run_vm is launched fire-and-forget by /programs/runEntity (the caller
+        // discards this Result), so a failed create/start would otherwise be
+        // completely silent and the creature merely "never serves". Emit the
+        // failure into THIS vm's log stream (the same channel the launcher polls
+        // for TOOL_SERVE_READY) so the real cause — e.g. a storage_opt disk quota
+        // smaller than the image, an unknown runtime, or out-of-space — is
+        // visible instead of an opaque "FAILED to serve".
         self.with_async(self.docker.create_container(
             Some(CreateContainerOptions {
                 name: container_id.clone(),
@@ -192,7 +199,11 @@ impl DockerVmController {
                 }),
                 ..Default::default()
             },
-        ))?;
+        )).map_err(|e| {
+            emit_vm_log(&vm_cache_key, "runtime",
+                        &format!("CONTAINER_CREATE_FAILED {}", e));
+            e
+        })?;
 
         if !packet["inputFiles"].is_null() {
             let files = parse_input_files(&packet["inputFiles"])?;
@@ -202,7 +213,11 @@ impl DockerVmController {
         self.with_async(
             self.docker
                 .start_container::<String>(&container_id, None::<StartContainerOptions<String>>),
-        )?;
+        ).map_err(|e| {
+            emit_vm_log(&vm_cache_key, "runtime",
+                        &format!("CONTAINER_START_FAILED {}", e));
+            e
+        })?;
         let timeout_container = container_id.clone();
         let timeout_vm = vm_cache_key.clone();
         let timeout_secs = limits.max_exec_time_secs;
