@@ -237,8 +237,13 @@ _setup_gvisor() {
   fi
 
   # ── Detect whether Docker is snap-based or CE (apt) ─────────────────────────
+  # Guard the probe: on hosts without snapd the bare `snap` invocation exits
+  # 127, which `set -euo pipefail` turns into a hard abort of the whole run.
   local daemon_json snap_rev snap_config_dir
-  snap_rev=$(snap list docker 2>/dev/null | awk 'NR>1{print $3}' | head -1)
+  snap_rev=""
+  if command -v snap &>/dev/null; then
+    snap_rev=$(snap list docker 2>/dev/null | awk 'NR>1{print $3}' | head -1 || true)
+  fi
   if [[ -n "$snap_rev" ]]; then
     # Snap docker: config lives inside the snap revision directory
     snap_config_dir="/var/snap/docker/${snap_rev}/config"
