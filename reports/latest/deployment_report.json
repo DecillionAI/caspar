@@ -15,7 +15,7 @@
         "machine_id": "3@global",
         "program_id": "5@global",
         "error": "",
-        "elapsed_s": 3.95
+        "elapsed_s": 3.416
       },
       {
         "namespace": "elpify-chain",
@@ -26,7 +26,7 @@
         "machine_id": "6@global",
         "program_id": "8@global",
         "error": "",
-        "elapsed_s": 2.976
+        "elapsed_s": 3.454
       },
       {
         "namespace": "invites",
@@ -37,7 +37,7 @@
         "machine_id": "9@global",
         "program_id": "11@global",
         "error": "",
-        "elapsed_s": 3.156
+        "elapsed_s": 3.866
       },
       {
         "namespace": "pc",
@@ -48,7 +48,7 @@
         "machine_id": "12@global",
         "program_id": "14@global",
         "error": "",
-        "elapsed_s": 3.425
+        "elapsed_s": 3.392
       },
       {
         "namespace": "storage",
@@ -59,7 +59,7 @@
         "machine_id": "15@global",
         "program_id": "17@global",
         "error": "",
-        "elapsed_s": 3.466
+        "elapsed_s": 2.862
       },
       {
         "namespace": "stores",
@@ -70,425 +70,7 @@
         "machine_id": "18@global",
         "program_id": "20@global",
         "error": "",
-        "elapsed_s": 3.251
-      },
-      {
-        "namespace": "chains/create",
-        "entity_id": "ep-chains-create",
-        "wasm_path": "/home/runner/work/caspar/caspar/_decillionai-server/wasm/endpoints/chains/create.wasm",
-        "wasm_size": 311355,
-        "status": "ok",
-        "machine_id": "21@global",
-        "program_id": "23@global",
-        "error": "",
-        "elapsed_s": 3.99
-      },
-      {
-        "namespace": "chains/createFromStore",
-        "entity_id": "ep-chains-createFromStore",
-        "wasm_path": "/home/runner/work/caspar/caspar/_decillionai-server/wasm/endpoints/chains/createFromStore.wasm",
-        "wasm_size": 316951,
-        "status": "ok",
-        "machine_id": "24@global",
-        "program_id": "26@global",
-        "error": "",
-        "elapsed_s": 3.699
-      },
-      {
-        "namespace": "chains/createShard",
-        "entity_id": "ep-chains-createShard",
-        "wasm_path": "/home/runner/work/caspar/caspar/_decillionai-server/wasm/endpoints/chains/createShard.wasm",
-        "wasm_size": 312799,
-        "status": "ok",
-        "machine_id": "27@global",
-        "program_id": "29@global",
-        "error": "",
-        "elapsed_s": 3.394
-      },
-      {
-        "namespace": "chains/registerNode",
-        "entity_id": "ep-chains-registerNode",
-        "wasm_path": "/home/runner/work/caspar/caspar/_decillionai-server/wasm/endpoints/chains/registerNode.wasm",
-        "wasm_size": 308569,
-        "status": "ok",
-        "machine_id": "30@global",
-        "program_id": "32@global",
-        "error": "",
-        "elapsed_s": 4.512
-      },
-      {
-        "namespace": "chains/submitBaseTrx",
-        "entity_id": "ep-chains-submitBaseTrx",
-        "wasm_path": "/home/runner/work/caspar/caspar/_decillionai-server/wasm/endpoints/chains/submitBaseTrx.wasm",
-        "wasm_size": 307278,
-        "status": "ok",
-        "machine_id": "33@global",
-        "program_id": "35@global",
-        "error": "",
-        "elapsed_s": 3.636
-      },
-      {
-        "namespace": "invites/accept",
-        "entity_id": "ep-invites-accept",
-        "wasm_path": "/home/runner/work/caspar/caspar/_decillionai-server/wasm/endpoints/invites/accept.wasm",
-        "wasm_size": 314651,
-        "status": "ok",
-        "machine_id": "36@global",
-        "program_id": "38@global",
-        "error": "",
-        "elapsed_s": 4.102
-      },
-      {
-        "namespace": "invites/cancel",
-        "entity_id": "ep-invites-cancel",
-        "wasm_path": "/home/runner/work/caspar/caspar/_decillionai-server/wasm/endpoints/invites/cancel.wasm",
-        "wasm_size": 311368,
-        "status": "ok",
-        "machine_id": "39@global",
-        "program_id": "41@global",
-        "error": "",
-        "elapsed_s": 3.868
-      },
-      {
-        "namespace": "invites/create",
-        "entity_id": "ep-invites-create",
-        "wasm_path": "/home/runner/work/caspar/caspar/_decillionai-server/wasm/endpoints/invites/create.wasm",
-        "wasm_size": 310450,
-        "status": "ok",
-        "machine_id": "42@global",
-        "program_id": "44@global",
-        "error": "",
-        "elapsed_s": 4.079
-      },
-      {
-        "namespace": "invites/decline",
-        "entity_id": "ep-invites-decline",
-        "wasm_path": "/home/runner/work/caspar/caspar/_decillionai-server/wasm/endpoints/invites/decline.wasm",
-        "wasm_size": 311410,
-        "status": "ok",
-        "machine_id": "45@global",
-        "program_id": "47@global",
-        "error": "",
-        "elapsed_s": 4.454
-      },
-      {
-        "namespace": "invites/listStoreInvites",
-        "entity_id": "ep-invites-listStoreInvites",
-        "wasm_path": "/home/runner/work/caspar/caspar/_decillionai-server/wasm/endpoints/invites/listStoreInvites.wasm",
-        "wasm_size": 306023,
-        "status": "ok",
-        "machine_id": "48@global",
-        "program_id": "50@global",
-        "error": "",
-        "elapsed_s": 3.879
-      },
-      {
-        "namespace": "invites/listUserInvites",
-        "entity_id": "ep-invites-listUserInvites",
-        "wasm_path": "/home/runner/work/caspar/caspar/_decillionai-server/wasm/endpoints/invites/listUserInvites.wasm",
-        "wasm_size": 306268,
-        "status": "ok",
-        "machine_id": "51@global",
-        "program_id": "53@global",
-        "error": "",
-        "elapsed_s": 5.573
-      },
-      {
-        "namespace": "pc/execCommand",
-        "entity_id": "ep-pc-execCommand",
-        "wasm_path": "/home/runner/work/caspar/caspar/_decillionai-server/wasm/endpoints/pc/execCommand.wasm",
-        "wasm_size": 312862,
-        "status": "ok",
-        "machine_id": "54@global",
-        "program_id": "56@global",
-        "error": "",
-        "elapsed_s": 4.269
-      },
-      {
-        "namespace": "pc/runPc",
-        "entity_id": "ep-pc-runPc",
-        "wasm_path": "/home/runner/work/caspar/caspar/_decillionai-server/wasm/endpoints/pc/runPc.wasm",
-        "wasm_size": 312310,
-        "status": "ok",
-        "machine_id": "57@global",
-        "program_id": "59@global",
-        "error": "",
-        "elapsed_s": 2.904
-      },
-      {
-        "namespace": "storage/deleteStoreEntity",
-        "entity_id": "ep-storage-deleteStoreEntity",
-        "wasm_path": "/home/runner/work/caspar/caspar/_decillionai-server/wasm/endpoints/storage/deleteStoreEntity.wasm",
-        "wasm_size": 307266,
-        "status": "ok",
-        "machine_id": "60@global",
-        "program_id": "62@global",
-        "error": "",
-        "elapsed_s": 2.923
-      },
-      {
-        "namespace": "storage/deleteUserEntity",
-        "entity_id": "ep-storage-deleteUserEntity",
-        "wasm_path": "/home/runner/work/caspar/caspar/_decillionai-server/wasm/endpoints/storage/deleteUserEntity.wasm",
-        "wasm_size": 307464,
-        "status": "ok",
-        "machine_id": "63@global",
-        "program_id": "65@global",
-        "error": "",
-        "elapsed_s": 2.632
-      },
-      {
-        "namespace": "storage/download",
-        "entity_id": "ep-storage-download",
-        "wasm_path": "/home/runner/work/caspar/caspar/_decillionai-server/wasm/endpoints/storage/download.wasm",
-        "wasm_size": 305657,
-        "status": "ok",
-        "machine_id": "66@global",
-        "program_id": "68@global",
-        "error": "",
-        "elapsed_s": 2.806
-      },
-      {
-        "namespace": "storage/upload",
-        "entity_id": "ep-storage-upload",
-        "wasm_path": "/home/runner/work/caspar/caspar/_decillionai-server/wasm/endpoints/storage/upload.wasm",
-        "wasm_size": 310499,
-        "status": "ok",
-        "machine_id": "69@global",
-        "program_id": "71@global",
-        "error": "",
-        "elapsed_s": 2.876
-      },
-      {
-        "namespace": "storage/uploadAppEntity",
-        "entity_id": "ep-storage-uploadAppEntity",
-        "wasm_path": "/home/runner/work/caspar/caspar/_decillionai-server/wasm/endpoints/storage/uploadAppEntity.wasm",
-        "wasm_size": 310727,
-        "status": "ok",
-        "machine_id": "72@global",
-        "program_id": "74@global",
-        "error": "",
-        "elapsed_s": 3.124
-      },
-      {
-        "namespace": "storage/uploadStoreEntity",
-        "entity_id": "ep-storage-uploadStoreEntity",
-        "wasm_path": "/home/runner/work/caspar/caspar/_decillionai-server/wasm/endpoints/storage/uploadStoreEntity.wasm",
-        "wasm_size": 310648,
-        "status": "ok",
-        "machine_id": "75@global",
-        "program_id": "77@global",
-        "error": "",
-        "elapsed_s": 2.471
-      },
-      {
-        "namespace": "storage/uploadUserEntity",
-        "entity_id": "ep-storage-uploadUserEntity",
-        "wasm_path": "/home/runner/work/caspar/caspar/_decillionai-server/wasm/endpoints/storage/uploadUserEntity.wasm",
-        "wasm_size": 310499,
-        "status": "ok",
-        "machine_id": "78@global",
-        "program_id": "80@global",
-        "error": "",
-        "elapsed_s": 2.825
-      },
-      {
-        "namespace": "stores/addMachine",
-        "entity_id": "ep-stores-addMachine",
-        "wasm_path": "/home/runner/work/caspar/caspar/_decillionai-server/wasm/endpoints/stores/addMachine.wasm",
-        "wasm_size": 308808,
-        "status": "ok",
-        "machine_id": "81@global",
-        "program_id": "83@global",
-        "error": "",
-        "elapsed_s": 3.195
-      },
-      {
-        "namespace": "stores/addMember",
-        "entity_id": "ep-stores-addMember",
-        "wasm_path": "/home/runner/work/caspar/caspar/_decillionai-server/wasm/endpoints/stores/addMember.wasm",
-        "wasm_size": 309737,
-        "status": "ok",
-        "machine_id": "84@global",
-        "program_id": "86@global",
-        "error": "",
-        "elapsed_s": 3.164
-      },
-      {
-        "namespace": "stores/addProgram",
-        "entity_id": "ep-stores-addProgram",
-        "wasm_path": "/home/runner/work/caspar/caspar/_decillionai-server/wasm/endpoints/stores/addProgram.wasm",
-        "wasm_size": 309681,
-        "status": "ok",
-        "machine_id": "87@global",
-        "program_id": "89@global",
-        "error": "",
-        "elapsed_s": 3.016
-      },
-      {
-        "namespace": "stores/create",
-        "entity_id": "ep-stores-create",
-        "wasm_path": "/home/runner/work/caspar/caspar/_decillionai-server/wasm/endpoints/stores/create.wasm",
-        "wasm_size": 313278,
-        "status": "ok",
-        "machine_id": "90@global",
-        "program_id": "92@global",
-        "error": "",
-        "elapsed_s": 2.885
-      },
-      {
-        "namespace": "stores/delete",
-        "entity_id": "ep-stores-delete",
-        "wasm_path": "/home/runner/work/caspar/caspar/_decillionai-server/wasm/endpoints/stores/delete.wasm",
-        "wasm_size": 306070,
-        "status": "ok",
-        "machine_id": "93@global",
-        "program_id": "95@global",
-        "error": "",
-        "elapsed_s": 3.001
-      },
-      {
-        "namespace": "stores/get",
-        "entity_id": "ep-stores-get",
-        "wasm_path": "/home/runner/work/caspar/caspar/_decillionai-server/wasm/endpoints/stores/get.wasm",
-        "wasm_size": 305183,
-        "status": "ok",
-        "machine_id": "96@global",
-        "program_id": "98@global",
-        "error": "",
-        "elapsed_s": 3.135
-      },
-      {
-        "namespace": "stores/getDefaultAccess",
-        "entity_id": "ep-stores-getDefaultAccess",
-        "wasm_path": "/home/runner/work/caspar/caspar/_decillionai-server/wasm/endpoints/stores/getDefaultAccess.wasm",
-        "wasm_size": 304049,
-        "status": "ok",
-        "machine_id": "99@global",
-        "program_id": "101@global",
-        "error": "",
-        "elapsed_s": 4.196
-      },
-      {
-        "namespace": "stores/history",
-        "entity_id": "ep-stores-history",
-        "wasm_path": "/home/runner/work/caspar/caspar/_decillionai-server/wasm/endpoints/stores/history.wasm",
-        "wasm_size": 306426,
-        "status": "ok",
-        "machine_id": "102@global",
-        "program_id": "104@global",
-        "error": "",
-        "elapsed_s": 4.366
-      },
-      {
-        "namespace": "stores/join",
-        "entity_id": "ep-stores-join",
-        "wasm_path": "/home/runner/work/caspar/caspar/_decillionai-server/wasm/endpoints/stores/join.wasm",
-        "wasm_size": 309538,
-        "status": "ok",
-        "machine_id": "105@global",
-        "program_id": "107@global",
-        "error": "",
-        "elapsed_s": 2.748
-      },
-      {
-        "namespace": "stores/leave",
-        "entity_id": "ep-stores-leave",
-        "wasm_path": "/home/runner/work/caspar/caspar/_decillionai-server/wasm/endpoints/stores/leave.wasm",
-        "wasm_size": 308348,
-        "status": "ok",
-        "machine_id": "108@global",
-        "program_id": "110@global",
-        "error": "",
-        "elapsed_s": 3.24
-      },
-      {
-        "namespace": "stores/list",
-        "entity_id": "ep-stores-list",
-        "wasm_path": "/home/runner/work/caspar/caspar/_decillionai-server/wasm/endpoints/stores/list.wasm",
-        "wasm_size": 305258,
-        "status": "ok",
-        "machine_id": "111@global",
-        "program_id": "113@global",
-        "error": "",
-        "elapsed_s": 3.207
-      }
-    ],
-    "errors": [],
-    "ok_count": 37
-  },
-  {
-    "node": "node2",
-    "host": "127.0.0.1",
-    "port": 8174,
-    "status": "completed",
-    "user_id": "1@global",
-    "deployments": [
-      {
-        "namespace": "chain",
-        "entity_id": "chain-entity",
-        "wasm_path": "/home/runner/work/caspar/caspar/_decillionai-server/wasm/chain.wasm",
-        "wasm_size": 326510,
-        "status": "ok",
-        "machine_id": "3@global",
-        "program_id": "5@global",
-        "error": "",
-        "elapsed_s": 2.773
-      },
-      {
-        "namespace": "elpify-chain",
-        "entity_id": "elpify-chain-entity",
-        "wasm_path": "/home/runner/work/caspar/caspar/_decillionai-server/wasm/elpify-chain.wasm",
-        "wasm_size": 379195,
-        "status": "ok",
-        "machine_id": "6@global",
-        "program_id": "8@global",
-        "error": "",
-        "elapsed_s": 3.564
-      },
-      {
-        "namespace": "invites",
-        "entity_id": "invites-entity",
-        "wasm_path": "/home/runner/work/caspar/caspar/_decillionai-server/wasm/invites.wasm",
-        "wasm_size": 318875,
-        "status": "ok",
-        "machine_id": "9@global",
-        "program_id": "11@global",
-        "error": "",
-        "elapsed_s": 3.656
-      },
-      {
-        "namespace": "pc",
-        "entity_id": "pc-entity",
-        "wasm_path": "/home/runner/work/caspar/caspar/_decillionai-server/wasm/pc.wasm",
-        "wasm_size": 319154,
-        "status": "ok",
-        "machine_id": "12@global",
-        "program_id": "14@global",
-        "error": "",
-        "elapsed_s": 4.075
-      },
-      {
-        "namespace": "storage",
-        "entity_id": "storage-entity",
-        "wasm_path": "/home/runner/work/caspar/caspar/_decillionai-server/wasm/storage.wasm",
-        "wasm_size": 317029,
-        "status": "ok",
-        "machine_id": "15@global",
-        "program_id": "17@global",
-        "error": "",
-        "elapsed_s": 3.37
-      },
-      {
-        "namespace": "stores",
-        "entity_id": "stores-entity",
-        "wasm_path": "/home/runner/work/caspar/caspar/_decillionai-server/wasm/stores.wasm",
-        "wasm_size": 324503,
-        "status": "ok",
-        "machine_id": "18@global",
-        "program_id": "20@global",
-        "error": "",
-        "elapsed_s": 3.336
+        "elapsed_s": 2.743
       },
       {
         "namespace": "chains/create",
@@ -510,7 +92,7 @@
         "machine_id": "24@global",
         "program_id": "26@global",
         "error": "",
-        "elapsed_s": 3.817
+        "elapsed_s": 3.067
       },
       {
         "namespace": "chains/createShard",
@@ -521,7 +103,7 @@
         "machine_id": "27@global",
         "program_id": "29@global",
         "error": "",
-        "elapsed_s": 3.173
+        "elapsed_s": 2.467
       },
       {
         "namespace": "chains/registerNode",
@@ -532,7 +114,7 @@
         "machine_id": "30@global",
         "program_id": "32@global",
         "error": "",
-        "elapsed_s": 2.843
+        "elapsed_s": 3.061
       },
       {
         "namespace": "chains/submitBaseTrx",
@@ -543,7 +125,7 @@
         "machine_id": "33@global",
         "program_id": "35@global",
         "error": "",
-        "elapsed_s": 3.485
+        "elapsed_s": 3.562
       },
       {
         "namespace": "invites/accept",
@@ -554,7 +136,7 @@
         "machine_id": "36@global",
         "program_id": "38@global",
         "error": "",
-        "elapsed_s": 6.432
+        "elapsed_s": 2.831
       },
       {
         "namespace": "invites/cancel",
@@ -565,7 +147,7 @@
         "machine_id": "39@global",
         "program_id": "41@global",
         "error": "",
-        "elapsed_s": 4.016
+        "elapsed_s": 2.62
       },
       {
         "namespace": "invites/create",
@@ -576,7 +158,7 @@
         "machine_id": "42@global",
         "program_id": "44@global",
         "error": "",
-        "elapsed_s": 4.773
+        "elapsed_s": 3.356
       },
       {
         "namespace": "invites/decline",
@@ -587,7 +169,7 @@
         "machine_id": "45@global",
         "program_id": "47@global",
         "error": "",
-        "elapsed_s": 3.83
+        "elapsed_s": 2.728
       },
       {
         "namespace": "invites/listStoreInvites",
@@ -598,7 +180,7 @@
         "machine_id": "48@global",
         "program_id": "50@global",
         "error": "",
-        "elapsed_s": 3.52
+        "elapsed_s": 2.842
       },
       {
         "namespace": "invites/listUserInvites",
@@ -609,7 +191,7 @@
         "machine_id": "51@global",
         "program_id": "53@global",
         "error": "",
-        "elapsed_s": 3.282
+        "elapsed_s": 2.721
       },
       {
         "namespace": "pc/execCommand",
@@ -620,7 +202,7 @@
         "machine_id": "54@global",
         "program_id": "56@global",
         "error": "",
-        "elapsed_s": 3.795
+        "elapsed_s": 2.933
       },
       {
         "namespace": "pc/runPc",
@@ -631,7 +213,7 @@
         "machine_id": "57@global",
         "program_id": "59@global",
         "error": "",
-        "elapsed_s": 3.791
+        "elapsed_s": 2.867
       },
       {
         "namespace": "storage/deleteStoreEntity",
@@ -642,7 +224,7 @@
         "machine_id": "60@global",
         "program_id": "62@global",
         "error": "",
-        "elapsed_s": 3.482
+        "elapsed_s": 2.712
       },
       {
         "namespace": "storage/deleteUserEntity",
@@ -653,7 +235,7 @@
         "machine_id": "63@global",
         "program_id": "65@global",
         "error": "",
-        "elapsed_s": 3.422
+        "elapsed_s": 3.507
       },
       {
         "namespace": "storage/download",
@@ -664,7 +246,7 @@
         "machine_id": "66@global",
         "program_id": "68@global",
         "error": "",
-        "elapsed_s": 4.315
+        "elapsed_s": 3.903
       },
       {
         "namespace": "storage/upload",
@@ -675,7 +257,7 @@
         "machine_id": "69@global",
         "program_id": "71@global",
         "error": "",
-        "elapsed_s": 3.128
+        "elapsed_s": 2.673
       },
       {
         "namespace": "storage/uploadAppEntity",
@@ -686,7 +268,7 @@
         "machine_id": "72@global",
         "program_id": "74@global",
         "error": "",
-        "elapsed_s": 2.943
+        "elapsed_s": 3.522
       },
       {
         "namespace": "storage/uploadStoreEntity",
@@ -697,7 +279,7 @@
         "machine_id": "75@global",
         "program_id": "77@global",
         "error": "",
-        "elapsed_s": 3.148
+        "elapsed_s": 3.321
       },
       {
         "namespace": "storage/uploadUserEntity",
@@ -708,7 +290,7 @@
         "machine_id": "78@global",
         "program_id": "80@global",
         "error": "",
-        "elapsed_s": 2.828
+        "elapsed_s": 4.398
       },
       {
         "namespace": "stores/addMachine",
@@ -719,7 +301,7 @@
         "machine_id": "81@global",
         "program_id": "83@global",
         "error": "",
-        "elapsed_s": 3.026
+        "elapsed_s": 4.773
       },
       {
         "namespace": "stores/addMember",
@@ -730,7 +312,7 @@
         "machine_id": "84@global",
         "program_id": "86@global",
         "error": "",
-        "elapsed_s": 5.322
+        "elapsed_s": 2.903
       },
       {
         "namespace": "stores/addProgram",
@@ -741,7 +323,7 @@
         "machine_id": "87@global",
         "program_id": "89@global",
         "error": "",
-        "elapsed_s": 3.484
+        "elapsed_s": 3.832
       },
       {
         "namespace": "stores/create",
@@ -752,7 +334,7 @@
         "machine_id": "90@global",
         "program_id": "92@global",
         "error": "",
-        "elapsed_s": 3.081
+        "elapsed_s": 3.203
       },
       {
         "namespace": "stores/delete",
@@ -763,7 +345,7 @@
         "machine_id": "93@global",
         "program_id": "95@global",
         "error": "",
-        "elapsed_s": 2.88
+        "elapsed_s": 4.5
       },
       {
         "namespace": "stores/get",
@@ -774,7 +356,7 @@
         "machine_id": "96@global",
         "program_id": "98@global",
         "error": "",
-        "elapsed_s": 3.221
+        "elapsed_s": 3.934
       },
       {
         "namespace": "stores/getDefaultAccess",
@@ -785,7 +367,7 @@
         "machine_id": "99@global",
         "program_id": "101@global",
         "error": "",
-        "elapsed_s": 2.992
+        "elapsed_s": 3.116
       },
       {
         "namespace": "stores/history",
@@ -796,7 +378,7 @@
         "machine_id": "102@global",
         "program_id": "104@global",
         "error": "",
-        "elapsed_s": 2.805
+        "elapsed_s": 3.77
       },
       {
         "namespace": "stores/join",
@@ -807,7 +389,7 @@
         "machine_id": "105@global",
         "program_id": "107@global",
         "error": "",
-        "elapsed_s": 3.13
+        "elapsed_s": 3.542
       },
       {
         "namespace": "stores/leave",
@@ -818,7 +400,7 @@
         "machine_id": "108@global",
         "program_id": "110@global",
         "error": "",
-        "elapsed_s": 3.237
+        "elapsed_s": 3.47
       },
       {
         "namespace": "stores/list",
@@ -829,7 +411,425 @@
         "machine_id": "111@global",
         "program_id": "113@global",
         "error": "",
+        "elapsed_s": 3.276
+      }
+    ],
+    "errors": [],
+    "ok_count": 37
+  },
+  {
+    "node": "node2",
+    "host": "127.0.0.1",
+    "port": 8174,
+    "status": "completed",
+    "user_id": "1@global",
+    "deployments": [
+      {
+        "namespace": "chain",
+        "entity_id": "chain-entity",
+        "wasm_path": "/home/runner/work/caspar/caspar/_decillionai-server/wasm/chain.wasm",
+        "wasm_size": 326510,
+        "status": "ok",
+        "machine_id": "3@global",
+        "program_id": "5@global",
+        "error": "",
+        "elapsed_s": 4.049
+      },
+      {
+        "namespace": "elpify-chain",
+        "entity_id": "elpify-chain-entity",
+        "wasm_path": "/home/runner/work/caspar/caspar/_decillionai-server/wasm/elpify-chain.wasm",
+        "wasm_size": 379195,
+        "status": "ok",
+        "machine_id": "6@global",
+        "program_id": "8@global",
+        "error": "",
+        "elapsed_s": 3.86
+      },
+      {
+        "namespace": "invites",
+        "entity_id": "invites-entity",
+        "wasm_path": "/home/runner/work/caspar/caspar/_decillionai-server/wasm/invites.wasm",
+        "wasm_size": 318875,
+        "status": "ok",
+        "machine_id": "9@global",
+        "program_id": "11@global",
+        "error": "",
+        "elapsed_s": 3.907
+      },
+      {
+        "namespace": "pc",
+        "entity_id": "pc-entity",
+        "wasm_path": "/home/runner/work/caspar/caspar/_decillionai-server/wasm/pc.wasm",
+        "wasm_size": 319154,
+        "status": "ok",
+        "machine_id": "12@global",
+        "program_id": "14@global",
+        "error": "",
+        "elapsed_s": 4.316
+      },
+      {
+        "namespace": "storage",
+        "entity_id": "storage-entity",
+        "wasm_path": "/home/runner/work/caspar/caspar/_decillionai-server/wasm/storage.wasm",
+        "wasm_size": 317029,
+        "status": "ok",
+        "machine_id": "15@global",
+        "program_id": "17@global",
+        "error": "",
+        "elapsed_s": 5.212
+      },
+      {
+        "namespace": "stores",
+        "entity_id": "stores-entity",
+        "wasm_path": "/home/runner/work/caspar/caspar/_decillionai-server/wasm/stores.wasm",
+        "wasm_size": 324503,
+        "status": "ok",
+        "machine_id": "18@global",
+        "program_id": "20@global",
+        "error": "",
+        "elapsed_s": 3.402
+      },
+      {
+        "namespace": "chains/create",
+        "entity_id": "ep-chains-create",
+        "wasm_path": "/home/runner/work/caspar/caspar/_decillionai-server/wasm/endpoints/chains/create.wasm",
+        "wasm_size": 311355,
+        "status": "ok",
+        "machine_id": "21@global",
+        "program_id": "23@global",
+        "error": "",
+        "elapsed_s": 3.368
+      },
+      {
+        "namespace": "chains/createFromStore",
+        "entity_id": "ep-chains-createFromStore",
+        "wasm_path": "/home/runner/work/caspar/caspar/_decillionai-server/wasm/endpoints/chains/createFromStore.wasm",
+        "wasm_size": 316951,
+        "status": "ok",
+        "machine_id": "24@global",
+        "program_id": "26@global",
+        "error": "",
+        "elapsed_s": 3.728
+      },
+      {
+        "namespace": "chains/createShard",
+        "entity_id": "ep-chains-createShard",
+        "wasm_path": "/home/runner/work/caspar/caspar/_decillionai-server/wasm/endpoints/chains/createShard.wasm",
+        "wasm_size": 312799,
+        "status": "ok",
+        "machine_id": "27@global",
+        "program_id": "29@global",
+        "error": "",
+        "elapsed_s": 3.121
+      },
+      {
+        "namespace": "chains/registerNode",
+        "entity_id": "ep-chains-registerNode",
+        "wasm_path": "/home/runner/work/caspar/caspar/_decillionai-server/wasm/endpoints/chains/registerNode.wasm",
+        "wasm_size": 308569,
+        "status": "ok",
+        "machine_id": "30@global",
+        "program_id": "32@global",
+        "error": "",
+        "elapsed_s": 2.96
+      },
+      {
+        "namespace": "chains/submitBaseTrx",
+        "entity_id": "ep-chains-submitBaseTrx",
+        "wasm_path": "/home/runner/work/caspar/caspar/_decillionai-server/wasm/endpoints/chains/submitBaseTrx.wasm",
+        "wasm_size": 307278,
+        "status": "ok",
+        "machine_id": "33@global",
+        "program_id": "35@global",
+        "error": "",
+        "elapsed_s": 2.32
+      },
+      {
+        "namespace": "invites/accept",
+        "entity_id": "ep-invites-accept",
+        "wasm_path": "/home/runner/work/caspar/caspar/_decillionai-server/wasm/endpoints/invites/accept.wasm",
+        "wasm_size": 314651,
+        "status": "ok",
+        "machine_id": "36@global",
+        "program_id": "38@global",
+        "error": "",
+        "elapsed_s": 2.796
+      },
+      {
+        "namespace": "invites/cancel",
+        "entity_id": "ep-invites-cancel",
+        "wasm_path": "/home/runner/work/caspar/caspar/_decillionai-server/wasm/endpoints/invites/cancel.wasm",
+        "wasm_size": 311368,
+        "status": "ok",
+        "machine_id": "39@global",
+        "program_id": "41@global",
+        "error": "",
+        "elapsed_s": 3.29
+      },
+      {
+        "namespace": "invites/create",
+        "entity_id": "ep-invites-create",
+        "wasm_path": "/home/runner/work/caspar/caspar/_decillionai-server/wasm/endpoints/invites/create.wasm",
+        "wasm_size": 310450,
+        "status": "ok",
+        "machine_id": "42@global",
+        "program_id": "44@global",
+        "error": "",
+        "elapsed_s": 2.654
+      },
+      {
+        "namespace": "invites/decline",
+        "entity_id": "ep-invites-decline",
+        "wasm_path": "/home/runner/work/caspar/caspar/_decillionai-server/wasm/endpoints/invites/decline.wasm",
+        "wasm_size": 311410,
+        "status": "ok",
+        "machine_id": "45@global",
+        "program_id": "47@global",
+        "error": "",
+        "elapsed_s": 3.097
+      },
+      {
+        "namespace": "invites/listStoreInvites",
+        "entity_id": "ep-invites-listStoreInvites",
+        "wasm_path": "/home/runner/work/caspar/caspar/_decillionai-server/wasm/endpoints/invites/listStoreInvites.wasm",
+        "wasm_size": 306023,
+        "status": "ok",
+        "machine_id": "48@global",
+        "program_id": "50@global",
+        "error": "",
+        "elapsed_s": 2.934
+      },
+      {
+        "namespace": "invites/listUserInvites",
+        "entity_id": "ep-invites-listUserInvites",
+        "wasm_path": "/home/runner/work/caspar/caspar/_decillionai-server/wasm/endpoints/invites/listUserInvites.wasm",
+        "wasm_size": 306268,
+        "status": "ok",
+        "machine_id": "51@global",
+        "program_id": "53@global",
+        "error": "",
+        "elapsed_s": 2.653
+      },
+      {
+        "namespace": "pc/execCommand",
+        "entity_id": "ep-pc-execCommand",
+        "wasm_path": "/home/runner/work/caspar/caspar/_decillionai-server/wasm/endpoints/pc/execCommand.wasm",
+        "wasm_size": 312862,
+        "status": "ok",
+        "machine_id": "54@global",
+        "program_id": "56@global",
+        "error": "",
+        "elapsed_s": 2.663
+      },
+      {
+        "namespace": "pc/runPc",
+        "entity_id": "ep-pc-runPc",
+        "wasm_path": "/home/runner/work/caspar/caspar/_decillionai-server/wasm/endpoints/pc/runPc.wasm",
+        "wasm_size": 312310,
+        "status": "ok",
+        "machine_id": "57@global",
+        "program_id": "59@global",
+        "error": "",
+        "elapsed_s": 3.622
+      },
+      {
+        "namespace": "storage/deleteStoreEntity",
+        "entity_id": "ep-storage-deleteStoreEntity",
+        "wasm_path": "/home/runner/work/caspar/caspar/_decillionai-server/wasm/endpoints/storage/deleteStoreEntity.wasm",
+        "wasm_size": 307266,
+        "status": "ok",
+        "machine_id": "60@global",
+        "program_id": "62@global",
+        "error": "",
+        "elapsed_s": 2.968
+      },
+      {
+        "namespace": "storage/deleteUserEntity",
+        "entity_id": "ep-storage-deleteUserEntity",
+        "wasm_path": "/home/runner/work/caspar/caspar/_decillionai-server/wasm/endpoints/storage/deleteUserEntity.wasm",
+        "wasm_size": 307464,
+        "status": "ok",
+        "machine_id": "63@global",
+        "program_id": "65@global",
+        "error": "",
+        "elapsed_s": 4.437
+      },
+      {
+        "namespace": "storage/download",
+        "entity_id": "ep-storage-download",
+        "wasm_path": "/home/runner/work/caspar/caspar/_decillionai-server/wasm/endpoints/storage/download.wasm",
+        "wasm_size": 305657,
+        "status": "ok",
+        "machine_id": "66@global",
+        "program_id": "68@global",
+        "error": "",
+        "elapsed_s": 3.849
+      },
+      {
+        "namespace": "storage/upload",
+        "entity_id": "ep-storage-upload",
+        "wasm_path": "/home/runner/work/caspar/caspar/_decillionai-server/wasm/endpoints/storage/upload.wasm",
+        "wasm_size": 310499,
+        "status": "ok",
+        "machine_id": "69@global",
+        "program_id": "71@global",
+        "error": "",
         "elapsed_s": 3.098
+      },
+      {
+        "namespace": "storage/uploadAppEntity",
+        "entity_id": "ep-storage-uploadAppEntity",
+        "wasm_path": "/home/runner/work/caspar/caspar/_decillionai-server/wasm/endpoints/storage/uploadAppEntity.wasm",
+        "wasm_size": 310727,
+        "status": "ok",
+        "machine_id": "72@global",
+        "program_id": "74@global",
+        "error": "",
+        "elapsed_s": 3.525
+      },
+      {
+        "namespace": "storage/uploadStoreEntity",
+        "entity_id": "ep-storage-uploadStoreEntity",
+        "wasm_path": "/home/runner/work/caspar/caspar/_decillionai-server/wasm/endpoints/storage/uploadStoreEntity.wasm",
+        "wasm_size": 310648,
+        "status": "ok",
+        "machine_id": "75@global",
+        "program_id": "77@global",
+        "error": "",
+        "elapsed_s": 3.463
+      },
+      {
+        "namespace": "storage/uploadUserEntity",
+        "entity_id": "ep-storage-uploadUserEntity",
+        "wasm_path": "/home/runner/work/caspar/caspar/_decillionai-server/wasm/endpoints/storage/uploadUserEntity.wasm",
+        "wasm_size": 310499,
+        "status": "ok",
+        "machine_id": "78@global",
+        "program_id": "80@global",
+        "error": "",
+        "elapsed_s": 3.42
+      },
+      {
+        "namespace": "stores/addMachine",
+        "entity_id": "ep-stores-addMachine",
+        "wasm_path": "/home/runner/work/caspar/caspar/_decillionai-server/wasm/endpoints/stores/addMachine.wasm",
+        "wasm_size": 308808,
+        "status": "ok",
+        "machine_id": "81@global",
+        "program_id": "83@global",
+        "error": "",
+        "elapsed_s": 3.576
+      },
+      {
+        "namespace": "stores/addMember",
+        "entity_id": "ep-stores-addMember",
+        "wasm_path": "/home/runner/work/caspar/caspar/_decillionai-server/wasm/endpoints/stores/addMember.wasm",
+        "wasm_size": 309737,
+        "status": "ok",
+        "machine_id": "84@global",
+        "program_id": "86@global",
+        "error": "",
+        "elapsed_s": 2.775
+      },
+      {
+        "namespace": "stores/addProgram",
+        "entity_id": "ep-stores-addProgram",
+        "wasm_path": "/home/runner/work/caspar/caspar/_decillionai-server/wasm/endpoints/stores/addProgram.wasm",
+        "wasm_size": 309681,
+        "status": "ok",
+        "machine_id": "87@global",
+        "program_id": "89@global",
+        "error": "",
+        "elapsed_s": 3.43
+      },
+      {
+        "namespace": "stores/create",
+        "entity_id": "ep-stores-create",
+        "wasm_path": "/home/runner/work/caspar/caspar/_decillionai-server/wasm/endpoints/stores/create.wasm",
+        "wasm_size": 313278,
+        "status": "ok",
+        "machine_id": "90@global",
+        "program_id": "92@global",
+        "error": "",
+        "elapsed_s": 3.057
+      },
+      {
+        "namespace": "stores/delete",
+        "entity_id": "ep-stores-delete",
+        "wasm_path": "/home/runner/work/caspar/caspar/_decillionai-server/wasm/endpoints/stores/delete.wasm",
+        "wasm_size": 306070,
+        "status": "ok",
+        "machine_id": "93@global",
+        "program_id": "95@global",
+        "error": "",
+        "elapsed_s": 3.46
+      },
+      {
+        "namespace": "stores/get",
+        "entity_id": "ep-stores-get",
+        "wasm_path": "/home/runner/work/caspar/caspar/_decillionai-server/wasm/endpoints/stores/get.wasm",
+        "wasm_size": 305183,
+        "status": "ok",
+        "machine_id": "96@global",
+        "program_id": "98@global",
+        "error": "",
+        "elapsed_s": 3.633
+      },
+      {
+        "namespace": "stores/getDefaultAccess",
+        "entity_id": "ep-stores-getDefaultAccess",
+        "wasm_path": "/home/runner/work/caspar/caspar/_decillionai-server/wasm/endpoints/stores/getDefaultAccess.wasm",
+        "wasm_size": 304049,
+        "status": "ok",
+        "machine_id": "99@global",
+        "program_id": "101@global",
+        "error": "",
+        "elapsed_s": 3.689
+      },
+      {
+        "namespace": "stores/history",
+        "entity_id": "ep-stores-history",
+        "wasm_path": "/home/runner/work/caspar/caspar/_decillionai-server/wasm/endpoints/stores/history.wasm",
+        "wasm_size": 306426,
+        "status": "ok",
+        "machine_id": "102@global",
+        "program_id": "104@global",
+        "error": "",
+        "elapsed_s": 3.339
+      },
+      {
+        "namespace": "stores/join",
+        "entity_id": "ep-stores-join",
+        "wasm_path": "/home/runner/work/caspar/caspar/_decillionai-server/wasm/endpoints/stores/join.wasm",
+        "wasm_size": 309538,
+        "status": "ok",
+        "machine_id": "105@global",
+        "program_id": "107@global",
+        "error": "",
+        "elapsed_s": 3.222
+      },
+      {
+        "namespace": "stores/leave",
+        "entity_id": "ep-stores-leave",
+        "wasm_path": "/home/runner/work/caspar/caspar/_decillionai-server/wasm/endpoints/stores/leave.wasm",
+        "wasm_size": 308348,
+        "status": "ok",
+        "machine_id": "108@global",
+        "program_id": "110@global",
+        "error": "",
+        "elapsed_s": 3.102
+      },
+      {
+        "namespace": "stores/list",
+        "entity_id": "ep-stores-list",
+        "wasm_path": "/home/runner/work/caspar/caspar/_decillionai-server/wasm/endpoints/stores/list.wasm",
+        "wasm_size": 305258,
+        "status": "ok",
+        "machine_id": "111@global",
+        "program_id": "113@global",
+        "error": "",
+        "elapsed_s": 3.825
       }
     ],
     "errors": [],
@@ -851,7 +851,7 @@
         "machine_id": "3@global",
         "program_id": "5@global",
         "error": "",
-        "elapsed_s": 2.907
+        "elapsed_s": 3.576
       },
       {
         "namespace": "elpify-chain",
@@ -862,7 +862,7 @@
         "machine_id": "6@global",
         "program_id": "8@global",
         "error": "",
-        "elapsed_s": 2.703
+        "elapsed_s": 3.345
       },
       {
         "namespace": "invites",
@@ -873,7 +873,7 @@
         "machine_id": "9@global",
         "program_id": "11@global",
         "error": "",
-        "elapsed_s": 3.595
+        "elapsed_s": 3.533
       },
       {
         "namespace": "pc",
@@ -884,7 +884,7 @@
         "machine_id": "12@global",
         "program_id": "14@global",
         "error": "",
-        "elapsed_s": 3.394
+        "elapsed_s": 3.511
       },
       {
         "namespace": "storage",
@@ -895,7 +895,7 @@
         "machine_id": "15@global",
         "program_id": "17@global",
         "error": "",
-        "elapsed_s": 3.373
+        "elapsed_s": 3.281
       },
       {
         "namespace": "stores",
@@ -906,7 +906,7 @@
         "machine_id": "18@global",
         "program_id": "20@global",
         "error": "",
-        "elapsed_s": 3.192
+        "elapsed_s": 3.225
       },
       {
         "namespace": "chains/create",
@@ -917,7 +917,7 @@
         "machine_id": "21@global",
         "program_id": "23@global",
         "error": "",
-        "elapsed_s": 3.172
+        "elapsed_s": 3.544
       },
       {
         "namespace": "chains/createFromStore",
@@ -928,7 +928,7 @@
         "machine_id": "24@global",
         "program_id": "26@global",
         "error": "",
-        "elapsed_s": 3.504
+        "elapsed_s": 3.636
       },
       {
         "namespace": "chains/createShard",
@@ -939,7 +939,7 @@
         "machine_id": "27@global",
         "program_id": "29@global",
         "error": "",
-        "elapsed_s": 3.237
+        "elapsed_s": 3.623
       },
       {
         "namespace": "chains/registerNode",
@@ -950,7 +950,7 @@
         "machine_id": "30@global",
         "program_id": "32@global",
         "error": "",
-        "elapsed_s": 4.219
+        "elapsed_s": 3.53
       },
       {
         "namespace": "chains/submitBaseTrx",
@@ -961,7 +961,7 @@
         "machine_id": "33@global",
         "program_id": "35@global",
         "error": "",
-        "elapsed_s": 3.333
+        "elapsed_s": 3.06
       },
       {
         "namespace": "invites/accept",
@@ -972,7 +972,7 @@
         "machine_id": "36@global",
         "program_id": "38@global",
         "error": "",
-        "elapsed_s": 4.257
+        "elapsed_s": 3.15
       },
       {
         "namespace": "invites/cancel",
@@ -983,7 +983,7 @@
         "machine_id": "39@global",
         "program_id": "41@global",
         "error": "",
-        "elapsed_s": 2.764
+        "elapsed_s": 2.953
       },
       {
         "namespace": "invites/create",
@@ -994,7 +994,7 @@
         "machine_id": "42@global",
         "program_id": "44@global",
         "error": "",
-        "elapsed_s": 3.969
+        "elapsed_s": 2.556
       },
       {
         "namespace": "invites/decline",
@@ -1005,7 +1005,7 @@
         "machine_id": "45@global",
         "program_id": "47@global",
         "error": "",
-        "elapsed_s": 3.38
+        "elapsed_s": 3.818
       },
       {
         "namespace": "invites/listStoreInvites",
@@ -1016,7 +1016,7 @@
         "machine_id": "48@global",
         "program_id": "50@global",
         "error": "",
-        "elapsed_s": 3.3
+        "elapsed_s": 3.99
       },
       {
         "namespace": "invites/listUserInvites",
@@ -1027,7 +1027,7 @@
         "machine_id": "51@global",
         "program_id": "53@global",
         "error": "",
-        "elapsed_s": 3.482
+        "elapsed_s": 3.959
       },
       {
         "namespace": "pc/execCommand",
@@ -1038,7 +1038,7 @@
         "machine_id": "54@global",
         "program_id": "56@global",
         "error": "",
-        "elapsed_s": 3.478
+        "elapsed_s": 2.425
       },
       {
         "namespace": "pc/runPc",
@@ -1049,7 +1049,7 @@
         "machine_id": "57@global",
         "program_id": "59@global",
         "error": "",
-        "elapsed_s": 4.578
+        "elapsed_s": 2.882
       },
       {
         "namespace": "storage/deleteStoreEntity",
@@ -1060,7 +1060,7 @@
         "machine_id": "60@global",
         "program_id": "62@global",
         "error": "",
-        "elapsed_s": 5.039
+        "elapsed_s": 3.461
       },
       {
         "namespace": "storage/deleteUserEntity",
@@ -1071,7 +1071,7 @@
         "machine_id": "63@global",
         "program_id": "65@global",
         "error": "",
-        "elapsed_s": 4.203
+        "elapsed_s": 2.415
       },
       {
         "namespace": "storage/download",
@@ -1082,7 +1082,7 @@
         "machine_id": "66@global",
         "program_id": "68@global",
         "error": "",
-        "elapsed_s": 3.62
+        "elapsed_s": 3.349
       },
       {
         "namespace": "storage/upload",
@@ -1093,7 +1093,7 @@
         "machine_id": "69@global",
         "program_id": "71@global",
         "error": "",
-        "elapsed_s": 4.653
+        "elapsed_s": 2.993
       },
       {
         "namespace": "storage/uploadAppEntity",
@@ -1104,7 +1104,7 @@
         "machine_id": "72@global",
         "program_id": "74@global",
         "error": "",
-        "elapsed_s": 5.032
+        "elapsed_s": 2.746
       },
       {
         "namespace": "storage/uploadStoreEntity",
@@ -1115,7 +1115,7 @@
         "machine_id": "75@global",
         "program_id": "77@global",
         "error": "",
-        "elapsed_s": 3.619
+        "elapsed_s": 3.358
       },
       {
         "namespace": "storage/uploadUserEntity",
@@ -1126,7 +1126,7 @@
         "machine_id": "78@global",
         "program_id": "80@global",
         "error": "",
-        "elapsed_s": 3.966
+        "elapsed_s": 2.925
       },
       {
         "namespace": "stores/addMachine",
@@ -1137,7 +1137,7 @@
         "machine_id": "81@global",
         "program_id": "83@global",
         "error": "",
-        "elapsed_s": 3.251
+        "elapsed_s": 2.728
       },
       {
         "namespace": "stores/addMember",
@@ -1148,7 +1148,7 @@
         "machine_id": "84@global",
         "program_id": "86@global",
         "error": "",
-        "elapsed_s": 3.273
+        "elapsed_s": 2.603
       },
       {
         "namespace": "stores/addProgram",
@@ -1159,7 +1159,7 @@
         "machine_id": "87@global",
         "program_id": "89@global",
         "error": "",
-        "elapsed_s": 2.652
+        "elapsed_s": 2.783
       },
       {
         "namespace": "stores/create",
@@ -1170,7 +1170,7 @@
         "machine_id": "90@global",
         "program_id": "92@global",
         "error": "",
-        "elapsed_s": 2.478
+        "elapsed_s": 3.137
       },
       {
         "namespace": "stores/delete",
@@ -1181,7 +1181,7 @@
         "machine_id": "93@global",
         "program_id": "95@global",
         "error": "",
-        "elapsed_s": 3.591
+        "elapsed_s": 2.835
       },
       {
         "namespace": "stores/get",
@@ -1192,7 +1192,7 @@
         "machine_id": "96@global",
         "program_id": "98@global",
         "error": "",
-        "elapsed_s": 3.045
+        "elapsed_s": 5.996
       },
       {
         "namespace": "stores/getDefaultAccess",
@@ -1203,7 +1203,7 @@
         "machine_id": "99@global",
         "program_id": "101@global",
         "error": "",
-        "elapsed_s": 3.379
+        "elapsed_s": 2.905
       },
       {
         "namespace": "stores/history",
@@ -1214,7 +1214,7 @@
         "machine_id": "102@global",
         "program_id": "104@global",
         "error": "",
-        "elapsed_s": 2.682
+        "elapsed_s": 3.428
       },
       {
         "namespace": "stores/join",
@@ -1225,7 +1225,7 @@
         "machine_id": "105@global",
         "program_id": "107@global",
         "error": "",
-        "elapsed_s": 2.839
+        "elapsed_s": 3.36
       },
       {
         "namespace": "stores/leave",
@@ -1236,7 +1236,7 @@
         "machine_id": "108@global",
         "program_id": "110@global",
         "error": "",
-        "elapsed_s": 3.088
+        "elapsed_s": 2.98
       },
       {
         "namespace": "stores/list",
@@ -1247,7 +1247,7 @@
         "machine_id": "111@global",
         "program_id": "113@global",
         "error": "",
-        "elapsed_s": 2.656
+        "elapsed_s": 3.327
       }
     ],
     "errors": [],

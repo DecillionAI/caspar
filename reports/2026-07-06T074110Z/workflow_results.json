@@ -1,0 +1,2476 @@
+{
+  "timestamp": "2026-07-06T07:40:55Z",
+  "nodes": [
+    "node1",
+    "node2",
+    "node3"
+  ],
+  "results": [
+    {
+      "workflow": "chain",
+      "step": "create workchain",
+      "node": "node1",
+      "ok": true,
+      "elapsed_ms": 137.15028700016774,
+      "detail": {
+        "chainId": "1@chain.create.id"
+      },
+      "error": ""
+    },
+    {
+      "workflow": "chain",
+      "step": "createShard",
+      "node": "node1",
+      "ok": true,
+      "elapsed_ms": 166.39959700000873,
+      "detail": {
+        "shardId": "2@chain.shard.id"
+      },
+      "error": ""
+    },
+    {
+      "workflow": "chain",
+      "step": "registerNode",
+      "node": "node1",
+      "ok": true,
+      "elapsed_ms": 197.5037740000971,
+      "detail": {
+        "chainId": "1@chain.create.id",
+        "endpoint": "127.0.0.1:8074",
+        "id": "1@global",
+        "registeredBy": "1@global",
+        "role": "validator"
+      },
+      "error": ""
+    },
+    {
+      "workflow": "chain",
+      "step": "submitBaseTrx",
+      "node": "node1",
+      "ok": true,
+      "elapsed_ms": 122.20795600001111,
+      "detail": {
+        "trxId": "3@chain.trx.id"
+      },
+      "error": ""
+    },
+    {
+      "workflow": "stores",
+      "step": "create store",
+      "node": "node1",
+      "ok": true,
+      "elapsed_ms": 111.50480399987828,
+      "detail": {
+        "storeId": "4@store"
+      },
+      "error": ""
+    },
+    {
+      "workflow": "stores",
+      "step": "list stores",
+      "node": "node1",
+      "ok": true,
+      "elapsed_ms": 119.95698300006552,
+      "detail": {
+        "count": 0
+      },
+      "error": ""
+    },
+    {
+      "workflow": "stores",
+      "step": "join store",
+      "node": "node1",
+      "ok": true,
+      "elapsed_ms": 102.83685700005663,
+      "detail": {},
+      "error": ""
+    },
+    {
+      "workflow": "stores",
+      "step": "get store",
+      "node": "node1",
+      "ok": true,
+      "elapsed_ms": 120.90419499986638,
+      "detail": {},
+      "error": ""
+    },
+    {
+      "workflow": "storage",
+      "step": "upload user entity",
+      "node": "node1",
+      "ok": true,
+      "elapsed_ms": 110.90949599997657,
+      "detail": {},
+      "error": ""
+    },
+    {
+      "workflow": "storage",
+      "step": "download entity",
+      "node": "node1",
+      "ok": true,
+      "elapsed_ms": 155.83273499987627,
+      "detail": {
+        "size": 0
+      },
+      "error": ""
+    },
+    {
+      "workflow": "storage",
+      "step": "delete entity",
+      "node": "node1",
+      "ok": true,
+      "elapsed_ms": 126.94217499984006,
+      "detail": {},
+      "error": ""
+    },
+    {
+      "workflow": "invites",
+      "step": "create invite",
+      "node": "node1",
+      "ok": true,
+      "elapsed_ms": 121.98498799989466,
+      "detail": {
+        "inviteId": ""
+      },
+      "error": ""
+    },
+    {
+      "workflow": "invites",
+      "step": "listUserInvites",
+      "node": "node1",
+      "ok": true,
+      "elapsed_ms": 112.72624100001849,
+      "detail": {
+        "count": 0
+      },
+      "error": ""
+    },
+    {
+      "workflow": "invites",
+      "step": "listStoreInvites",
+      "node": "node1",
+      "ok": true,
+      "elapsed_ms": 112.95236599994496,
+      "detail": {
+        "count": 0
+      },
+      "error": ""
+    },
+    {
+      "workflow": "elpify-chain",
+      "step": "stake node1 (100)",
+      "node": "node1",
+      "ok": true,
+      "elapsed_ms": 104.5578729999761,
+      "detail": {
+        "nodeId": "1@global",
+        "stake": 100.0
+      },
+      "error": ""
+    },
+    {
+      "workflow": "elpify-chain",
+      "step": "stake node2 (200)",
+      "node": "node1",
+      "ok": true,
+      "elapsed_ms": 122.30996900007085,
+      "detail": {
+        "nodeId": "validator-2-1@global",
+        "stake": 200.0
+      },
+      "error": ""
+    },
+    {
+      "workflow": "elpify-chain",
+      "step": "stake node3 (300)",
+      "node": "node1",
+      "ok": true,
+      "elapsed_ms": 126.50604199984627,
+      "detail": {
+        "nodeId": "validator-3-1@global",
+        "stake": 300.0
+      },
+      "error": ""
+    },
+    {
+      "workflow": "elpify-chain",
+      "step": "commit (1@global)",
+      "node": "node1",
+      "ok": true,
+      "elapsed_ms": 122.80246599993916,
+      "detail": {
+        "hash": "87383963cc4591f7"
+      },
+      "error": ""
+    },
+    {
+      "workflow": "elpify-chain",
+      "step": "commit (validator-2-1@gl)",
+      "node": "node1",
+      "ok": true,
+      "elapsed_ms": 127.28161099994395,
+      "detail": {
+        "hash": "6ec3d1483cde866d"
+      },
+      "error": ""
+    },
+    {
+      "workflow": "elpify-chain",
+      "step": "commit (validator-3-1@gl)",
+      "node": "node1",
+      "ok": true,
+      "elapsed_ms": 122.51805100004276,
+      "detail": {
+        "hash": "4746d478d6b732ff"
+      },
+      "error": ""
+    },
+    {
+      "workflow": "elpify-chain",
+      "step": "reveal (1@global)",
+      "node": "node1",
+      "ok": true,
+      "elapsed_ms": 126.7274859999361,
+      "detail": {},
+      "error": ""
+    },
+    {
+      "workflow": "elpify-chain",
+      "step": "reveal (validator-2-1@gl)",
+      "node": "node1",
+      "ok": true,
+      "elapsed_ms": 123.93909599995823,
+      "detail": {},
+      "error": ""
+    },
+    {
+      "workflow": "elpify-chain",
+      "step": "reveal (validator-3-1@gl)",
+      "node": "node1",
+      "ok": true,
+      "elapsed_ms": 124.94875200013666,
+      "detail": {},
+      "error": ""
+    },
+    {
+      "workflow": "elpify-chain",
+      "step": "electionTick",
+      "node": "node1",
+      "ok": true,
+      "elapsed_ms": 144.94587600006525,
+      "detail": {
+        "winners": 3
+      },
+      "error": ""
+    },
+    {
+      "workflow": "elpify-chain",
+      "step": "status query",
+      "node": "node1",
+      "ok": true,
+      "elapsed_ms": 147.8375109998069,
+      "detail": {
+        "validators": 3
+      },
+      "error": ""
+    },
+    {
+      "workflow": "elpify-chain",
+      "step": "executeTrx:fib",
+      "node": "node1",
+      "ok": true,
+      "elapsed_ms": 154.7968590000437,
+      "detail": {
+        "trxId": "trx-fib-98d3355f",
+        "status": "pending",
+        "consensus_validators": 3
+      },
+      "error": ""
+    },
+    {
+      "workflow": "elpify-chain",
+      "step": "executeTrx:hash",
+      "node": "node1",
+      "ok": true,
+      "elapsed_ms": 150.86099399991326,
+      "detail": {
+        "trxId": "trx-hash-7fe06a72",
+        "status": "pending",
+        "consensus_validators": 3
+      },
+      "error": ""
+    },
+    {
+      "workflow": "elpify-chain",
+      "step": "executeTrx:hello",
+      "node": "node1",
+      "ok": true,
+      "elapsed_ms": 140.85137999995823,
+      "detail": {
+        "trxId": "trx-hello-a7540a09",
+        "status": "pending",
+        "consensus_validators": 3
+      },
+      "error": ""
+    },
+    {
+      "workflow": "elpify-chain",
+      "step": "tally:fib",
+      "node": "node1",
+      "ok": true,
+      "elapsed_ms": 128.4881609999502,
+      "detail": {},
+      "error": ""
+    },
+    {
+      "workflow": "elpify-chain",
+      "step": "tally:hash",
+      "node": "node1",
+      "ok": true,
+      "elapsed_ms": 152.03460300017468,
+      "detail": {},
+      "error": ""
+    },
+    {
+      "workflow": "cross",
+      "step": "chain:createFromStore",
+      "node": "node1",
+      "ok": true,
+      "elapsed_ms": 124.0475360000346,
+      "detail": {
+        "chainId": "6@chain.create.id"
+      },
+      "error": ""
+    },
+    {
+      "workflow": "cross",
+      "step": "stores:history",
+      "node": "node1",
+      "ok": true,
+      "elapsed_ms": 99.92646500018054,
+      "detail": {
+        "events": 0
+      },
+      "error": ""
+    },
+    {
+      "workflow": "cross",
+      "step": "storage:uploadStoreEntity(chain proof)",
+      "node": "node1",
+      "ok": true,
+      "elapsed_ms": 122.76952199999869,
+      "detail": {},
+      "error": ""
+    },
+    {
+      "workflow": "cross",
+      "step": "elpify-chain:status(via store context)",
+      "node": "node1",
+      "ok": true,
+      "elapsed_ms": 125.90199700002813,
+      "detail": {
+        "validators": 0
+      },
+      "error": ""
+    },
+    {
+      "workflow": "cross",
+      "step": "invites:create(cross-store)",
+      "node": "node1",
+      "ok": true,
+      "elapsed_ms": 125.84724299995287,
+      "detail": {},
+      "error": ""
+    },
+    {
+      "workflow": "cross",
+      "step": "chain:submitBaseTrx(elpify proof)",
+      "node": "node1",
+      "ok": true,
+      "elapsed_ms": 122.89208399988638,
+      "detail": {
+        "trxId": "9@chain.trx.id"
+      },
+      "error": ""
+    },
+    {
+      "workflow": "throughput",
+      "step": "elpify-chain:status n=20",
+      "node": "node1",
+      "ok": true,
+      "elapsed_ms": 2408.0358329999854,
+      "detail": {
+        "tps": 8.31,
+        "p50_ms": 123.1,
+        "p99_ms": 132.1,
+        "ok_rate": 100.0
+      },
+      "error": ""
+    },
+    {
+      "workflow": "throughput",
+      "step": "chain:submitBaseTrx n=20",
+      "node": "node1",
+      "ok": true,
+      "elapsed_ms": 2405.7263639999746,
+      "detail": {
+        "tps": 8.31,
+        "p50_ms": 124.0,
+        "p99_ms": 132.9,
+        "ok_rate": 100.0
+      },
+      "error": ""
+    },
+    {
+      "workflow": "throughput",
+      "step": "stores:list n=20",
+      "node": "node1",
+      "ok": true,
+      "elapsed_ms": 2652.0454069998323,
+      "detail": {
+        "tps": 7.54,
+        "p50_ms": 129.9,
+        "p99_ms": 153.6,
+        "ok_rate": 100.0
+      },
+      "error": ""
+    },
+    {
+      "workflow": "throughput",
+      "step": "stores:create n=20",
+      "node": "node1",
+      "ok": true,
+      "elapsed_ms": 2554.9336599999606,
+      "detail": {
+        "tps": 7.83,
+        "p50_ms": 126.9,
+        "p99_ms": 146.9,
+        "ok_rate": 100.0
+      },
+      "error": ""
+    },
+    {
+      "workflow": "throughput",
+      "step": "storage:upload n=20",
+      "node": "node1",
+      "ok": true,
+      "elapsed_ms": 2515.17696000019,
+      "detail": {
+        "tps": 7.95,
+        "p50_ms": 126.0,
+        "p99_ms": 139.5,
+        "ok_rate": 100.0
+      },
+      "error": ""
+    },
+    {
+      "workflow": "throughput",
+      "step": "storage:download n=20",
+      "node": "node1",
+      "ok": true,
+      "elapsed_ms": 2468.657224000026,
+      "detail": {
+        "tps": 8.1,
+        "p50_ms": 125.0,
+        "p99_ms": 137.7,
+        "ok_rate": 100.0
+      },
+      "error": ""
+    },
+    {
+      "workflow": "throughput",
+      "step": "invites:listUserInvites n=20",
+      "node": "node1",
+      "ok": true,
+      "elapsed_ms": 2474.1259129998525,
+      "detail": {
+        "tps": 8.08,
+        "p50_ms": 124.6,
+        "p99_ms": 130.1,
+        "ok_rate": 100.0
+      },
+      "error": ""
+    },
+    {
+      "workflow": "throughput",
+      "step": "invites:listStoreInvites n=20",
+      "node": "node1",
+      "ok": true,
+      "elapsed_ms": 2468.005119000054,
+      "detail": {
+        "tps": 8.1,
+        "p50_ms": 123.9,
+        "p99_ms": 136.7,
+        "ok_rate": 100.0
+      },
+      "error": ""
+    },
+    {
+      "workflow": "throughput",
+      "step": "elpify-chain:executeTrx(MASM) n=5",
+      "node": "node1",
+      "ok": true,
+      "elapsed_ms": 653.5901159998048,
+      "detail": {
+        "tps": 7.65,
+        "p50_ms": 126.8,
+        "p99_ms": 145.1
+      },
+      "error": ""
+    },
+    {
+      "workflow": "throughput",
+      "step": "mixed-workload n=30",
+      "node": "node1",
+      "ok": true,
+      "elapsed_ms": 4001.9115330001114,
+      "detail": {
+        "tps": 7.5,
+        "mean_ms": 133.3,
+        "p50_ms": 126.1,
+        "p99_ms": 174.8,
+        "read_write_ratio": "5:3",
+        "errors": 0
+      },
+      "error": ""
+    },
+    {
+      "workflow": "throughput",
+      "step": "concurrent-burst n=10 threads",
+      "node": "node1",
+      "ok": true,
+      "elapsed_ms": 915.9195309998722,
+      "detail": {
+        "tps": 10.92,
+        "p50_ms": 808.6,
+        "p99_ms": 908.7,
+        "errors": 0,
+        "effective_concurrency": 10
+      },
+      "error": ""
+    },
+    {
+      "workflow": "chain",
+      "step": "create workchain",
+      "node": "node2",
+      "ok": true,
+      "elapsed_ms": 159.74593300006745,
+      "detail": {
+        "chainId": "1@chain.create.id"
+      },
+      "error": ""
+    },
+    {
+      "workflow": "chain",
+      "step": "createShard",
+      "node": "node2",
+      "ok": true,
+      "elapsed_ms": 154.4257220000418,
+      "detail": {
+        "shardId": "2@chain.shard.id"
+      },
+      "error": ""
+    },
+    {
+      "workflow": "chain",
+      "step": "registerNode",
+      "node": "node2",
+      "ok": true,
+      "elapsed_ms": 127.8080229999432,
+      "detail": {
+        "chainId": "1@chain.create.id",
+        "endpoint": "127.0.0.1:8174",
+        "id": "1@global",
+        "registeredBy": "1@global",
+        "role": "validator"
+      },
+      "error": ""
+    },
+    {
+      "workflow": "chain",
+      "step": "submitBaseTrx",
+      "node": "node2",
+      "ok": true,
+      "elapsed_ms": 127.16540600013104,
+      "detail": {
+        "trxId": "3@chain.trx.id"
+      },
+      "error": ""
+    },
+    {
+      "workflow": "stores",
+      "step": "create store",
+      "node": "node2",
+      "ok": true,
+      "elapsed_ms": 120.76819000003525,
+      "detail": {
+        "storeId": "4@store"
+      },
+      "error": ""
+    },
+    {
+      "workflow": "stores",
+      "step": "list stores",
+      "node": "node2",
+      "ok": true,
+      "elapsed_ms": 126.53252399991288,
+      "detail": {
+        "count": 0
+      },
+      "error": ""
+    },
+    {
+      "workflow": "stores",
+      "step": "join store",
+      "node": "node2",
+      "ok": true,
+      "elapsed_ms": 105.1719699999012,
+      "detail": {},
+      "error": ""
+    },
+    {
+      "workflow": "stores",
+      "step": "get store",
+      "node": "node2",
+      "ok": true,
+      "elapsed_ms": 126.8861220000872,
+      "detail": {},
+      "error": ""
+    },
+    {
+      "workflow": "storage",
+      "step": "upload user entity",
+      "node": "node2",
+      "ok": true,
+      "elapsed_ms": 125.9280240001317,
+      "detail": {},
+      "error": ""
+    },
+    {
+      "workflow": "storage",
+      "step": "download entity",
+      "node": "node2",
+      "ok": true,
+      "elapsed_ms": 128.88137000004463,
+      "detail": {
+        "size": 0
+      },
+      "error": ""
+    },
+    {
+      "workflow": "storage",
+      "step": "delete entity",
+      "node": "node2",
+      "ok": true,
+      "elapsed_ms": 128.86840800001664,
+      "detail": {},
+      "error": ""
+    },
+    {
+      "workflow": "invites",
+      "step": "create invite",
+      "node": "node2",
+      "ok": true,
+      "elapsed_ms": 125.91524399999798,
+      "detail": {
+        "inviteId": ""
+      },
+      "error": ""
+    },
+    {
+      "workflow": "invites",
+      "step": "listUserInvites",
+      "node": "node2",
+      "ok": true,
+      "elapsed_ms": 122.5974619999306,
+      "detail": {
+        "count": 0
+      },
+      "error": ""
+    },
+    {
+      "workflow": "invites",
+      "step": "listStoreInvites",
+      "node": "node2",
+      "ok": true,
+      "elapsed_ms": 124.5489819998511,
+      "detail": {
+        "count": 0
+      },
+      "error": ""
+    },
+    {
+      "workflow": "elpify-chain",
+      "step": "stake node1 (100)",
+      "node": "node2",
+      "ok": true,
+      "elapsed_ms": 129.01769599989166,
+      "detail": {
+        "nodeId": "1@global",
+        "stake": 100.0
+      },
+      "error": ""
+    },
+    {
+      "workflow": "elpify-chain",
+      "step": "stake node2 (200)",
+      "node": "node2",
+      "ok": true,
+      "elapsed_ms": 124.45874599984563,
+      "detail": {
+        "nodeId": "validator-2-1@global",
+        "stake": 200.0
+      },
+      "error": ""
+    },
+    {
+      "workflow": "elpify-chain",
+      "step": "stake node3 (300)",
+      "node": "node2",
+      "ok": true,
+      "elapsed_ms": 116.06671499998811,
+      "detail": {
+        "nodeId": "validator-3-1@global",
+        "stake": 300.0
+      },
+      "error": ""
+    },
+    {
+      "workflow": "elpify-chain",
+      "step": "commit (1@global)",
+      "node": "node2",
+      "ok": true,
+      "elapsed_ms": 132.02098399983697,
+      "detail": {
+        "hash": "5abd2e50fe363c11"
+      },
+      "error": ""
+    },
+    {
+      "workflow": "elpify-chain",
+      "step": "commit (validator-2-1@gl)",
+      "node": "node2",
+      "ok": true,
+      "elapsed_ms": 146.39221499987798,
+      "detail": {
+        "hash": "15bd142b50f5667e"
+      },
+      "error": ""
+    },
+    {
+      "workflow": "elpify-chain",
+      "step": "commit (validator-3-1@gl)",
+      "node": "node2",
+      "ok": true,
+      "elapsed_ms": 146.1454779998803,
+      "detail": {
+        "hash": "6ec5830e66613129"
+      },
+      "error": ""
+    },
+    {
+      "workflow": "elpify-chain",
+      "step": "reveal (1@global)",
+      "node": "node2",
+      "ok": true,
+      "elapsed_ms": 144.67128199999024,
+      "detail": {},
+      "error": ""
+    },
+    {
+      "workflow": "elpify-chain",
+      "step": "reveal (validator-2-1@gl)",
+      "node": "node2",
+      "ok": true,
+      "elapsed_ms": 126.87880400017093,
+      "detail": {},
+      "error": ""
+    },
+    {
+      "workflow": "elpify-chain",
+      "step": "reveal (validator-3-1@gl)",
+      "node": "node2",
+      "ok": true,
+      "elapsed_ms": 121.86027699999613,
+      "detail": {},
+      "error": ""
+    },
+    {
+      "workflow": "elpify-chain",
+      "step": "electionTick",
+      "node": "node2",
+      "ok": true,
+      "elapsed_ms": 149.85791699996298,
+      "detail": {
+        "winners": 3
+      },
+      "error": ""
+    },
+    {
+      "workflow": "elpify-chain",
+      "step": "status query",
+      "node": "node2",
+      "ok": true,
+      "elapsed_ms": 148.73178400011966,
+      "detail": {
+        "validators": 3
+      },
+      "error": ""
+    },
+    {
+      "workflow": "elpify-chain",
+      "step": "executeTrx:fib",
+      "node": "node2",
+      "ok": true,
+      "elapsed_ms": 146.1400370001229,
+      "detail": {
+        "trxId": "trx-fib-a87cd6d1",
+        "status": "pending",
+        "consensus_validators": 3
+      },
+      "error": ""
+    },
+    {
+      "workflow": "elpify-chain",
+      "step": "executeTrx:hash",
+      "node": "node2",
+      "ok": true,
+      "elapsed_ms": 140.3038779999406,
+      "detail": {
+        "trxId": "trx-hash-1980c62f",
+        "status": "pending",
+        "consensus_validators": 3
+      },
+      "error": ""
+    },
+    {
+      "workflow": "elpify-chain",
+      "step": "executeTrx:hello",
+      "node": "node2",
+      "ok": true,
+      "elapsed_ms": 152.50816399998257,
+      "detail": {
+        "trxId": "trx-hello-a6ae4d81",
+        "status": "pending",
+        "consensus_validators": 3
+      },
+      "error": ""
+    },
+    {
+      "workflow": "elpify-chain",
+      "step": "tally:fib",
+      "node": "node2",
+      "ok": true,
+      "elapsed_ms": 145.22516600004565,
+      "detail": {},
+      "error": ""
+    },
+    {
+      "workflow": "elpify-chain",
+      "step": "tally:hash",
+      "node": "node2",
+      "ok": true,
+      "elapsed_ms": 150.91963800000485,
+      "detail": {},
+      "error": ""
+    },
+    {
+      "workflow": "cross",
+      "step": "chain:createFromStore",
+      "node": "node2",
+      "ok": true,
+      "elapsed_ms": 119.8448019999887,
+      "detail": {
+        "chainId": "6@chain.create.id"
+      },
+      "error": ""
+    },
+    {
+      "workflow": "cross",
+      "step": "stores:history",
+      "node": "node2",
+      "ok": true,
+      "elapsed_ms": 106.33069200002865,
+      "detail": {
+        "events": 0
+      },
+      "error": ""
+    },
+    {
+      "workflow": "cross",
+      "step": "storage:uploadStoreEntity(chain proof)",
+      "node": "node2",
+      "ok": true,
+      "elapsed_ms": 121.42605700000786,
+      "detail": {},
+      "error": ""
+    },
+    {
+      "workflow": "cross",
+      "step": "elpify-chain:status(via store context)",
+      "node": "node2",
+      "ok": true,
+      "elapsed_ms": 128.94741399986742,
+      "detail": {
+        "validators": 0
+      },
+      "error": ""
+    },
+    {
+      "workflow": "cross",
+      "step": "invites:create(cross-store)",
+      "node": "node2",
+      "ok": true,
+      "elapsed_ms": 126.023855999847,
+      "detail": {},
+      "error": ""
+    },
+    {
+      "workflow": "cross",
+      "step": "chain:submitBaseTrx(elpify proof)",
+      "node": "node2",
+      "ok": true,
+      "elapsed_ms": 130.7241189999786,
+      "detail": {
+        "trxId": "9@chain.trx.id"
+      },
+      "error": ""
+    },
+    {
+      "workflow": "throughput",
+      "step": "elpify-chain:status n=20",
+      "node": "node2",
+      "ok": true,
+      "elapsed_ms": 2319.7356329999366,
+      "detail": {
+        "tps": 8.62,
+        "p50_ms": 115.0,
+        "p99_ms": 132.8,
+        "ok_rate": 100.0
+      },
+      "error": ""
+    },
+    {
+      "workflow": "throughput",
+      "step": "chain:submitBaseTrx n=20",
+      "node": "node2",
+      "ok": true,
+      "elapsed_ms": 2346.8838399999186,
+      "detail": {
+        "tps": 8.52,
+        "p50_ms": 122.9,
+        "p99_ms": 135.1,
+        "ok_rate": 100.0
+      },
+      "error": ""
+    },
+    {
+      "workflow": "throughput",
+      "step": "stores:list n=20",
+      "node": "node2",
+      "ok": true,
+      "elapsed_ms": 2497.364566999977,
+      "detail": {
+        "tps": 8.01,
+        "p50_ms": 125.7,
+        "p99_ms": 131.0,
+        "ok_rate": 100.0
+      },
+      "error": ""
+    },
+    {
+      "workflow": "throughput",
+      "step": "stores:create n=20",
+      "node": "node2",
+      "ok": true,
+      "elapsed_ms": 2460.9822069999154,
+      "detail": {
+        "tps": 8.13,
+        "p50_ms": 125.1,
+        "p99_ms": 148.7,
+        "ok_rate": 100.0
+      },
+      "error": ""
+    },
+    {
+      "workflow": "throughput",
+      "step": "storage:upload n=20",
+      "node": "node2",
+      "ok": true,
+      "elapsed_ms": 2414.95000399982,
+      "detail": {
+        "tps": 8.28,
+        "p50_ms": 122.1,
+        "p99_ms": 134.9,
+        "ok_rate": 100.0
+      },
+      "error": ""
+    },
+    {
+      "workflow": "throughput",
+      "step": "storage:download n=20",
+      "node": "node2",
+      "ok": true,
+      "elapsed_ms": 2506.1258959999577,
+      "detail": {
+        "tps": 7.98,
+        "p50_ms": 125.9,
+        "p99_ms": 147.8,
+        "ok_rate": 100.0
+      },
+      "error": ""
+    },
+    {
+      "workflow": "throughput",
+      "step": "invites:listUserInvites n=20",
+      "node": "node2",
+      "ok": true,
+      "elapsed_ms": 2489.9825540001075,
+      "detail": {
+        "tps": 8.03,
+        "p50_ms": 125.9,
+        "p99_ms": 152.2,
+        "ok_rate": 100.0
+      },
+      "error": ""
+    },
+    {
+      "workflow": "throughput",
+      "step": "invites:listStoreInvites n=20",
+      "node": "node2",
+      "ok": true,
+      "elapsed_ms": 2455.708518999927,
+      "detail": {
+        "tps": 8.14,
+        "p50_ms": 122.5,
+        "p99_ms": 146.4,
+        "ok_rate": 100.0
+      },
+      "error": ""
+    },
+    {
+      "workflow": "throughput",
+      "step": "elpify-chain:executeTrx(MASM) n=5",
+      "node": "node2",
+      "ok": true,
+      "elapsed_ms": 689.8374889999559,
+      "detail": {
+        "tps": 7.248,
+        "p50_ms": 144.7,
+        "p99_ms": 149.9
+      },
+      "error": ""
+    },
+    {
+      "workflow": "throughput",
+      "step": "mixed-workload n=30",
+      "node": "node2",
+      "ok": true,
+      "elapsed_ms": 4008.724875000098,
+      "detail": {
+        "tps": 7.48,
+        "mean_ms": 133.5,
+        "p50_ms": 127.6,
+        "p99_ms": 175.0,
+        "read_write_ratio": "5:3",
+        "errors": 0
+      },
+      "error": ""
+    },
+    {
+      "workflow": "throughput",
+      "step": "concurrent-burst n=10 threads",
+      "node": "node2",
+      "ok": true,
+      "elapsed_ms": 955.2550880000581,
+      "detail": {
+        "tps": 10.47,
+        "p50_ms": 844.7,
+        "p99_ms": 952.4,
+        "errors": 0,
+        "effective_concurrency": 10
+      },
+      "error": ""
+    },
+    {
+      "workflow": "chain",
+      "step": "create workchain",
+      "node": "node3",
+      "ok": true,
+      "elapsed_ms": 149.2923900000278,
+      "detail": {
+        "chainId": "1@chain.create.id"
+      },
+      "error": ""
+    },
+    {
+      "workflow": "chain",
+      "step": "createShard",
+      "node": "node3",
+      "ok": true,
+      "elapsed_ms": 129.86171400007152,
+      "detail": {
+        "shardId": "2@chain.shard.id"
+      },
+      "error": ""
+    },
+    {
+      "workflow": "chain",
+      "step": "registerNode",
+      "node": "node3",
+      "ok": true,
+      "elapsed_ms": 120.96014100006869,
+      "detail": {
+        "chainId": "1@chain.create.id",
+        "endpoint": "127.0.0.1:8274",
+        "id": "1@global",
+        "registeredBy": "1@global",
+        "role": "validator"
+      },
+      "error": ""
+    },
+    {
+      "workflow": "chain",
+      "step": "submitBaseTrx",
+      "node": "node3",
+      "ok": true,
+      "elapsed_ms": 118.87113000011595,
+      "detail": {
+        "trxId": "3@chain.trx.id"
+      },
+      "error": ""
+    },
+    {
+      "workflow": "stores",
+      "step": "create store",
+      "node": "node3",
+      "ok": true,
+      "elapsed_ms": 102.73694299985436,
+      "detail": {
+        "storeId": "4@store"
+      },
+      "error": ""
+    },
+    {
+      "workflow": "stores",
+      "step": "list stores",
+      "node": "node3",
+      "ok": true,
+      "elapsed_ms": 126.40289699993446,
+      "detail": {
+        "count": 0
+      },
+      "error": ""
+    },
+    {
+      "workflow": "stores",
+      "step": "join store",
+      "node": "node3",
+      "ok": true,
+      "elapsed_ms": 117.259261000072,
+      "detail": {},
+      "error": ""
+    },
+    {
+      "workflow": "stores",
+      "step": "get store",
+      "node": "node3",
+      "ok": true,
+      "elapsed_ms": 106.70391100006782,
+      "detail": {},
+      "error": ""
+    },
+    {
+      "workflow": "storage",
+      "step": "upload user entity",
+      "node": "node3",
+      "ok": true,
+      "elapsed_ms": 126.33846699986861,
+      "detail": {},
+      "error": ""
+    },
+    {
+      "workflow": "storage",
+      "step": "download entity",
+      "node": "node3",
+      "ok": true,
+      "elapsed_ms": 128.864768999847,
+      "detail": {
+        "size": 0
+      },
+      "error": ""
+    },
+    {
+      "workflow": "storage",
+      "step": "delete entity",
+      "node": "node3",
+      "ok": true,
+      "elapsed_ms": 123.89065299998947,
+      "detail": {},
+      "error": ""
+    },
+    {
+      "workflow": "invites",
+      "step": "create invite",
+      "node": "node3",
+      "ok": true,
+      "elapsed_ms": 119.85176500002126,
+      "detail": {
+        "inviteId": ""
+      },
+      "error": ""
+    },
+    {
+      "workflow": "invites",
+      "step": "listUserInvites",
+      "node": "node3",
+      "ok": true,
+      "elapsed_ms": 120.95915899999454,
+      "detail": {
+        "count": 0
+      },
+      "error": ""
+    },
+    {
+      "workflow": "invites",
+      "step": "listStoreInvites",
+      "node": "node3",
+      "ok": true,
+      "elapsed_ms": 120.70762500002274,
+      "detail": {
+        "count": 0
+      },
+      "error": ""
+    },
+    {
+      "workflow": "elpify-chain",
+      "step": "stake node1 (100)",
+      "node": "node3",
+      "ok": true,
+      "elapsed_ms": 124.06380800007355,
+      "detail": {
+        "nodeId": "1@global",
+        "stake": 100.0
+      },
+      "error": ""
+    },
+    {
+      "workflow": "elpify-chain",
+      "step": "stake node2 (200)",
+      "node": "node3",
+      "ok": true,
+      "elapsed_ms": 101.26604500010217,
+      "detail": {
+        "nodeId": "validator-2-1@global",
+        "stake": 200.0
+      },
+      "error": ""
+    },
+    {
+      "workflow": "elpify-chain",
+      "step": "stake node3 (300)",
+      "node": "node3",
+      "ok": true,
+      "elapsed_ms": 122.5274390001232,
+      "detail": {
+        "nodeId": "validator-3-1@global",
+        "stake": 300.0
+      },
+      "error": ""
+    },
+    {
+      "workflow": "elpify-chain",
+      "step": "commit (1@global)",
+      "node": "node3",
+      "ok": true,
+      "elapsed_ms": 127.73630700007743,
+      "detail": {
+        "hash": "c1a93aaab78dcd51"
+      },
+      "error": ""
+    },
+    {
+      "workflow": "elpify-chain",
+      "step": "commit (validator-2-1@gl)",
+      "node": "node3",
+      "ok": true,
+      "elapsed_ms": 134.87938999992366,
+      "detail": {
+        "hash": "37e7bf7869f67034"
+      },
+      "error": ""
+    },
+    {
+      "workflow": "elpify-chain",
+      "step": "commit (validator-3-1@gl)",
+      "node": "node3",
+      "ok": true,
+      "elapsed_ms": 129.5002540000496,
+      "detail": {
+        "hash": "71542b0c9be7c35b"
+      },
+      "error": ""
+    },
+    {
+      "workflow": "elpify-chain",
+      "step": "reveal (1@global)",
+      "node": "node3",
+      "ok": true,
+      "elapsed_ms": 127.82470100000864,
+      "detail": {},
+      "error": ""
+    },
+    {
+      "workflow": "elpify-chain",
+      "step": "reveal (validator-2-1@gl)",
+      "node": "node3",
+      "ok": true,
+      "elapsed_ms": 125.94188700018094,
+      "detail": {},
+      "error": ""
+    },
+    {
+      "workflow": "elpify-chain",
+      "step": "reveal (validator-3-1@gl)",
+      "node": "node3",
+      "ok": true,
+      "elapsed_ms": 118.83959900001173,
+      "detail": {},
+      "error": ""
+    },
+    {
+      "workflow": "elpify-chain",
+      "step": "electionTick",
+      "node": "node3",
+      "ok": true,
+      "elapsed_ms": 144.9140779998288,
+      "detail": {
+        "winners": 3
+      },
+      "error": ""
+    },
+    {
+      "workflow": "elpify-chain",
+      "step": "status query",
+      "node": "node3",
+      "ok": true,
+      "elapsed_ms": 132.92838299980758,
+      "detail": {
+        "validators": 3
+      },
+      "error": ""
+    },
+    {
+      "workflow": "elpify-chain",
+      "step": "executeTrx:fib",
+      "node": "node3",
+      "ok": true,
+      "elapsed_ms": 141.7906229999062,
+      "detail": {
+        "trxId": "trx-fib-24747284",
+        "status": "pending",
+        "consensus_validators": 3
+      },
+      "error": ""
+    },
+    {
+      "workflow": "elpify-chain",
+      "step": "executeTrx:hash",
+      "node": "node3",
+      "ok": true,
+      "elapsed_ms": 154.84485199999654,
+      "detail": {
+        "trxId": "trx-hash-d64599e6",
+        "status": "pending",
+        "consensus_validators": 3
+      },
+      "error": ""
+    },
+    {
+      "workflow": "elpify-chain",
+      "step": "executeTrx:hello",
+      "node": "node3",
+      "ok": true,
+      "elapsed_ms": 143.8953169999877,
+      "detail": {
+        "trxId": "trx-hello-cd58246b",
+        "status": "pending",
+        "consensus_validators": 3
+      },
+      "error": ""
+    },
+    {
+      "workflow": "elpify-chain",
+      "step": "tally:fib",
+      "node": "node3",
+      "ok": true,
+      "elapsed_ms": 151.8939389998195,
+      "detail": {},
+      "error": ""
+    },
+    {
+      "workflow": "elpify-chain",
+      "step": "tally:hash",
+      "node": "node3",
+      "ok": true,
+      "elapsed_ms": 130.30463400014014,
+      "detail": {},
+      "error": ""
+    },
+    {
+      "workflow": "cross",
+      "step": "chain:createFromStore",
+      "node": "node3",
+      "ok": true,
+      "elapsed_ms": 130.43571399998655,
+      "detail": {
+        "chainId": "6@chain.create.id"
+      },
+      "error": ""
+    },
+    {
+      "workflow": "cross",
+      "step": "stores:history",
+      "node": "node3",
+      "ok": true,
+      "elapsed_ms": 100.83861699990848,
+      "detail": {
+        "events": 0
+      },
+      "error": ""
+    },
+    {
+      "workflow": "cross",
+      "step": "storage:uploadStoreEntity(chain proof)",
+      "node": "node3",
+      "ok": true,
+      "elapsed_ms": 86.90450500012048,
+      "detail": {},
+      "error": ""
+    },
+    {
+      "workflow": "cross",
+      "step": "elpify-chain:status(via store context)",
+      "node": "node3",
+      "ok": true,
+      "elapsed_ms": 112.9572580000513,
+      "detail": {
+        "validators": 0
+      },
+      "error": ""
+    },
+    {
+      "workflow": "cross",
+      "step": "invites:create(cross-store)",
+      "node": "node3",
+      "ok": true,
+      "elapsed_ms": 119.91322599988052,
+      "detail": {},
+      "error": ""
+    },
+    {
+      "workflow": "cross",
+      "step": "chain:submitBaseTrx(elpify proof)",
+      "node": "node3",
+      "ok": true,
+      "elapsed_ms": 116.72114500015596,
+      "detail": {
+        "trxId": "9@chain.trx.id"
+      },
+      "error": ""
+    },
+    {
+      "workflow": "throughput",
+      "step": "elpify-chain:status n=20",
+      "node": "node3",
+      "ok": true,
+      "elapsed_ms": 2281.0105989999556,
+      "detail": {
+        "tps": 8.77,
+        "p50_ms": 119.6,
+        "p99_ms": 131.7,
+        "ok_rate": 100.0
+      },
+      "error": ""
+    },
+    {
+      "workflow": "throughput",
+      "step": "chain:submitBaseTrx n=20",
+      "node": "node3",
+      "ok": true,
+      "elapsed_ms": 2337.968395999951,
+      "detail": {
+        "tps": 8.55,
+        "p50_ms": 122.9,
+        "p99_ms": 130.9,
+        "ok_rate": 100.0
+      },
+      "error": ""
+    },
+    {
+      "workflow": "throughput",
+      "step": "stores:list n=20",
+      "node": "node3",
+      "ok": true,
+      "elapsed_ms": 2549.790997999935,
+      "detail": {
+        "tps": 7.84,
+        "p50_ms": 124.1,
+        "p99_ms": 149.9,
+        "ok_rate": 100.0
+      },
+      "error": ""
+    },
+    {
+      "workflow": "throughput",
+      "step": "stores:create n=20",
+      "node": "node3",
+      "ok": true,
+      "elapsed_ms": 2509.8772699998335,
+      "detail": {
+        "tps": 7.97,
+        "p50_ms": 124.9,
+        "p99_ms": 133.0,
+        "ok_rate": 100.0
+      },
+      "error": ""
+    },
+    {
+      "workflow": "throughput",
+      "step": "storage:upload n=20",
+      "node": "node3",
+      "ok": true,
+      "elapsed_ms": 2349.988618999987,
+      "detail": {
+        "tps": 8.51,
+        "p50_ms": 119.9,
+        "p99_ms": 130.2,
+        "ok_rate": 100.0
+      },
+      "error": ""
+    },
+    {
+      "workflow": "throughput",
+      "step": "storage:download n=20",
+      "node": "node3",
+      "ok": true,
+      "elapsed_ms": 2479.93125999983,
+      "detail": {
+        "tps": 8.06,
+        "p50_ms": 124.8,
+        "p99_ms": 131.0,
+        "ok_rate": 100.0
+      },
+      "error": ""
+    },
+    {
+      "workflow": "throughput",
+      "step": "invites:listUserInvites n=20",
+      "node": "node3",
+      "ok": true,
+      "elapsed_ms": 2453.0223899998873,
+      "detail": {
+        "tps": 8.15,
+        "p50_ms": 122.9,
+        "p99_ms": 129.0,
+        "ok_rate": 100.0
+      },
+      "error": ""
+    },
+    {
+      "workflow": "throughput",
+      "step": "invites:listStoreInvites n=20",
+      "node": "node3",
+      "ok": true,
+      "elapsed_ms": 2545.5735539999296,
+      "detail": {
+        "tps": 7.86,
+        "p50_ms": 123.0,
+        "p99_ms": 149.7,
+        "ok_rate": 100.0
+      },
+      "error": ""
+    },
+    {
+      "workflow": "throughput",
+      "step": "elpify-chain:executeTrx(MASM) n=5",
+      "node": "node3",
+      "ok": true,
+      "elapsed_ms": 699.5815880000009,
+      "detail": {
+        "tps": 7.147,
+        "p50_ms": 143.9,
+        "p99_ms": 151.9
+      },
+      "error": ""
+    },
+    {
+      "workflow": "throughput",
+      "step": "mixed-workload n=30",
+      "node": "node3",
+      "ok": true,
+      "elapsed_ms": 4149.8622280000745,
+      "detail": {
+        "tps": 7.23,
+        "mean_ms": 138.2,
+        "p50_ms": 131.2,
+        "p99_ms": 181.4,
+        "read_write_ratio": "5:3",
+        "errors": 0
+      },
+      "error": ""
+    },
+    {
+      "workflow": "throughput",
+      "step": "concurrent-burst n=10 threads",
+      "node": "node3",
+      "ok": true,
+      "elapsed_ms": 1001.1243599999489,
+      "detail": {
+        "tps": 9.99,
+        "p50_ms": 916.0,
+        "p99_ms": 986.7,
+        "errors": 0,
+        "effective_concurrency": 10
+      },
+      "error": ""
+    },
+    {
+      "workflow": "federation",
+      "step": "chain:create on node1",
+      "node": "node1",
+      "ok": true,
+      "elapsed_ms": 122.3853430001327,
+      "detail": {
+        "chainId": "61@chain.create.id"
+      },
+      "error": ""
+    },
+    {
+      "workflow": "federation",
+      "step": "chain:submitBaseTrx on node1",
+      "node": "node1",
+      "ok": true,
+      "elapsed_ms": 128.89606400017328,
+      "detail": {},
+      "error": ""
+    },
+    {
+      "workflow": "federation",
+      "step": "elpify-chain:status on node2",
+      "node": "node2",
+      "ok": true,
+      "elapsed_ms": 112.91644999982964,
+      "detail": {
+        "validators": 0
+      },
+      "error": ""
+    },
+    {
+      "workflow": "federation",
+      "step": "elpify-chain:status on node3",
+      "node": "node3",
+      "ok": true,
+      "elapsed_ms": 122.98600400004034,
+      "detail": {
+        "validators": 0
+      },
+      "error": ""
+    },
+    {
+      "workflow": "load",
+      "step": "wasm:status c=1 (n=20)",
+      "node": "node1",
+      "ok": true,
+      "elapsed_ms": 2540.97145500009,
+      "detail": {
+        "tps": 7.87,
+        "p99_ms": 134.1,
+        "ok_rate": 100.0,
+        "rss_peak_mb": "\u2014",
+        "cpu_pct_core": "\u2014"
+      },
+      "error": ""
+    },
+    {
+      "workflow": "load",
+      "step": "wasm:status c=4 (n=80)",
+      "node": "node1",
+      "ok": true,
+      "elapsed_ms": 6241.285297999866,
+      "detail": {
+        "tps": 12.82,
+        "p99_ms": 510.4,
+        "ok_rate": 100.0,
+        "rss_peak_mb": "\u2014",
+        "cpu_pct_core": "\u2014"
+      },
+      "error": ""
+    },
+    {
+      "workflow": "load",
+      "step": "wasm:status c=8 (n=160)",
+      "node": "node1",
+      "ok": true,
+      "elapsed_ms": 12376.798550999865,
+      "detail": {
+        "tps": 12.93,
+        "p99_ms": 951.7,
+        "ok_rate": 100.0,
+        "rss_peak_mb": "\u2014",
+        "cpu_pct_core": "\u2014"
+      },
+      "error": ""
+    },
+    {
+      "workflow": "load",
+      "step": "wasm:status c=16 (n=320)",
+      "node": "node1",
+      "ok": true,
+      "elapsed_ms": 27495.830380999905,
+      "detail": {
+        "tps": 11.64,
+        "p99_ms": 1896.0,
+        "ok_rate": 100.0,
+        "rss_peak_mb": "\u2014",
+        "cpu_pct_core": "\u2014"
+      },
+      "error": ""
+    },
+    {
+      "workflow": "load",
+      "step": "wasm:status c=32 (n=640)",
+      "node": "node1",
+      "ok": true,
+      "elapsed_ms": 71345.97185799999,
+      "detail": {
+        "tps": 8.97,
+        "p99_ms": 4945.0,
+        "ok_rate": 100.0,
+        "rss_peak_mb": "\u2014",
+        "cpu_pct_core": "\u2014"
+      },
+      "error": ""
+    },
+    {
+      "workflow": "load",
+      "step": "masm:executeTrx c=1 (n=5)",
+      "node": "node1",
+      "ok": true,
+      "elapsed_ms": 716.6517289999774,
+      "detail": {
+        "tps": 6.98,
+        "p99_ms": 149.0,
+        "ok_rate": 100.0,
+        "rss_peak_mb": "\u2014",
+        "cpu_pct_core": "\u2014"
+      },
+      "error": ""
+    },
+    {
+      "workflow": "load",
+      "step": "masm:executeTrx c=2 (n=10)",
+      "node": "node1",
+      "ok": true,
+      "elapsed_ms": 994.9813670000367,
+      "detail": {
+        "tps": 10.05,
+        "p99_ms": 284.4,
+        "ok_rate": 100.0,
+        "rss_peak_mb": "\u2014",
+        "cpu_pct_core": "\u2014"
+      },
+      "error": ""
+    },
+    {
+      "workflow": "load",
+      "step": "masm:executeTrx c=4 (n=20)",
+      "node": "node1",
+      "ok": true,
+      "elapsed_ms": 1942.0300169999791,
+      "detail": {
+        "tps": 10.3,
+        "p99_ms": 519.2,
+        "ok_rate": 100.0,
+        "rss_peak_mb": "\u2014",
+        "cpu_pct_core": "\u2014"
+      },
+      "error": ""
+    },
+    {
+      "workflow": "load",
+      "step": "masm:executeTrx c=8 (n=40)",
+      "node": "node1",
+      "ok": true,
+      "elapsed_ms": 3490.4718730001605,
+      "detail": {
+        "tps": 11.46,
+        "p99_ms": 1131.7,
+        "ok_rate": 100.0,
+        "rss_peak_mb": "\u2014",
+        "cpu_pct_core": "\u2014"
+      },
+      "error": ""
+    }
+  ],
+  "tps_benchmarks": [
+    {
+      "label": "elpify-chain:status",
+      "namespace": "elpify-chain",
+      "action": "status",
+      "node": "node1",
+      "n": 20,
+      "duration_s": 2.4080358329999854,
+      "tps": 8.305524247570498,
+      "mean_ms": 120.31469364999339,
+      "p50_ms": 123.08050799992998,
+      "p95_ms": 132.1179280000706,
+      "p99_ms": 132.1179280000706,
+      "min_ms": 104.01442200009114,
+      "max_ms": 132.1179280000706,
+      "stddev_ms": 8.702125433929206,
+      "errors": 0,
+      "ok_rate": 100.0
+    },
+    {
+      "label": "chain:submitBaseTrx",
+      "namespace": "chain",
+      "action": "submitBaseTrx",
+      "node": "node1",
+      "n": 20,
+      "duration_s": 2.4057263639999746,
+      "tps": 8.313497453112756,
+      "mean_ms": 120.18152715000952,
+      "p50_ms": 124.04298100000233,
+      "p95_ms": 132.87313099999665,
+      "p99_ms": 132.87313099999665,
+      "min_ms": 97.77064900004007,
+      "max_ms": 132.87313099999665,
+      "stddev_ms": 10.851169681852559,
+      "errors": 0,
+      "ok_rate": 100.0
+    },
+    {
+      "label": "stores:list",
+      "namespace": "stores",
+      "action": "list",
+      "node": "node1",
+      "n": 20,
+      "duration_s": 2.6520454069998323,
+      "tps": 7.541349008283125,
+      "mean_ms": 132.47487020006474,
+      "p50_ms": 129.8893370001224,
+      "p95_ms": 153.56418800001848,
+      "p99_ms": 153.56418800001848,
+      "min_ms": 118.27389600011884,
+      "max_ms": 153.56418800001848,
+      "stddev_ms": 9.827177939146901,
+      "errors": 0,
+      "ok_rate": 100.0
+    },
+    {
+      "label": "stores:create",
+      "namespace": "stores",
+      "action": "create",
+      "node": "node1",
+      "n": 20,
+      "duration_s": 2.5549336599999606,
+      "tps": 7.8279919017546264,
+      "mean_ms": 127.62362575001589,
+      "p50_ms": 126.92543100001785,
+      "p95_ms": 146.93289199999526,
+      "p99_ms": 146.93289199999526,
+      "min_ms": 115.96159900000202,
+      "max_ms": 146.93289199999526,
+      "stddev_ms": 8.058398830404075,
+      "errors": 0,
+      "ok_rate": 100.0
+    },
+    {
+      "label": "storage:upload",
+      "namespace": "storage",
+      "action": "upload",
+      "node": "node1",
+      "n": 20,
+      "duration_s": 2.51517696000019,
+      "tps": 7.951726784265108,
+      "mean_ms": 125.67594599998984,
+      "p50_ms": 126.02653999988433,
+      "p95_ms": 139.5107350001581,
+      "p99_ms": 139.5107350001581,
+      "min_ms": 103.03570500013848,
+      "max_ms": 139.5107350001581,
+      "stddev_ms": 8.387639731377657,
+      "errors": 0,
+      "ok_rate": 100.0
+    },
+    {
+      "label": "storage:download",
+      "namespace": "storage",
+      "action": "download",
+      "node": "node1",
+      "n": 20,
+      "duration_s": 2.468657224000026,
+      "tps": 8.101570281026504,
+      "mean_ms": 123.3442603000185,
+      "p50_ms": 125.01089200009119,
+      "p95_ms": 137.743078000085,
+      "p99_ms": 137.743078000085,
+      "min_ms": 109.82918700005939,
+      "max_ms": 137.743078000085,
+      "stddev_ms": 6.656444589180475,
+      "errors": 0,
+      "ok_rate": 100.0
+    },
+    {
+      "label": "invites:listUserInvites",
+      "namespace": "invites",
+      "action": "listUserInvites",
+      "node": "node1",
+      "n": 20,
+      "duration_s": 2.4741259129998525,
+      "tps": 8.083662959477355,
+      "mean_ms": 123.61790435001012,
+      "p50_ms": 124.6315969999614,
+      "p95_ms": 130.13885500004108,
+      "p99_ms": 130.13885500004108,
+      "min_ms": 105.83236599995871,
+      "max_ms": 130.13885500004108,
+      "stddev_ms": 5.824346622933898,
+      "errors": 0,
+      "ok_rate": 100.0
+    },
+    {
+      "label": "invites:listStoreInvites",
+      "namespace": "invites",
+      "action": "listStoreInvites",
+      "node": "node1",
+      "n": 20,
+      "duration_s": 2.468005119000054,
+      "tps": 8.103710906443855,
+      "mean_ms": 123.31865785000673,
+      "p50_ms": 123.92688599993562,
+      "p95_ms": 136.6779789998418,
+      "p99_ms": 136.6779789998418,
+      "min_ms": 103.92230999991625,
+      "max_ms": 136.6779789998418,
+      "stddev_ms": 9.605320144977084,
+      "errors": 0,
+      "ok_rate": 100.0
+    },
+    {
+      "label": "elpify-chain:executeTrx(MASM)",
+      "namespace": "elpify-chain",
+      "action": "executeTrx",
+      "node": "node1",
+      "n": 5,
+      "duration_s": 0.6535901159998048,
+      "tps": 7.650054487668375,
+      "mean_ms": 130.63054440008273,
+      "p50_ms": 126.7954390000341,
+      "p95_ms": 145.0506779999614,
+      "p99_ms": 145.0506779999614,
+      "min_ms": 123.46817800016652,
+      "max_ms": 145.0506779999614,
+      "stddev_ms": 8.710455795089171,
+      "errors": 0,
+      "ok_rate": 100.0
+    },
+    {
+      "label": "elpify-chain:status",
+      "namespace": "elpify-chain",
+      "action": "status",
+      "node": "node2",
+      "n": 20,
+      "duration_s": 2.3197356329999366,
+      "tps": 8.621672105857826,
+      "mean_ms": 115.90460375002749,
+      "p50_ms": 114.97917999986385,
+      "p95_ms": 132.76483499998903,
+      "p99_ms": 132.76483499998903,
+      "min_ms": 93.89082699999562,
+      "max_ms": 132.76483499998903,
+      "stddev_ms": 10.863161962733908,
+      "errors": 0,
+      "ok_rate": 100.0
+    },
+    {
+      "label": "chain:submitBaseTrx",
+      "namespace": "chain",
+      "action": "submitBaseTrx",
+      "node": "node2",
+      "n": 20,
+      "duration_s": 2.3468838399999186,
+      "tps": 8.521938606045664,
+      "mean_ms": 117.2619236999708,
+      "p50_ms": 122.90548999999373,
+      "p95_ms": 135.10171699999773,
+      "p99_ms": 135.10171699999773,
+      "min_ms": 88.89405800005079,
+      "max_ms": 135.10171699999773,
+      "stddev_ms": 12.79761699934016,
+      "errors": 0,
+      "ok_rate": 100.0
+    },
+    {
+      "label": "stores:list",
+      "namespace": "stores",
+      "action": "list",
+      "node": "node2",
+      "n": 20,
+      "duration_s": 2.497364566999977,
+      "tps": 8.008442285230911,
+      "mean_ms": 124.7887713500063,
+      "p50_ms": 125.73753700007728,
+      "p95_ms": 130.9982929999478,
+      "p99_ms": 130.9982929999478,
+      "min_ms": 116.66809500002273,
+      "max_ms": 130.9982929999478,
+      "stddev_ms": 3.9870242690962217,
+      "errors": 0,
+      "ok_rate": 100.0
+    },
+    {
+      "label": "stores:create",
+      "namespace": "stores",
+      "action": "create",
+      "node": "node2",
+      "n": 20,
+      "duration_s": 2.4609822069999154,
+      "tps": 8.126836489558045,
+      "mean_ms": 122.96903900002008,
+      "p50_ms": 125.12311499995121,
+      "p95_ms": 148.6854830000084,
+      "p99_ms": 148.6854830000084,
+      "min_ms": 102.92292400004044,
+      "max_ms": 148.6854830000084,
+      "stddev_ms": 9.453400977997575,
+      "errors": 0,
+      "ok_rate": 100.0
+    },
+    {
+      "label": "storage:upload",
+      "namespace": "storage",
+      "action": "upload",
+      "node": "node2",
+      "n": 20,
+      "duration_s": 2.41495000399982,
+      "tps": 8.281744949947,
+      "mean_ms": 120.66767310001296,
+      "p50_ms": 122.11227700004201,
+      "p95_ms": 134.93291300005694,
+      "p99_ms": 134.93291300005694,
+      "min_ms": 104.36918300001707,
+      "max_ms": 134.93291300005694,
+      "stddev_ms": 9.288153257459722,
+      "errors": 0,
+      "ok_rate": 100.0
+    },
+    {
+      "label": "storage:download",
+      "namespace": "storage",
+      "action": "download",
+      "node": "node2",
+      "n": 20,
+      "duration_s": 2.5061258959999577,
+      "tps": 7.980445049437507,
+      "mean_ms": 125.21340955000824,
+      "p50_ms": 125.94669600002817,
+      "p95_ms": 147.82723700000133,
+      "p99_ms": 147.82723700000133,
+      "min_ms": 100.97922299996753,
+      "max_ms": 147.82723700000133,
+      "stddev_ms": 9.789475968666242,
+      "errors": 0,
+      "ok_rate": 100.0
+    },
+    {
+      "label": "invites:listUserInvites",
+      "namespace": "invites",
+      "action": "listUserInvites",
+      "node": "node2",
+      "n": 20,
+      "duration_s": 2.4899825540001075,
+      "tps": 8.032184790961848,
+      "mean_ms": 124.42366344998845,
+      "p50_ms": 125.93952199995329,
+      "p95_ms": 152.1594499999992,
+      "p99_ms": 152.1594499999992,
+      "min_ms": 96.75256299988177,
+      "max_ms": 152.1594499999992,
+      "stddev_ms": 11.164316737627999,
+      "errors": 0,
+      "ok_rate": 100.0
+    },
+    {
+      "label": "invites:listStoreInvites",
+      "namespace": "invites",
+      "action": "listStoreInvites",
+      "node": "node2",
+      "n": 20,
+      "duration_s": 2.455708518999927,
+      "tps": 8.144289049477615,
+      "mean_ms": 122.69775145000494,
+      "p50_ms": 122.48300200008089,
+      "p95_ms": 146.3696959999652,
+      "p99_ms": 146.3696959999652,
+      "min_ms": 98.8541819999682,
+      "max_ms": 146.3696959999652,
+      "stddev_ms": 10.282991355109651,
+      "errors": 0,
+      "ok_rate": 100.0
+    },
+    {
+      "label": "elpify-chain:executeTrx(MASM)",
+      "namespace": "elpify-chain",
+      "action": "executeTrx",
+      "node": "node2",
+      "n": 5,
+      "duration_s": 0.6898374889999559,
+      "tps": 7.248083903425433,
+      "mean_ms": 137.87992900001882,
+      "p50_ms": 144.68032700006006,
+      "p95_ms": 149.8618359999,
+      "p99_ms": 149.8618359999,
+      "min_ms": 118.01704399999835,
+      "max_ms": 149.8618359999,
+      "stddev_ms": 14.367598302032953,
+      "errors": 0,
+      "ok_rate": 100.0
+    },
+    {
+      "label": "elpify-chain:status",
+      "namespace": "elpify-chain",
+      "action": "status",
+      "node": "node3",
+      "n": 20,
+      "duration_s": 2.2810105989999556,
+      "tps": 8.768043431612476,
+      "mean_ms": 113.9310881500137,
+      "p50_ms": 119.62180799991984,
+      "p95_ms": 131.70520300013777,
+      "p99_ms": 131.70520300013777,
+      "min_ms": 95.16363200009437,
+      "max_ms": 131.70520300013777,
+      "stddev_ms": 12.163210852411849,
+      "errors": 0,
+      "ok_rate": 100.0
+    },
+    {
+      "label": "chain:submitBaseTrx",
+      "namespace": "chain",
+      "action": "submitBaseTrx",
+      "node": "node3",
+      "n": 20,
+      "duration_s": 2.337968395999951,
+      "tps": 8.554435566459393,
+      "mean_ms": 116.81450904998201,
+      "p50_ms": 122.93689699981769,
+      "p95_ms": 130.88420700000825,
+      "p99_ms": 130.88420700000825,
+      "min_ms": 93.99236900003416,
+      "max_ms": 130.88420700000825,
+      "stddev_ms": 11.473084085578432,
+      "errors": 0,
+      "ok_rate": 100.0
+    },
+    {
+      "label": "stores:list",
+      "namespace": "stores",
+      "action": "list",
+      "node": "node3",
+      "n": 20,
+      "duration_s": 2.549790997999935,
+      "tps": 7.843780143426685,
+      "mean_ms": 127.36971505001975,
+      "p50_ms": 124.07790299994303,
+      "p95_ms": 149.9039120001271,
+      "p99_ms": 149.9039120001271,
+      "min_ms": 115.91069200017046,
+      "max_ms": 149.9039120001271,
+      "stddev_ms": 9.926289658910925,
+      "errors": 0,
+      "ok_rate": 100.0
+    },
+    {
+      "label": "stores:create",
+      "namespace": "stores",
+      "action": "create",
+      "node": "node3",
+      "n": 20,
+      "duration_s": 2.5098772699998335,
+      "tps": 7.96851712195526,
+      "mean_ms": 125.40365890006342,
+      "p50_ms": 124.94203699998252,
+      "p95_ms": 133.00921800009746,
+      "p99_ms": 133.00921800009746,
+      "min_ms": 119.90906899995935,
+      "max_ms": 133.00921800009746,
+      "stddev_ms": 4.0867369669947555,
+      "errors": 0,
+      "ok_rate": 100.0
+    },
+    {
+      "label": "storage:upload",
+      "namespace": "storage",
+      "action": "upload",
+      "node": "node3",
+      "n": 20,
+      "duration_s": 2.349988618999987,
+      "tps": 8.5106795149122,
+      "mean_ms": 117.4115169500169,
+      "p50_ms": 119.90388900017024,
+      "p95_ms": 130.17213600005562,
+      "p99_ms": 130.17213600005562,
+      "min_ms": 89.93413500002134,
+      "max_ms": 130.17213600005562,
+      "stddev_ms": 10.142771034001807,
+      "errors": 0,
+      "ok_rate": 100.0
+    },
+    {
+      "label": "storage:download",
+      "namespace": "storage",
+      "action": "download",
+      "node": "node3",
+      "n": 20,
+      "duration_s": 2.47993125999983,
+      "tps": 8.064739665405632,
+      "mean_ms": 123.91232959997751,
+      "p50_ms": 124.78293899994242,
+      "p95_ms": 130.9734409999237,
+      "p99_ms": 130.9734409999237,
+      "min_ms": 110.47789000008379,
+      "max_ms": 130.9734409999237,
+      "stddev_ms": 5.55776983126057,
+      "errors": 0,
+      "ok_rate": 100.0
+    },
+    {
+      "label": "invites:listUserInvites",
+      "namespace": "invites",
+      "action": "listUserInvites",
+      "node": "node3",
+      "n": 20,
+      "duration_s": 2.4530223899998873,
+      "tps": 8.153207276677536,
+      "mean_ms": 122.55462115002729,
+      "p50_ms": 122.9410910000297,
+      "p95_ms": 129.02656799997203,
+      "p99_ms": 129.02656799997203,
+      "min_ms": 114.92095600010543,
+      "max_ms": 129.02656799997203,
+      "stddev_ms": 3.5277267919105513,
+      "errors": 0,
+      "ok_rate": 100.0
+    },
+    {
+      "label": "invites:listStoreInvites",
+      "namespace": "invites",
+      "action": "listStoreInvites",
+      "node": "node3",
+      "n": 20,
+      "duration_s": 2.5455735539999296,
+      "tps": 7.8567755265108925,
+      "mean_ms": 127.19600060000857,
+      "p50_ms": 123.0391960000361,
+      "p95_ms": 149.7066280001036,
+      "p99_ms": 149.7066280001036,
+      "min_ms": 115.52792600014072,
+      "max_ms": 149.7066280001036,
+      "stddev_ms": 9.751678267833261,
+      "errors": 0,
+      "ok_rate": 100.0
+    },
+    {
+      "label": "elpify-chain:executeTrx(MASM)",
+      "namespace": "elpify-chain",
+      "action": "executeTrx",
+      "node": "node3",
+      "n": 5,
+      "duration_s": 0.6995815880000009,
+      "tps": 7.147129206607984,
+      "mean_ms": 139.82486780000727,
+      "p50_ms": 143.9211389999855,
+      "p95_ms": 151.90419500004282,
+      "p99_ms": 151.90419500004282,
+      "min_ms": 120.82417900001019,
+      "max_ms": 151.90419500004282,
+      "stddev_ms": 12.698888213742839,
+      "errors": 0,
+      "ok_rate": 100.0
+    }
+  ],
+  "load_benchmarks": [
+    {
+      "label": "wasm:status c=1",
+      "kind": "wasm",
+      "node": "node1",
+      "concurrency": 1,
+      "total_reqs": 20,
+      "duration_s": 2.54097145500009,
+      "tps": 7.87100538286027,
+      "mean_ms": 126.78355294997345,
+      "p50_ms": 128.2189199998811,
+      "p95_ms": 134.05181499979335,
+      "p99_ms": 134.05181499979335,
+      "min_ms": 113.85015299993029,
+      "max_ms": 134.05181499979335,
+      "errors": 0,
+      "ok_rate": 100.0,
+      "resources": {}
+    },
+    {
+      "label": "wasm:status c=4",
+      "kind": "wasm",
+      "node": "node1",
+      "concurrency": 4,
+      "total_reqs": 80,
+      "duration_s": 6.241285297999866,
+      "tps": 12.817872630439993,
+      "mean_ms": 301.96654337500775,
+      "p50_ms": 285.78368299986323,
+      "p95_ms": 472.10281000002396,
+      "p99_ms": 510.4260499999782,
+      "min_ms": 127.75748400008524,
+      "max_ms": 510.4260499999782,
+      "errors": 0,
+      "ok_rate": 100.0,
+      "resources": {}
+    },
+    {
+      "label": "wasm:status c=8",
+      "kind": "wasm",
+      "node": "node1",
+      "concurrency": 8,
+      "total_reqs": 160,
+      "duration_s": 12.376798550999865,
+      "tps": 12.927414091835107,
+      "mean_ms": 605.5934670437551,
+      "p50_ms": 624.1422559999137,
+      "p95_ms": 826.8825109998943,
+      "p99_ms": 951.6709659999378,
+      "min_ms": 185.00164000010955,
+      "max_ms": 960.4179640000439,
+      "errors": 0,
+      "ok_rate": 100.0,
+      "resources": {}
+    },
+    {
+      "label": "wasm:status c=16",
+      "kind": "wasm",
+      "node": "node1",
+      "concurrency": 16,
+      "total_reqs": 320,
+      "duration_s": 27.495830380999905,
+      "tps": 11.63812823856833,
+      "mean_ms": 1351.679602809373,
+      "p50_ms": 1356.3935229999515,
+      "p95_ms": 1785.8757550000064,
+      "p99_ms": 1895.9872399998403,
+      "min_ms": 220.02625699997225,
+      "max_ms": 1945.225027999868,
+      "errors": 0,
+      "ok_rate": 100.0,
+      "resources": {}
+    },
+    {
+      "label": "wasm:status c=32",
+      "kind": "wasm",
+      "node": "node1",
+      "concurrency": 32,
+      "total_reqs": 640,
+      "duration_s": 71.34597185799998,
+      "tps": 8.970373285737745,
+      "mean_ms": 3499.5860552374975,
+      "p50_ms": 3486.494599000025,
+      "p95_ms": 4562.585426999931,
+      "p99_ms": 4944.976720000113,
+      "min_ms": 545.2382930000113,
+      "max_ms": 5277.331811000067,
+      "errors": 0,
+      "ok_rate": 100.0,
+      "resources": {}
+    },
+    {
+      "label": "masm:executeTrx c=1",
+      "kind": "masm",
+      "node": "node1",
+      "concurrency": 1,
+      "total_reqs": 5,
+      "duration_s": 0.7166517289999774,
+      "tps": 6.976889607141599,
+      "mean_ms": 142.70605800006706,
+      "p50_ms": 147.8876119999768,
+      "p95_ms": 149.02446100018096,
+      "p99_ms": 149.02446100018096,
+      "min_ms": 123.95773800017196,
+      "max_ms": 149.02446100018096,
+      "errors": 0,
+      "ok_rate": 100.0,
+      "resources": {}
+    },
+    {
+      "label": "masm:executeTrx c=2",
+      "kind": "masm",
+      "node": "node1",
+      "concurrency": 2,
+      "total_reqs": 10,
+      "duration_s": 0.9949813670000367,
+      "tps": 10.050439467174094,
+      "mean_ms": 193.02444049999394,
+      "p50_ms": 164.22545099999297,
+      "p95_ms": 284.3681370000013,
+      "p99_ms": 284.3681370000013,
+      "min_ms": 149.73679100012305,
+      "max_ms": 284.3681370000013,
+      "errors": 0,
+      "ok_rate": 100.0,
+      "resources": {}
+    },
+    {
+      "label": "masm:executeTrx c=4",
+      "kind": "masm",
+      "node": "node1",
+      "concurrency": 4,
+      "total_reqs": 20,
+      "duration_s": 1.9420300169999791,
+      "tps": 10.298501992721885,
+      "mean_ms": 361.3823352500276,
+      "p50_ms": 377.01424400006545,
+      "p95_ms": 519.162827999935,
+      "p99_ms": 519.162827999935,
+      "min_ms": 150.9545670000989,
+      "max_ms": 519.162827999935,
+      "errors": 0,
+      "ok_rate": 100.0,
+      "resources": {}
+    },
+    {
+      "label": "masm:executeTrx c=8",
+      "kind": "masm",
+      "node": "node1",
+      "concurrency": 8,
+      "total_reqs": 40,
+      "duration_s": 3.4904718730001605,
+      "tps": 11.459768608769465,
+      "mean_ms": 666.2396167500219,
+      "p50_ms": 582.0411280001281,
+      "p95_ms": 1019.106388000182,
+      "p99_ms": 1131.712797000091,
+      "min_ms": 298.63370099997155,
+      "max_ms": 1131.712797000091,
+      "errors": 0,
+      "ok_rate": 100.0,
+      "resources": {}
+    }
+  ],
+  "summary": {
+    "total": 154,
+    "passed": 154,
+    "failed": 0,
+    "best_tps": 8.768043431612476,
+    "worst_tps": 7.147129206607984,
+    "peak_load_tps": 12.927414091835107
+  }
+}
