@@ -1,29 +1,5 @@
 use crate::drivers::vmm::prelude::*;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub(crate) enum VmRuntimeType {
-    Docker,
-    Fire,
-    Elpian,
-    Elpify,
-    Javascript,
-    Wasm,
-}
-
-impl VmRuntimeType {
-    pub(crate) fn from_str(v: &str) -> Option<Self> {
-        match v.trim().to_lowercase().as_str() {
-            "docker" => Some(Self::Docker),
-            "fire" => Some(Self::Fire),
-            "elpian" => Some(Self::Elpian),
-            "elpify" => Some(Self::Elpify),
-            "javascript" => Some(Self::Javascript),
-            "wasm" => Some(Self::Wasm),
-            _ => None,
-        }
-    }
-}
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum GatewayProtocol {
     Http,
@@ -46,7 +22,9 @@ impl GatewayProtocol {
 pub(crate) struct VmGatewayEndpoint {
     pub(crate) machine_id: String,
     pub(crate) vm_id: String,
-    pub(crate) runtime: VmRuntimeType,
+    /// Canonical runtime key of the VM, validated against the VM plugin
+    /// registry at registration time (no VM type is hardcoded here).
+    pub(crate) runtime: String,
     pub(crate) host: String,
     pub(crate) http_port: Option<u16>,
     pub(crate) websocket_port: Option<u16>,

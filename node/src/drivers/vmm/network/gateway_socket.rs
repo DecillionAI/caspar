@@ -28,7 +28,7 @@ pub(crate) fn forward_raw_socket_to_vm(
     Ok(json!({
         "ok": true,
         "protocol": "raw_socket",
-        "runtime": format!("{:?}", endpoint.runtime).to_lowercase(),
+        "runtime": endpoint.runtime.clone(),
         "machineId": endpoint.machine_id,
         "vmId": endpoint.vm_id,
         "bodyBase64": BASE64_STANDARD.encode(buf),
@@ -60,7 +60,7 @@ pub(crate) fn forward_websocket_to_vm(
     Ok(json!({
         "ok": true,
         "protocol": "websocket",
-        "runtime": format!("{:?}", endpoint.runtime).to_lowercase(),
+        "runtime": endpoint.runtime.clone(),
         "machineId": endpoint.machine_id,
         "vmId": endpoint.vm_id,
         "bodyBase64": BASE64_STANDARD.encode(buf),

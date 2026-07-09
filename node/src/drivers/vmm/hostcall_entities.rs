@@ -15,7 +15,7 @@ use crate::models::state::IState;
 use crate::core::actor::model::base::info::Info as BaseInfo;
 use crate::shell::api::model::{Creature, Program, Store};
 
-use super::driver::{check_bool, check_i64, check_str, normalize_runtime, is_managed_runtime, Vmm};
+use super::driver::{check_bool, check_i64, check_str, normalize_runtime, Vmm};
 
 fn number_from_input(input: &Value, key: &str, def: i64) -> i64 {
     check_i64(input, key, def)
@@ -1114,42 +1114,26 @@ impl Vmm {
     }
 
     /// `wm.handleTerminateVM` — terminates a VM by runtime.
+    ///
+    /// The typed terminate packet is built by the runtime's own plugin
+    /// (`VmPlugin::build_terminate_request`), so per-runtime identity fields
+    /// (e.g. container names) never leak into the node.
     pub(crate) fn handle_terminate_vm(&self, input: &Value, req_id: i64) -> (String, i64) {
         let target_runtime = normalize_runtime(&check_str(input, "runtime", ""));
         if target_runtime.is_empty() {
             return (r#"{"error":1}"#.into(), req_id);
         }
-        let target_machine_id = check_str(input, "machineId", "");
-        if target_runtime == "docker" {
-            let vm_id = check_str(input, "vmId", "");
-            if !vm_id.is_empty() {
-                let mut entity_id = check_str(input, "entityId", "");
-                if entity_id.is_empty() {
-                    entity_id = check_str(input, "imageName", "main");
-                }
-                let container_name = check_str(input, "containerName", "main");
-                self.send_to_engine(json!({
-                    "type": "terminateVm",
-                    "runtime": "docker",
-                    "machineId": target_machine_id,
-                    "entityId": entity_id,
-                    "containerName": container_name,
-                    "vmId": vm_id,
-                }));
-                return ("{}".into(), req_id);
+        let plugin = match caspar_vm_sdk::registry::get(&target_runtime) {
+            Some(p) => p,
+            None => return ("unsupported runtime".into(), req_id),
+        };
+        match plugin.build_terminate_request(input) {
+            Ok(packet) => {
+                self.send_to_engine(packet);
+                ("{}".into(), req_id)
             }
-            return ("unsupported runtime".into(), req_id);
+            Err(_) => ("unsupported runtime".into(), req_id),
         }
-        if is_managed_runtime(&target_runtime) {
-            self.send_to_engine(json!({
-                "type": "terminateVm",
-                "runtime": target_runtime,
-                "machineId": target_machine_id,
-                "vmId": check_vm_id(input),
-            }));
-            return ("{}".into(), req_id);
-        }
-        ("unsupported runtime".into(), req_id)
     }
 
     pub(crate) fn handle_check_token_validity(&self, input: &Value, req_id: i64) -> (String, i64) {
@@ -1358,15 +1342,6 @@ impl Vmm {
         );
         let id = slot.lock().unwrap().clone();
         id
-    }
-}
-
-fn check_vm_id(input: &Value) -> String {
-    let v = check_str(input, "vmId", "");
-    if v.is_empty() {
-        "main".to_string()
-    } else {
-        v
     }
 }
 

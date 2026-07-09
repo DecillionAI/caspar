@@ -1,0 +1,16 @@
+{
+  "key": "wasm",
+  "name": "WasmEdge WebAssembly VM",
+  "version": "0.1.0",
+  "description": "Executes WebAssembly creature modules in-process on WasmEdge with the Caspar host-call ABI, per-VM transactions and cost metering.",
+  "aliases": [],
+  "artifactExtensions": [".wasm"],
+  "inProcess": true,
+  "defaultRuntime": true,
+  "entityFileName": "module.wasm",
+  "acceptsExtraFiles": true,
+  "buildOnDeploy": false,
+  "setEntityLinksOnDeploy": true,
+  "supportsChainTrxs": true,
+  "restorable": false
+}

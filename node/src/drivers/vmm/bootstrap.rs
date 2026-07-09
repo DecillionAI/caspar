@@ -1,7 +1,8 @@
 //! Embedded bootstrap helpers for the VMM runtime.
 
-use crate::drivers::vmm::host::vm_host_functions::{with_docker_controller, with_fire_controller};
 use crate::drivers::vmm::prelude::*;
+
+use caspar_vm_sdk::registry as vm_registry;
 
 /// Start bootstrap services for the in-process VMM runtime.
 ///
@@ -9,15 +10,19 @@ use crate::drivers::vmm::prelude::*;
 /// so startup is a no-op.
 pub fn run() {}
 
+/// Restart the previously running VMs recorded in a node snapshot.
+///
+/// Each entry is handed to its runtime's plugin: restorable runtimes
+/// (externally supervised VMs) relaunch the instance, in-process runtimes
+/// acknowledge and skip — the plugin decides, the node does not.
 pub fn restore_previously_running_vms(snapshot: &JsonValue) -> Result<JsonValue, String> {
     let runtimes = snapshot["vms"].as_array().cloned().unwrap_or_default();
     let mut restored = 0;
     for vm in runtimes {
-        let runtime = vm["runtime"].as_str().unwrap_or("wasm");
-        if runtime == "docker" {
-            let _ = with_docker_controller(|controller| controller.run_vm(&vm));
-        } else if runtime == "fire" {
-            let _ = with_fire_controller(|controller| controller.run_vm(&vm));
+        let runtime_hint = vm["runtime"].as_str().unwrap_or("");
+        let plugin = vm_registry::get(runtime_hint).or_else(vm_registry::default_plugin);
+        if let Some(plugin) = plugin {
+            let _ = plugin.restore(&vm);
         }
         restored += 1;
     }

@@ -1,0 +1,16 @@
+{
+  "key": "javascript",
+  "name": "JavaScript VM",
+  "version": "0.1.0",
+  "description": "Runs JavaScript program entities; execution is layered on the managed wasm runtime and sources can be transpiled to MASM for provable execution.",
+  "aliases": ["quickjs", "js"],
+  "artifactExtensions": [],
+  "inProcess": true,
+  "defaultRuntime": false,
+  "entityFileName": "module.js",
+  "acceptsExtraFiles": false,
+  "buildOnDeploy": false,
+  "setEntityLinksOnDeploy": false,
+  "supportsChainTrxs": false,
+  "restorable": false
+}

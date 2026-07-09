@@ -13,6 +13,9 @@
 #   --skip-node      Skip cargo build for caspar-node/keygen (use existing binary)
 #   --skip-ctl       Skip cargo build for casparctl
 #   --wasmedge-ver V Override WasmEdge version to install (default: 0.14.0)
+#   --disable-vm K   Disable a VM plugin for this node build (repeatable, or
+#                    comma-separated keys). Equivalent to `casparctl vms disable`.
+#   --enable-vm K    Re-enable a previously disabled VM plugin (repeatable).
 #   --help           Show this help
 #
 # After this script succeeds, run:
@@ -50,18 +53,23 @@ _arch() {
 # ─── Args ────────────────────────────────────────────────────────────────────
 SKIP_NODE=false
 SKIP_CTL=false
+DISABLE_VMS=()
+ENABLE_VMS=()
 
-for arg in "$@"; do
-  case "$arg" in
+while [[ $# -gt 0 ]]; do
+  case "$1" in
     --skip-node)    SKIP_NODE=true ;;
     --skip-ctl)     SKIP_CTL=true ;;
     --wasmedge-ver) shift; WASMEDGE_VERSION="$1" ;;
+    --disable-vm)   shift; IFS=',' read -ra _keys <<< "$1"; DISABLE_VMS+=("${_keys[@]}") ;;
+    --enable-vm)    shift; IFS=',' read -ra _keys <<< "$1"; ENABLE_VMS+=("${_keys[@]}") ;;
     --help|-h)
-      sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'
+      sed -n '2,23p' "$0" | sed 's/^# \{0,1\}//'
       exit 0
       ;;
-    *) die "Unknown argument: $arg" ;;
+    *) die "Unknown argument: $1" ;;
   esac
+  shift
 done
 
 DIST_START=$SECONDS
@@ -133,9 +141,51 @@ export LD_LIBRARY_PATH="$WASMEDGE_LIB_DIR:${LD_LIBRARY_PATH:-}"
 export PATH="$(dirname "$WASMEDGE_LIB_DIR")/bin:$PATH"
 
 # =============================================================================
-# Step 3 — Build caspar-node workspace
+# Step 3 — Build casparctl (needed first: it drives the VM plugin selection)
 # =============================================================================
-step "Step 3: Build caspar-node workspace"
+step "Step 3: Build casparctl"
+
+CTL_BIN="$CTL_DIR/target/release/casparctl"
+if $SKIP_CTL && [[ -f "$CTL_BIN" ]]; then
+  ok "Skipping casparctl build (--skip-ctl), binary already present"
+else
+  info "Running cargo build --release (casparctl)…"
+  CTL_START=$SECONDS
+  cd "$CTL_DIR"
+  cargo build --release 2>&1 | grep -E "^error|Compiling casparctl|Finished" || true
+  cd "$REPO_DIR"
+  ok "casparctl built in $((SECONDS - CTL_START))s"
+  [[ -f "$CTL_BIN" ]] || die "casparctl binary not found"
+fi
+
+# =============================================================================
+# Step 4 — VM plugin selection + registration codegen
+# =============================================================================
+step "Step 4: Sync VM plugins (vms/ → generated registration crate)"
+
+if [[ -f "$CTL_BIN" ]]; then
+  # Apply one-shot selection flags first.
+  for key in "${DISABLE_VMS[@]:-}"; do
+    [[ -n "$key" ]] || continue
+    "$CTL_BIN" vms disable "$key" --vms-dir "$REPO_DIR/vms" || die "failed to disable VM '$key'"
+  done
+  for key in "${ENABLE_VMS[@]:-}"; do
+    [[ -n "$key" ]] || continue
+    "$CTL_BIN" vms enable "$key" --vms-dir "$REPO_DIR/vms" || die "failed to enable VM '$key'"
+  done
+  # Regenerate the node's plugin registration code from the current selection
+  # so the binary carries exactly the VM types the admin picked.
+  "$CTL_BIN" vms sync --vms-dir "$REPO_DIR/vms" --node-dir "$NODE_DIR" \
+    || die "casparctl vms sync failed"
+  ok "VM plugin registration is in sync"
+else
+  warn "casparctl binary unavailable — skipping VM plugin sync (using committed registration)"
+fi
+
+# =============================================================================
+# Step 5 — Build caspar-node workspace
+# =============================================================================
+step "Step 5: Build caspar-node workspace"
 
 if $SKIP_NODE; then
   [[ -f "$NODE_DIR/target/release/caspar-node" ]] \
@@ -154,32 +204,16 @@ for bin in caspar-node caspar-keygen; do
   [[ -f "$NODE_DIR/target/release/$bin" ]] || die "Expected binary missing: $NODE_DIR/target/release/$bin"
 done
 
-# =============================================================================
-# Step 4 — Build casparctl
-# =============================================================================
-step "Step 4: Build casparctl"
-
-if $SKIP_CTL; then
-  if [[ -f "$CTL_DIR/target/release/casparctl" ]]; then
-    ok "Skipping casparctl build (--skip-ctl), binary already present"
-  else
-    warn "--skip-ctl given but casparctl binary not found — skipping casparctl entirely"
-    SKIP_CTL_COPY=true
-  fi
-else
-  info "Running cargo build --release (casparctl)…"
-  CTL_START=$SECONDS
-  cd "$CTL_DIR"
-  cargo build --release 2>&1 | grep -E "^error|Compiling casparctl|Finished" || true
-  cd "$REPO_DIR"
-  ok "casparctl built in $((SECONDS - CTL_START))s"
-  [[ -f "$CTL_DIR/target/release/casparctl" ]] || die "casparctl binary not found"
+# casparctl was already built in Step 3; nothing to do here beyond noting
+# whether its binary is available for the dist copy.
+if [[ ! -f "$CTL_BIN" ]]; then
+  SKIP_CTL_COPY=true
 fi
 
 # =============================================================================
-# Step 5 — Obtain QuestDB jar
+# Step 6 — Obtain QuestDB jar
 # =============================================================================
-step "Step 5: QuestDB jar"
+step "Step 6: QuestDB jar"
 
 QUESTDB_JAR_SRC="/opt/questdb/questdb.jar"
 
@@ -198,9 +232,9 @@ fi
 ok "QuestDB jar: $QUESTDB_JAR_SRC ($(ls -lh "$QUESTDB_JAR_SRC" | awk '{print $5}'))"
 
 # =============================================================================
-# Step 6 — Populate dist/
+# Step 7 — Populate dist/
 # =============================================================================
-step "Step 6: Populate dist/"
+step "Step 7: Populate dist/"
 
 mkdir -p "$DIST_DIR/bin" "$DIST_DIR/lib/wasmedge" "$DIST_DIR/questdb"
 

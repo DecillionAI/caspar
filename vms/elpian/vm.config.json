@@ -1,0 +1,16 @@
+{
+  "key": "elpian",
+  "name": "Elpian AST VM",
+  "version": "0.1.0",
+  "description": "Executes Elpian AST programs in-process with host-call continuation support and memory/time limits.",
+  "aliases": ["elpian_vm"],
+  "artifactExtensions": [".elpian.json"],
+  "inProcess": true,
+  "defaultRuntime": false,
+  "entityFileName": "module.elpian.json",
+  "acceptsExtraFiles": false,
+  "buildOnDeploy": false,
+  "setEntityLinksOnDeploy": false,
+  "supportsChainTrxs": false,
+  "restorable": false
+}

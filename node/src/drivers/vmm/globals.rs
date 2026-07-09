@@ -28,21 +28,6 @@ pub(crate) fn with_global_app<R, F: FnOnce(&Arc<dyn ICore>) -> R>(f: F) -> Optio
     Some(f(&app))
 }
 
-// ── Raw RocksDB handle (fallback / unit-test path) ────────────────────────────
-//
-// `GLOBAL_DB` is retained for the `Trx::get` / `Trx::get_by_prefix` /
-// `Trx::commit_as_offchain` fallback paths that run before `ICore` is
-// available (e.g. unit tests).  Production code always goes through ICore.
-
-pub(crate) static GLOBAL_DB: Lazy<Arc<Mutex<TransactionDB>>> = Lazy::new(|| {
-    let path = "appletdb";
-    let mut db_options = Options::default();
-    db_options.create_if_missing(true);
-    let txn_db_options = TransactionDBOptions::default();
-    let db = TransactionDB::open(&db_options, &txn_db_options, path).unwrap();
-    Arc::new(Mutex::new(db))
-});
-
 // ── Shared data types ─────────────────────────────────────────────────────────
 //
 // These types are used by the `Vmm` struct fields; they live here so that

@@ -1,0 +1,15 @@
+[package]
+name = "caspar-vm-wasm"
+version = "0.1.0"
+edition = "2021"
+description = "Caspar VM plugin: WasmEdge-managed WebAssembly runtime (key: wasm, default runtime)"
+
+[lib]
+name = "caspar_vm_wasm"
+path = "src/lib.rs"
+
+[dependencies]
+caspar-vm-sdk = { path = "../../vm-sdk" }
+serde_json = "1"
+wasmedge-sys = { path = "../../node/crates/wasmedge-sys", version = "0.19.4" }
+wasmedge-types = { path = "../../node/crates/wasmedge-types", version = "0.6" }

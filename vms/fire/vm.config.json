@@ -1,0 +1,16 @@
+{
+  "key": "fire",
+  "name": "Firecracker microVM",
+  "version": "0.1.0",
+  "description": "Runs program entities inside Firecracker microVMs with persistent, non-escapable per-session sandboxes.",
+  "aliases": ["firecracker"],
+  "artifactExtensions": [],
+  "inProcess": true,
+  "defaultRuntime": false,
+  "entityFileName": "module.wasm",
+  "acceptsExtraFiles": false,
+  "buildOnDeploy": false,
+  "setEntityLinksOnDeploy": false,
+  "supportsChainTrxs": false,
+  "restorable": true
+}
