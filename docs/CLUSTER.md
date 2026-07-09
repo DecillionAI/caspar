@@ -1,10 +1,23 @@
 # Geo-Distributed Caspar Cluster
 
-A Caspar deployment can run as a **mesh of instances of the same origin
-(authority)** spread across the globe, working the way edge networks do:
-every instance serves the requests that reach it (lowest geographic
-latency), and the resulting state is propagated to every other instance
-through an **OpenRaft**-replicated log.
+The Caspar network is a **two-layer hierarchy**:
+
+1. **Outer layer — the network of nodes.** Independent Caspar *nodes*
+   (different origins/authorities) compose the decentralized network
+   through the existing hashgraph BFT chain and the federation bridge.
+   Nothing in this document changes that layer.
+2. **Inner layer — the instances of one node.** Each logical node can now
+   be *made of multiple replicated instances*, each potentially on a
+   separate server anywhere in the world. This inner layer is the
+   OpenRaft cluster described here: same origin, same authority, one
+   replicated state.
+
+The inner layer works the way edge networks do: every instance serves the
+requests that reach it (lowest geographic latency), and the resulting
+state is propagated to every other instance of that node through an
+**OpenRaft**-replicated log. From the outer network's point of view the
+instances are still *one node* — chain and federation identity are
+unchanged.
 
 ```
             ┌────────────────────────  raft log (OpenRaft)  ───────────────────────┐
@@ -42,6 +55,7 @@ or with environment variables:
 
 ```bash
 CLUSTER_ENABLED=true
+CLUSTER_BOOTSTRAP=true                  # ONLY on the first (seed) instance
 CLUSTER_NODE_ID=1                       # unique u64 per instance
 CLUSTER_NODE_NAME=caspar-eu
 CLUSTER_REGION=eu-west
@@ -50,8 +64,14 @@ CLUSTER_ADVERTISE_ADDR=caspar-eu.example.com:7440
 CLUSTER_AUTH_TOKEN=shared-secret        # optional, protects the listener
 ```
 
-On first start with no persisted raft state the node initializes itself as
-a single-voter cluster and becomes leader, ready to accept peers.
+**Exactly one instance of a brand-new cluster boots with
+`CLUSTER_BOOTSTRAP=true`** (or `"bootstrap": true` in `cluster.json`): it
+initializes itself as the first voter and becomes leader. Every joining
+instance keeps `bootstrap` false and starts *pristine* — it is pulled into
+the cluster when the seed runs `casparctl cluster add-peer` (a pristine
+instance must never self-initialize, or it would form a second,
+un-mergeable single-node cluster). `casparctl cluster init` initializes a
+seed manually when you prefer not to set the env flag.
 
 ## Orchestration with `casparctl cluster`
 
@@ -160,4 +180,24 @@ The deploy response echoes the effective scope: `{"distribution": "cluster"}`.
 * **What stays node-local.** The hashgraph/babble chain, federation
   transport, telemetry, and QuestDB time-series logs keep their existing
   per-node behaviour; the raft mesh replicates the shell/VM key-value
-  state layer described above.
+  state layer described above. In the two-layer hierarchy this means the
+  outer network (node ↔ node) still converges through the hashgraph
+  chain and federation, while the inner layer (instance ↔ instance of
+  one node) converges through OpenRaft. Chain packets applied by an
+  instance commit through the same transaction wrapper, so their state
+  also reaches that node's other instances.
+
+## Test coverage
+
+`node/src/drivers/cluster/tests.rs` boots **three real instances in one
+process** (own RocksDBs, raft logs, HTTP listeners) and exercises the
+production surface end-to-end: cluster formation via `add-peer`, shell
+write-set replication through the real transaction-commit hook, delete
+replication, local-scope suppression for non-distributed VM commits,
+distributed creature deployment (artifact files + program/entity records
++ runtime links + VMM listener registration + image build on every
+instance, with the origin skipping re-application), config get/set,
+ping/status/nearest telemetry, RTT probing, follower→leader proposal
+forwarding, **leader failover** (surviving quorum re-elects and keeps
+replicating), and auth-token enforcement (401 without the shared
+secret). Run with `cargo test -p caspar-node cluster`.
