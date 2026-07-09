@@ -164,6 +164,17 @@ fn main() {
 
     app.run();
 
+    // ── Geo-distributed cluster mesh ──────────────────────────────────────────
+    // When cluster mode is enabled (cluster.json / CLUSTER_* env), this node
+    // joins the OpenRaft mesh of same-origin instances: shell API state and
+    // distributed-mode creature deployments replicate to every instance, and
+    // the cluster HTTP listener serves the raft RPC + `casparctl cluster`
+    // orchestration API. Standalone nodes skip this entirely.
+    {
+        let app_for_cluster: Arc<dyn crate::models::core::ICore> = app.clone();
+        drivers::cluster::init_from_env(app_for_cluster);
+    }
+
     // ── Docker-host bridge gateway ────────────────────────────────────────────
     // Long-lived TCP server that docker-based creature containers connect to.
     // It is their only channel to the outside world: every host interaction

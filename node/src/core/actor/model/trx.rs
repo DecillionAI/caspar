@@ -151,16 +151,42 @@ impl ITrx for TrxWrapper {
             inner.finalized = true;
             return;
         }
+        // When this instance is part of a geo-distributed cluster, the
+        // committed write-set is proposed to the OpenRaft log so every other
+        // instance applies the same mutations. `should_replicate` is false
+        // for raft-apply threads (no echo) and for scopes the VMM marked as
+        // local-only (non-distributed VMs).
+        let replicate = crate::drivers::cluster::should_replicate();
+        let mut replicated_ops: Vec<crate::drivers::cluster::command::KvOp> = Vec::new();
         let mut batch = WriteBatchWithTransaction::<true>::default();
         for (k, v) in &inner.overlay {
             match v {
-                Some(val) => batch.put(k, val),
-                None => batch.delete(k),
+                Some(val) => {
+                    batch.put(k, val);
+                    if replicate {
+                        replicated_ops.push(crate::drivers::cluster::command::KvOp::put(
+                            String::from_utf8_lossy(k).into_owned(),
+                            val,
+                        ));
+                    }
+                }
+                None => {
+                    batch.delete(k);
+                    if replicate {
+                        replicated_ops.push(crate::drivers::cluster::command::KvOp::del(
+                            String::from_utf8_lossy(k).into_owned(),
+                        ));
+                    }
+                }
             }
         }
         let _ = self.db.write(batch);
         inner.overlay.clear();
         inner.finalized = true;
+        drop(inner);
+        if !replicated_ops.is_empty() {
+            crate::drivers::cluster::on_local_commit(replicated_ops);
+        }
     }
 
     fn discard(&self) {

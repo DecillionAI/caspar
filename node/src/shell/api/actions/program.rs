@@ -652,6 +652,17 @@ fn run_program_entity(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
             }
             let vm_id = Uuid::new_v4().to_string();
             trx.put_link(&format!("VmStatus::{}", vm_id), "running");
+            // Tag VMs of cluster-distributed programs so their state commits
+            // are propagated through the raft consensus (local-mode VMs are
+            // deliberately left untagged and never enter the log).
+            if trx.get_link(&format!("vmDistribution::{}", program.id)) == "cluster"
+                || trx.get_link(&format!(
+                    "vmDistribution::{}::{}",
+                    program.id, input.entity_id
+                )) == "cluster"
+            {
+                trx.put_link(&format!("vmDistributed::{}", vm_id), "true");
+            }
             let resources = normalize_vm_resources(&input.resources);
             // Free-tier bypass: when every VM cost rate is zero there is nothing
             // to bill, so a payment lock is not required. Paid nodes still
@@ -1003,6 +1014,13 @@ fn deploy(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
             let data = base64::engine::general_purpose::STANDARD
                 .decode(&input.payload)
                 .map_err(|e| anyhow!("{}", e))?;
+            // The developer chooses the deployment scope: "cluster" ships the
+            // creature to every instance of this origin (edge execution +
+            // raft-propagated state), "local" pins it to this instance and
+            // keeps all of its VM state out of the consensus.
+            let distributed =
+                input.wants_distribution() && crate::drivers::cluster::is_active();
+            let distribution_label = if distributed { "cluster" } else { "local" };
             let mut entity_model = Entity {
                 program_id: program.id.clone(),
                 entity_id: input.entity_id.clone(),
@@ -1023,6 +1041,10 @@ fn deploy(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
                 &primary_file_name,
                 true,
             )?;
+            // Artifact files shipped to the other instances on a distributed
+            // deploy (base64 as received; primary file first).
+            let mut artifact_files: Vec<(String, String)> =
+                vec![(primary_file_name.clone(), input.payload.clone())];
             if accepts_extra_files {
                 let mut files: HashMap<String, Value> = HashMap::new();
                 if let Some(files_raw) = input.metadata.get("files") {
@@ -1048,6 +1070,7 @@ fn deploy(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
                         k,
                         true,
                     )?;
+                    artifact_files.push((k.clone(), data_str));
                 }
             }
             if set_entity_links {
@@ -1081,9 +1104,40 @@ fn deploy(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
             // out.
             program.push(&*trx);
             app_for_handler.tools().vmm().assign(&program.id);
-            entity_model.entity_type = entity_type;
+            entity_model.entity_type = entity_type.clone();
             entity_model.push(&*trx);
-            Ok(serde_json::to_value(PlugInput::default())?)
+            // Persist the chosen scope; the VMM consults these links to decide
+            // whether a VM's state mutations enter the raft consensus.
+            trx.put_link(
+                &format!("vmDistribution::{}", program.id),
+                distribution_label,
+            );
+            trx.put_link(
+                &format!("vmDistribution::{}::{}", program.id, input.entity_id),
+                distribution_label,
+            );
+            if distributed {
+                crate::drivers::cluster::propose_deploy(
+                    crate::drivers::cluster::command::DeployArtifact {
+                        program_id: program.id.clone(),
+                        entity_id: input.entity_id.clone(),
+                        entity_type: entity_type.clone(),
+                        machine_id: program.machine_id.clone(),
+                        runtime: program.runtime.clone(),
+                        path: program.path.clone(),
+                        comment: program.comment.clone(),
+                        primary_file_name: primary_file_name.clone(),
+                        files: artifact_files,
+                        set_entity_links,
+                        build_on_deploy,
+                    },
+                );
+            }
+            let mut result = serde_json::to_value(PlugInput::default())?;
+            if let Value::Object(map) = &mut result {
+                map.insert("distribution".into(), json!(distribution_label));
+            }
+            Ok(result)
         },
     )
 }

@@ -703,7 +703,11 @@ impl ICore for Core {
     fn end_vm_trx(&self, vm_id: &str) {
         let trx = self.vm_trxs.lock().unwrap().remove(vm_id);
         if let Some(t) = trx {
-            t.commit();
+            // Only VMs launched from a distributed deployment propagate
+            // their state through the cluster consensus; local-mode VMs
+            // commit on this instance only.
+            let distributed = t.get_link(&format!("vmDistributed::{}", vm_id)) == "true";
+            crate::drivers::cluster::with_replication_scope(distributed, || t.commit());
         }
     }
 }

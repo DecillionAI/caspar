@@ -8,7 +8,9 @@
 //! - `vmm` — in-process virtual-machine driver (wasm / docker /
 //!   javascript / elpify / elpian / firecracker)
 //! - `network` — chain consensus + TCP/WS client + federation transports
+//! - `cluster` — OpenRaft-replicated geo-distributed instance mesh
 
+pub mod cluster;
 pub mod file;
 pub mod network;
 pub mod security;

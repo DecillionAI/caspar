@@ -233,6 +233,37 @@ impl Vmm {
             })
             .clone()
     }
+
+    /// Whether the state mutations of `vm_id` may enter the cluster
+    /// consensus: true only for VMs whose program was deployed with
+    /// `distribution: "cluster"`. Local-mode VM state never leaves this
+    /// instance.
+    fn vm_replication_allowed(&self, vm_id: &str) -> bool {
+        if !crate::drivers::cluster::is_active() {
+            return false;
+        }
+        let machine_id = self.get_vm_context(vm_id).map(|(_, m)| m);
+        let vm_id_owned = vm_id.to_string();
+        let slot = Arc::new(Mutex::new(false));
+        let slot_clone = slot.clone();
+        self.app.modify_state(
+            true,
+            Box::new(move |trx: &dyn ITrx| {
+                let mut distributed =
+                    trx.get_link(&format!("vmDistributed::{}", vm_id_owned)) == "true";
+                if !distributed {
+                    if let Some(m) = &machine_id {
+                        distributed =
+                            trx.get_link(&format!("vmDistribution::{}", m)) == "cluster";
+                    }
+                }
+                *slot_clone.lock().unwrap() = distributed;
+                Ok(())
+            }),
+        );
+        let allowed = *slot.lock().unwrap();
+        allowed
+    }
 }
 
 impl IVmm for Vmm {
@@ -422,9 +453,12 @@ impl IVmm for Vmm {
 
     fn commit_vm_trx(&self, vm_id: &str) {
         if let Some((_, buf_arc)) = self.vm_trx.remove(vm_id) {
-            if let Err(e) = buf_arc.lock().unwrap().commit() {
-                eprintln!("[vmm] commit_vm_trx({}) failed: {}", vm_id, e);
-            }
+            let replicate = self.vm_replication_allowed(vm_id);
+            crate::drivers::cluster::with_replication_scope(replicate, || {
+                if let Err(e) = buf_arc.lock().unwrap().commit() {
+                    eprintln!("[vmm] commit_vm_trx({}) failed: {}", vm_id, e);
+                }
+            });
         }
     }
 
@@ -450,13 +484,16 @@ impl IVmm for Vmm {
                 } else {
                     let k = namespaced_key.to_string();
                     let v = val.to_string();
-                    self.app.modify_state(
-                        false,
-                        Box::new(move |trx: &dyn crate::models::transaction::ITrx| {
-                            trx.put_link(&k, &v);
-                            Ok(())
-                        }),
-                    );
+                    let replicate = self.vm_replication_allowed(vm_id);
+                    crate::drivers::cluster::with_replication_scope(replicate, || {
+                        self.app.modify_state(
+                            false,
+                            Box::new(move |trx: &dyn crate::models::transaction::ITrx| {
+                                trx.put_link(&k, &v);
+                                Ok(())
+                            }),
+                        );
+                    });
                 }
                 Ok("{}".to_string())
             }
@@ -495,13 +532,16 @@ impl IVmm for Vmm {
                     buf.lock().unwrap().del(namespaced_key.to_string());
                 } else {
                     let k = namespaced_key.to_string();
-                    self.app.modify_state(
-                        false,
-                        Box::new(move |trx: &dyn crate::models::transaction::ITrx| {
-                            trx.del_key(&k);
-                            Ok(())
-                        }),
-                    );
+                    let replicate = self.vm_replication_allowed(vm_id);
+                    crate::drivers::cluster::with_replication_scope(replicate, || {
+                        self.app.modify_state(
+                            false,
+                            Box::new(move |trx: &dyn crate::models::transaction::ITrx| {
+                                trx.del_key(&k);
+                                Ok(())
+                            }),
+                        );
+                    });
                 }
                 Ok("{}".to_string())
             }
@@ -534,7 +574,10 @@ impl IVmm for Vmm {
 
     fn vm_db_commit_explicit(&self, vm_id: &str) -> Result<(), String> {
         if let Some(buf_ref) = self.vm_trx.get(vm_id) {
-            buf_ref.lock().unwrap().commit()
+            let replicate = self.vm_replication_allowed(vm_id);
+            crate::drivers::cluster::with_replication_scope(replicate, || {
+                buf_ref.lock().unwrap().commit()
+            })
         } else {
             Ok(())
         }
