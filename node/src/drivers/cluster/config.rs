@@ -45,6 +45,12 @@ fn default_true() -> bool {
 pub struct ClusterConfig {
     /// Master switch. When false the node runs standalone exactly as before.
     pub enabled: bool,
+    /// Seed flag: exactly one instance of a brand-new cluster starts with
+    /// `bootstrap: true` — it initializes itself as the first voter and
+    /// accepts the others via `casparctl cluster add-peer`. Joining
+    /// instances MUST leave this false (they stay pristine until the seed
+    /// adds them); `casparctl cluster init` can initialize manually instead.
+    pub bootstrap: bool,
     /// This node's raft id.
     pub node_id: u64,
     /// Human-readable name shown in `casparctl cluster status`.
@@ -90,6 +96,7 @@ impl Default for ClusterConfig {
     fn default() -> Self {
         ClusterConfig {
             enabled: false,
+            bootstrap: false,
             node_id: 1,
             node_name: String::new(),
             region: String::new(),
@@ -146,6 +153,9 @@ impl ClusterConfig {
         let mut cfg = Self::load(&path).unwrap_or_default();
         if let Ok(v) = env::var("CLUSTER_ENABLED") {
             cfg.enabled = matches!(v.trim(), "1" | "true" | "yes" | "on");
+        }
+        if let Ok(v) = env::var("CLUSTER_BOOTSTRAP") {
+            cfg.bootstrap = matches!(v.trim(), "1" | "true" | "yes" | "on");
         }
         if let Ok(v) = env::var("CLUSTER_NODE_ID") {
             if let Ok(n) = v.trim().parse() {

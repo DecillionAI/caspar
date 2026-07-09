@@ -525,6 +525,22 @@ fn start(
     cfg: ClusterConfig,
     config_path: PathBuf,
 ) -> Result<Arc<ClusterService>> {
+    let svc = start_service(app, cfg, config_path)?;
+    CLUSTER
+        .set(svc.clone())
+        .map_err(|_| anyhow!("cluster already initialized"))?;
+    Ok(svc)
+}
+
+/// Build and boot a [`ClusterService`] (raft, HTTP listener, replication
+/// worker, RTT prober) without registering it as the process-global
+/// instance. `start` wraps this; tests use it directly to run several
+/// instances inside one process.
+pub(crate) fn start_service(
+    app: Arc<dyn ICore>,
+    cfg: ClusterConfig,
+    config_path: PathBuf,
+) -> Result<Arc<ClusterService>> {
     let raft_dir = config_path
         .parent()
         .map(|p| p.join("raft-db"))
@@ -561,9 +577,12 @@ fn start(
         ))
         .map_err(|e| anyhow!("raft start: {}", e))?;
 
-    // Single-node auto-init: a brand-new cluster (no persisted membership)
-    // initializes with itself so it becomes leader and can accept peers.
-    {
+    // Seed auto-init: only the instance marked `bootstrap: true` initializes
+    // a brand-new raft with itself, becoming the first voter that accepts
+    // the other instances via add-peer. Joining instances must stay
+    // pristine — if they self-initialized they could never be merged into
+    // the seed's cluster (two independent single-node leaders).
+    if cfg.bootstrap {
         let is_initialized = rt.block_on(raft.is_initialized()).unwrap_or(false);
         if !is_initialized {
             let mut members = BTreeMap::new();
@@ -597,9 +616,8 @@ fn start(
     svc.spawn_replication_worker(proposal_rx);
     svc.spawn_rtt_prober();
     server::start(svc.clone())?;
-
-    CLUSTER
-        .set(svc.clone())
-        .map_err(|_| anyhow!("cluster already initialized"))?;
     Ok(svc)
 }
+
+#[cfg(test)]
+mod tests;
