@@ -6,3 +6,8 @@ Cargo.lock.bak
 
 # Node runtime telemetry store (created in cwd at runtime)
 telemetry-rocks/
+
+# VM plugin projects build under the node workspace lock; standalone-check
+# lockfiles are local artifacts
+vms/*/Cargo.lock
+vm-sdk/Cargo.lock
