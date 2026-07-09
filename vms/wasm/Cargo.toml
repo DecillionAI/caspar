@@ -8,8 +8,23 @@ description = "Caspar VM plugin: WasmEdge-managed WebAssembly runtime (key: wasm
 name = "caspar_vm_wasm"
 path = "src/lib.rs"
 
+# This plugin owns the WasmEdge runtime crates (under crates/), which use
+# workspace dependency inheritance — so the plugin is their workspace root.
+[workspace]
+resolver = "2"
+members = [".", "crates/*"]
+
+[workspace.dependencies]
+async-wasi = { path = "crates/async-wasi", version = "0.2.0" }
+cfg-if = "1.0.0"
+parking_lot = "0.12.1"
+wasmedge-macro = { path = "crates/wasmedge-macro", version = "0.6" }
+wasmedge-sys = { path = "crates/wasmedge-sys", version = "0.19.4" }
+wasmedge-types = { path = "crates/wasmedge-types", version = "0.6" }
+wat = "1.0"
+
 [dependencies]
 caspar-vm-sdk = { path = "../../vm-sdk" }
 serde_json = "1"
-wasmedge-sys = { path = "../../node/crates/wasmedge-sys", version = "0.19.4" }
-wasmedge-types = { path = "../../node/crates/wasmedge-types", version = "0.6" }
+wasmedge-sys = { workspace = true }
+wasmedge-types = { workspace = true }

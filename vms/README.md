@@ -24,10 +24,14 @@ operation dynamically through the SDK's plugin registry.
 vms/<key>/
 ├── Cargo.toml        # package name MUST be caspar-vm-<something>; lib crate
 ├── vm.config.json    # plugin metadata (key, aliases, deploy behaviour, …)
-└── src/
-    ├── lib.rs        # exposes `pub fn register()`
-    ├── controller.rs # the VmPlugin (VM controller) implementation
-    └── ...           # models, runtime, anything the VM type needs
+├── src/
+│   ├── lib.rs        # exposes `pub fn register()`
+│   ├── controller.rs # the VmPlugin (VM controller) implementation
+│   └── ...           # models, runtime, anything the VM type needs
+└── crates/           # optional: library crates owned by this VM type
+    └── ...           # (e.g. vms/wasm/crates/wasmedge-sys,
+                      #  vms/elpify/crates/elpify-lang,
+                      #  vms/elpian/crates/elpian-vm)
 ```
 
 Requirements for a valid plugin:

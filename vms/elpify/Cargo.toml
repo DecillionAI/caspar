@@ -11,5 +11,5 @@ path = "src/lib.rs"
 [dependencies]
 base64 = "0.22"
 caspar-vm-sdk = { path = "../../vm-sdk" }
-elpify-lang = { path = "../../node/crates/elpify-lang" }
+elpify-lang = { path = "crates/elpify-lang" }
 serde_json = "1"
