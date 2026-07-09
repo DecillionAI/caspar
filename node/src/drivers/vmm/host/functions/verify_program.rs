@@ -1,14 +1,17 @@
 use crate::drivers::vmm::prelude::*;
-use crate::drivers::vmm::models::vm_runtime::{verify_program_execution_from_packet, parse_u64_array_field, parse_u8_array_field};
 
+/// Verify a program execution proof by routing to whichever registered VM
+/// runtime provides program verification (a provable runtime plugin).
 pub(crate) fn host_fn_verify_program(input: &JsonValue) -> String {
-    let masm_path = input["masmPath"].as_str().unwrap_or("").to_string();
-    let inputs = parse_u64_array_field(input, "inputs");
-    let outputs = parse_u64_array_field(input, "outputs");
-    let proof_bytes = parse_u8_array_field(input, "proof");
-
-    match verify_program_execution_from_packet(&masm_path, &inputs, &outputs, &proof_bytes) {
-        Ok(security) => json!({"ok": true, "security": security}).to_string(),
-        Err(err) => json!({"ok": false, "error": err}).to_string(),
+    match caspar_vm_sdk::registry::verifier_plugin() {
+        Some(plugin) => match plugin.verify_program_execution(input) {
+            Ok(res) => res.to_string(),
+            Err(err) => json!({"ok": false, "error": err}).to_string(),
+        },
+        None => json!({
+            "ok": false,
+            "error": "no registered VM runtime provides program execution verification"
+        })
+        .to_string(),
     }
 }

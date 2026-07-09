@@ -34,7 +34,7 @@ pub(crate) fn forward_http_to_vm(
     Ok(json!({
         "ok": true,
         "protocol": "http",
-        "runtime": format!("{:?}", endpoint.runtime).to_lowercase(),
+        "runtime": endpoint.runtime.clone(),
         "machineId": endpoint.machine_id,
         "vmId": endpoint.vm_id,
         "status": status,

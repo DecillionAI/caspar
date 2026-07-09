@@ -34,6 +34,8 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, bail, Context, Result};
+
+mod vms;
 use chrono::{DateTime, Local};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -145,6 +147,7 @@ fn main() {
         "stop" => run_stop(&args[2..]),
         "stats" => run_stats(&args[2..]),
         "pprof" => run_pprof(&args[2..]),
+        "vms" => vms::run_vms(&args[2..]),
         "help" | "-h" | "--help" => {
             print_usage();
             Ok(())
@@ -174,7 +177,8 @@ fn print_usage() {
          resume     Resume (unpause) the Caspar container\n  \
          stop       Stop the Caspar container\n  \
          stats      Realtime multi-section dashboard (container + telemetry + chain)\n  \
-         pprof      Query the node runtime profiler (rust pprof crate)\n\n\
+         pprof      Query the node runtime profiler (rust pprof crate)\n  \
+         vms        Manage the node's pluggable VM types (list/enable/disable/sync/new)\n\n\
          Run \"casparctl <command> --help\" for command-specific flags."
     );
 }

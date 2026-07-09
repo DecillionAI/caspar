@@ -82,6 +82,9 @@ impl Vmm {
         // Publish the core handle so stateless VM host-call handlers can
         // reach the signaler / storage tools without a Vmm reference.
         crate::drivers::vmm::globals::set_global_app(app.clone());
+        // Publish the SDK host bridge and register every VM runtime plugin
+        // compiled into this binary (the generated caspar-vm-plugins crate).
+        crate::drivers::vmm::host_bridge::init_vm_plugins();
         let gateway = crate::drivers::vmm::network::docker_host::DockerHostGateway::new(app.clone());
         let vmm = Arc::new(Vmm {
             app,
@@ -171,7 +174,7 @@ impl Vmm {
             machine_id
         );
         let path_slot = Arc::new(Mutex::new(default_path));
-        let type_slot = Arc::new(Mutex::new("wasm".to_string()));
+        let type_slot = Arc::new(Mutex::new(default_runtime_key()));
         let path_clone = path_slot.clone();
         let type_clone = type_slot.clone();
         let machine_id_owned = machine_id.to_string();
@@ -367,13 +370,13 @@ impl IVmm for Vmm {
     }
 
     fn identify_container_by_ip(&self, ip: &str) -> Option<(String, String, String, String)> {
-        // Ask docker which container currently owns this source IP, then map the
-        // container name to the identity we recorded at launch.
-        let name = crate::drivers::vmm::host::vm_host_functions::with_docker_controller(
-            |controller| controller.find_container_name_by_ip(ip),
-        )
-        .ok()
-        .flatten()?;
+        // Ask each registered VM runtime whether it owns a live instance on
+        // this source IP (container-style runtimes resolve it through their
+        // supervisor), then map the instance name to the identity we recorded
+        // at launch.
+        let name = caspar_vm_sdk::registry::plugins()
+            .into_iter()
+            .find_map(|plugin| plugin.identify_instance_by_ip(ip))?;
         self.vm_containers.get(&name).map(|e| {
             let id = e.value();
             (
@@ -619,6 +622,40 @@ impl IVmm for Vmm {
     fn host_action_program(&self, op: &str, input: &serde_json::Value, req_id: i64) -> (String, i64) {
         self.handle_program_crud(op, input, req_id)
     }
+
+    // ── Dynamic VM runtime registry (answered by the plugin registry) ─────────
+
+    fn supported_runtimes(&self) -> Vec<String> {
+        caspar_vm_sdk::registry::keys()
+    }
+
+    fn is_supported_runtime(&self, runtime: &str) -> bool {
+        caspar_vm_sdk::registry::is_supported(runtime)
+    }
+
+    fn is_managed_runtime(&self, runtime: &str) -> bool {
+        caspar_vm_sdk::registry::is_managed(runtime)
+    }
+
+    fn runtime_supports_chain_trxs(&self, runtime: &str) -> bool {
+        caspar_vm_sdk::registry::supports_chain_trxs(runtime)
+    }
+
+    fn runtime_deploy_spec(&self, runtime: &str) -> Option<Value> {
+        caspar_vm_sdk::registry::get(runtime).map(|p| p.meta().deploy_spec_json())
+    }
+
+    fn plan_run_entity(&self, runtime: &str, ctx: &Value) -> Result<Value, String> {
+        caspar_vm_sdk::registry::get(runtime)
+            .ok_or_else(|| format!("runtime '{}' is not registered", runtime))?
+            .plan_run_entity(ctx)
+    }
+
+    fn plan_stop_entity(&self, runtime: &str, ctx: &Value) -> Result<Value, String> {
+        caspar_vm_sdk::registry::get(runtime)
+            .ok_or_else(|| format!("runtime '{}' is not registered", runtime))?
+            .plan_stop_entity(ctx)
+    }
 }
 
 /// Small shim that owns the same handles as `Vmm` and can be cloned/wrapped
@@ -714,7 +751,7 @@ fn resolve_vm_execution_target_inner(
     entity_id: &str,
 ) -> (String, String) {
     let path_slot = Arc::new(Mutex::new(default_path.to_string()));
-    let type_slot = Arc::new(Mutex::new("wasm".to_string()));
+    let type_slot = Arc::new(Mutex::new(default_runtime_key()));
     let path_clone = path_slot.clone();
     let type_clone = type_slot.clone();
     let machine_id_owned = machine_id.to_string();
@@ -757,18 +794,21 @@ fn resolve_vm_execution_target_inner(
     (path, vm_type)
 }
 
-/// `isManagedRuntime` — runtimes whose VMs run inside the appengine.
+/// `isManagedRuntime` — runtimes whose VMs run inside the node process.
+/// Answered dynamically by the VM plugin registry.
 pub(super) fn is_managed_runtime(runtime: &str) -> bool {
-    let r = runtime.trim().to_lowercase();
-    matches!(
-        r.as_str(),
-        "wasm" | "javascript" | "elpify" | "elpian" | "fire"
-    )
+    caspar_vm_sdk::registry::is_managed(runtime)
 }
 
 /// `normalizeRuntime` — Go's `strings.ToLower(TrimSpace(.))`.
 pub(super) fn normalize_runtime(runtime: &str) -> String {
     runtime.trim().to_lowercase()
+}
+
+/// Canonical key of the registered fallback runtime, used when a program
+/// record carries no runtime of its own.
+pub(super) fn default_runtime_key() -> String {
+    caspar_vm_sdk::registry::default_key().unwrap_or_default()
 }
 
 /// Field-getter helper — emulates Go's generic `checkField[T]`.

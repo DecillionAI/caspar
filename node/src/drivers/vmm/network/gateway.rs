@@ -1,5 +1,5 @@
 use crate::drivers::vmm::prelude::*;
-use crate::drivers::vmm::network::gateway_types::{VmGatewayEndpoint, VmRuntimeType, GatewayProtocol, GatewayForwardRequest};
+use crate::drivers::vmm::network::gateway_types::{VmGatewayEndpoint, GatewayProtocol, GatewayForwardRequest};
 use crate::drivers::vmm::network::gateway_registry::VmGatewayRegistry;
 use crate::drivers::vmm::network::gateway_http::forward_http_to_vm;
 use crate::drivers::vmm::network::gateway_socket::{forward_websocket_to_vm, forward_raw_socket_to_vm};
@@ -8,11 +8,15 @@ pub(crate) struct VmGatewayService;
 
 impl VmGatewayService {
     pub(crate) fn register_endpoint(packet: &JsonValue) -> Result<JsonValue, String> {
-        let runtime = VmRuntimeType::from_str(packet["runtime"].as_str().unwrap_or(""))
-            .ok_or_else(|| {
-                "runtime is required and must be one of docker/fire/elpian/elpify/javascript/wasm"
-                    .to_string()
-            })?;
+        let runtime = caspar_vm_sdk::registry::resolve_key(
+            packet["runtime"].as_str().unwrap_or(""),
+        )
+        .ok_or_else(|| {
+            format!(
+                "runtime is required and must be one of the registered VM types: {}",
+                caspar_vm_sdk::registry::keys().join("/")
+            )
+        })?;
         let machine_id = packet["machineId"]
             .as_str()
             .unwrap_or("")
@@ -60,7 +64,7 @@ impl VmGatewayService {
         json!({"ok": true, "endpoints": endpoints.iter().map(|e| json!({
             "machineId": e.machine_id,
             "vmId": e.vm_id,
-            "runtime": format!("{:?}", e.runtime).to_lowercase(),
+            "runtime": e.runtime,
             "host": e.host,
             "httpPort": e.http_port,
             "websocketPort": e.websocket_port,

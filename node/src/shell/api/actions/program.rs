@@ -52,20 +52,40 @@ fn normalize_entity_type(s: &str) -> String {
     s.trim().to_lowercase()
 }
 
-fn is_supported_entity_type(s: &str) -> bool {
-    matches!(
-        normalize_entity_type(s).as_str(),
-        "docker" | "wasm" | "elpify" | "javascript" | "elpian" | "fire"
-    )
-}
-
-fn entity_runtime_file_name(s: &str) -> &'static str {
-    match normalize_entity_type(s).as_str() {
-        "elpify" => "module.elpify.js",
-        "javascript" => "module.js",
-        "elpian" => "module.elpian.json",
-        _ => "module.wasm",
+/// Execute a runtime plugin's stop plan against the current transaction:
+/// take the plan's terminate input and resolve every requested state link
+/// into it. With `strict`, a missing required link aborts the stop (used by
+/// the user-facing stopEntity action); without it, best-effort (used by the
+/// billing reaper, which must always be able to tear a VM down).
+fn build_stop_input_from_plan(
+    app: &Arc<dyn ICore>,
+    trx: &dyn ITrx,
+    runtime: &str,
+    ctx: &Value,
+    strict: bool,
+) -> Result<Map<String, Value>> {
+    let plan = app
+        .tools()
+        .vmm()
+        .plan_stop_entity(runtime, ctx)
+        .map_err(|e| anyhow!(e))?;
+    let mut stop_input: Map<String, Value> =
+        plan["input"].as_object().cloned().unwrap_or_default();
+    if let Some(links) = plan["links"].as_array() {
+        for query in links {
+            let field = query["field"].as_str().unwrap_or("");
+            let key = query["key"].as_str().unwrap_or("");
+            if field.is_empty() || key.is_empty() {
+                continue;
+            }
+            let value = trx.get_link(key);
+            if value.is_empty() && strict && query["required"].as_bool().unwrap_or(false) {
+                return Err(anyhow!("entity runtime links are not found"));
+            }
+            stop_input.insert(field.to_string(), json!(value));
+        }
     }
+    Ok(stop_input)
 }
 
 fn as_i64(raw: &Value) -> Option<i64> {
@@ -445,21 +465,26 @@ fn terminate_standalone_vm(app: &Arc<dyn ICore>, machine_id: &str, entity_id: &s
             }
             .pull(tx);
             let entity_type = normalize_entity_type(&entity.entity_type);
-            let mut stop_input: Map<String, Value> = Map::new();
-            stop_input.insert("runtime".into(), json!(entity_type));
-            stop_input.insert("machineId".into(), json!(machine_id));
-            stop_input.insert("entityId".into(), json!(entity_id));
-            stop_input.insert("vmId".into(), json!(vm_id));
-            if entity_type == "docker" {
-                stop_input.insert("entityId".into(), json!(entity.entity_id));
-                stop_input.insert(
-                    "containerName".into(),
-                    json!(tx.get_link(&format!(
-                        "VmContainerName::{}::{}::{}",
-                        machine_id, entity_id, vm_id
-                    ))),
-                );
-            }
+            let ctx = json!({
+                "machineId": machine_id,
+                "programId": machine_id,
+                "entityId": entity.entity_id,
+                "vmId": vm_id,
+            });
+            let stop_input =
+                match build_stop_input_from_plan(&app_for_closure, tx, &entity_type, &ctx, false) {
+                    Ok(input) => input,
+                    Err(_) => {
+                        // Unknown runtime: fall back to a generic terminate so
+                        // the billing reaper can still stop the instance.
+                        let mut input: Map<String, Value> = Map::new();
+                        input.insert("runtime".into(), json!(entity_type));
+                        input.insert("machineId".into(), json!(machine_id));
+                        input.insert("entityId".into(), json!(entity_id));
+                        input.insert("vmId".into(), json!(vm_id));
+                        input
+                    }
+                };
             let msg = json!({
                 "key": "terminateVm",
                 "input": stop_input,
@@ -654,6 +679,9 @@ fn run_program_entity(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
                     true,
                 )?;
             }
+            if !app_for_handler.tools().vmm().is_supported_runtime(&entity_type) {
+                return Err(anyhow!("invalid entity type"));
+            }
             let params: HashMap<String, String> = if input.params.is_empty() {
                 HashMap::new()
             } else {
@@ -666,65 +694,37 @@ fn run_program_entity(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
                 ),
                 "true",
             );
-            if entity_type == "docker" {
-                let entity_image_id = input.entity_id.clone();
-                let container_name = Uuid::new_v4().to_string();
-                trx.put_link(
-                    &format!(
-                        "VmContainerName::{}::{}::{}",
-                        program.id, input.entity_id, vm_id
-                    ),
-                    &container_name,
-                );
-                let app_async = app_for_handler.clone();
-                let machine_id = input.machine_id.clone();
-                let entity_id = input.entity_id.clone();
-                let vm_id_async = vm_id.clone();
-                let resources_async = resources.clone();
-                let image_ref =
-                    format!("{}/{}", input.machine_id.replace('@', "_"), entity_image_id);
-                let params_async = params.clone();
-                let _ = async_once(move || {
-                    let msg = json!({
-                        "key": "runVm",
-                        "input": {
-                            "runtime": "docker",
-                            "machineId": machine_id,
-                            "entityId": entity_id,
-                            "containerName": container_name,
-                            "standalone": true,
-                            "vmId": vm_id_async,
-                            "resources": resources_async,
-                            "imageRef": image_ref,
-                            "inputFiles": params_async,
-                        },
-                    });
-                    app_async.tools().vmm().vm_callback(&msg.to_string());
-                });
-                return Ok(json!({"vmId": vm_id}));
+            // Ask the runtime's plugin how to launch this entity: it returns
+            // the full runVm input (per-runtime fields included) plus any
+            // state links to record — no per-VM logic lives here.
+            let ctx = json!({
+                "machineId": input.machine_id,
+                "programId": program.id,
+                "entityId": input.entity_id,
+                "vmId": vm_id,
+                "resources": resources,
+                "params": params,
+            });
+            let plan = app_for_handler
+                .tools()
+                .vmm()
+                .plan_run_entity(&entity_type, &ctx)
+                .map_err(|e| anyhow!(e))?;
+            if let Some(links) = plan["links"].as_array() {
+                for pair in links {
+                    let key = pair[0].as_str().unwrap_or("");
+                    let value = pair[1].as_str().unwrap_or("");
+                    if !key.is_empty() {
+                        trx.put_link(key, value);
+                    }
+                }
             }
-            if !is_supported_entity_type(&entity_type) {
-                return Err(anyhow!("invalid entity type"));
-            }
-            let data = serde_json::to_string(&params).unwrap_or_else(|_| "{}".to_string());
+            let run_input = plan["input"].clone();
             let app_async = app_for_handler.clone();
-            let machine_id = input.machine_id.clone();
-            let entity_id = input.entity_id.clone();
-            let vm_id_async = vm_id.clone();
-            let resources_async = resources.clone();
-            let entity_type_async = entity_type.clone();
             let _ = async_once(move || {
                 let msg = json!({
                     "key": "runVm",
-                    "input": {
-                        "runtime": entity_type_async,
-                        "machineId": machine_id,
-                        "entityId": entity_id,
-                        "standalone": true,
-                        "vmId": vm_id_async,
-                        "resources": resources_async,
-                        "data": data,
-                    },
+                    "input": run_input,
                 });
                 app_async.tools().vmm().vm_callback(&msg.to_string());
             });
@@ -781,11 +781,6 @@ fn stop_program_entity(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
             ));
             trx.del_key(&format!("link::VmBilling::{}", vm_id));
             trx.del_json(&format!("Json::VmBilling::{}", vm_id), "payment");
-            let entity_image_id = entity.entity_id.clone();
-            let container_name = trx.get_link(&format!(
-                "VmContainerName::{}::{}::{}",
-                program.id, input.entity_id, vm_id
-            ));
             trx.del_key(&format!(
                 "link::vmStandaloneImageName::{}::{}",
                 program.id, input.entity_id
@@ -794,18 +789,17 @@ fn stop_program_entity(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
                 "link::vmStandaloneContainerName::{}::{}",
                 program.id, input.entity_id
             ));
-            let mut stop_input: Map<String, Value> = Map::new();
-            stop_input.insert("runtime".into(), json!(entity_type));
-            stop_input.insert("machineId".into(), json!(input.machine_id));
-            stop_input.insert("entityId".into(), json!(input.entity_id));
-            stop_input.insert("vmId".into(), json!(vm_id));
-            if entity_type == "docker" {
-                if entity_image_id.is_empty() || container_name.is_empty() {
-                    return Err(anyhow!("entity runtime links are not found"));
-                }
-                stop_input.insert("entityId".into(), json!(entity_image_id));
-                stop_input.insert("containerName".into(), json!(container_name));
-            }
+            // Ask the runtime's plugin how to stop this entity; the plan
+            // resolves per-runtime state links (e.g. a recorded container
+            // name) and fails when a required link is missing.
+            let ctx = json!({
+                "machineId": input.machine_id,
+                "programId": program.id,
+                "entityId": entity.entity_id,
+                "vmId": vm_id,
+            });
+            let stop_input =
+                build_stop_input_from_plan(&app_for_handler, &*trx, &entity_type, &ctx, true)?;
             let msg = json!({
                 "key": "terminateVm",
                 "input": stop_input,
@@ -985,11 +979,27 @@ fn deploy(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
                 return Err(anyhow!("access to vm denied"));
             }
             let entity_type = normalize_entity_type(&input.entity_type);
-            if !is_supported_entity_type(&entity_type) {
-                return Err(anyhow!(
-                    "invalid entityType, expected one of docker|wasm|elpify|javascript|elpian|fire"
-                ));
-            }
+            // The runtime's plugin declares how its entities deploy: the
+            // primary file name, whether extra files are accepted, whether a
+            // build must follow, and whether entity links are recorded. An
+            // unknown runtime means no plugin was compiled into this node.
+            let spec = app_for_handler
+                .tools()
+                .vmm()
+                .runtime_deploy_spec(&entity_type)
+                .ok_or_else(|| {
+                    anyhow!(
+                        "invalid entityType, expected one of {}",
+                        app_for_handler.tools().vmm().supported_runtimes().join("|")
+                    )
+                })?;
+            let primary_file_name = spec["entityFileName"]
+                .as_str()
+                .unwrap_or("module.wasm")
+                .to_string();
+            let accepts_extra_files = spec["acceptsExtraFiles"].as_bool().unwrap_or(false);
+            let build_on_deploy = spec["buildOnDeploy"].as_bool().unwrap_or(false);
+            let set_entity_links = spec["setEntityLinksOnDeploy"].as_bool().unwrap_or(false);
             let data = base64::engine::general_purpose::STANDARD
                 .decode(&input.payload)
                 .map_err(|e| anyhow!("{}", e))?;
@@ -1000,7 +1010,20 @@ fn deploy(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
                 image_name: input.entity_id.clone(),
             };
             let vm_id = Uuid::new_v4().to_string();
-            if entity_type == "docker" || entity_type == "wasm" {
+            let build_folder_path = format!(
+                "{}{}{}/entities/{}",
+                app_for_handler.tools().storage().storage_root(),
+                PLUGINS_TEMPLATE_NAME,
+                program.id,
+                input.entity_id
+            );
+            app_for_handler.tools().file().save_data_to_global_storage(
+                &build_folder_path,
+                &data,
+                &primary_file_name,
+                true,
+            )?;
+            if accepts_extra_files {
                 let mut files: HashMap<String, Value> = HashMap::new();
                 if let Some(files_raw) = input.metadata.get("files") {
                     match files_raw {
@@ -1011,24 +1034,6 @@ fn deploy(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
                         _ => return Err(anyhow!("files is not map")),
                     }
                 }
-                let build_folder_path = format!(
-                    "{}{}{}/entities/{}",
-                    app_for_handler.tools().storage().storage_root(),
-                    PLUGINS_TEMPLATE_NAME,
-                    program.id,
-                    input.entity_id
-                );
-                let primary_file_name = if entity_type == "wasm" {
-                    entity_runtime_file_name(&entity_type)
-                } else {
-                    "Dockerfile"
-                };
-                app_for_handler.tools().file().save_data_to_global_storage(
-                    &build_folder_path,
-                    &data,
-                    primary_file_name,
-                    true,
-                )?;
                 for (k, v) in &files {
                     let data_str = match v {
                         Value::String(s) => s.clone(),
@@ -1044,73 +1049,38 @@ fn deploy(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
                         true,
                     )?;
                 }
-                if entity_type == "wasm" {
-                    trx.put_link(
-                        &format!("vmEntityPath::{}::{}", program.id, input.entity_id),
-                        &format!("{}/{}", build_folder_path, primary_file_name),
-                    );
-                    trx.put_link(
-                        &format!("vmEntityType::{}::{}", program.id, input.entity_id),
-                        "wasm",
-                    );
-                    program.push(&*trx);
-                    app_for_handler.tools().vmm().assign(&program.id);
-                } else {
-                    let build_id = Uuid::new_v4().to_string();
-                    trx.put_link(&format!("VmBuilds::{}::{}", vm_id, build_id), "true");
-                    let app_async = app_for_handler.clone();
-                    let mid = program.id.clone();
-                    let eid = input.entity_id.clone();
-                    let path = build_folder_path.clone();
-                    let etype = entity_type.clone();
-                    let _ = async_once(move || {
-                        app_async
-                            .tools()
-                            .vmm()
-                            .build_vm_image(&mid, &eid, &path, &etype);
-                    });
-                    // Register the machine signal listener for non-wasm (e.g.
-                    // docker) creatures too. Without this, signals addressed to a
-                    // docker creature's program are dropped (no listener), so a
-                    // running docker tool/agent can never be reached over the
-                    // signaling API — every creature-to-creature signal silently
-                    // times out. The wasm branch above already does this.
-                    program.push(&*trx);
-                    app_for_handler.tools().vmm().assign(&program.id);
-                }
-            } else {
-                let file_name = entity_runtime_file_name(&entity_type);
-                let entity_folder_path = format!(
-                    "{}{}{}/entities/{}",
-                    app_for_handler.tools().storage().storage_root(),
-                    PLUGINS_TEMPLATE_NAME,
-                    program.id,
-                    input.entity_id
-                );
-                app_for_handler.tools().file().save_data_to_global_storage(
-                    &entity_folder_path,
-                    &data,
-                    file_name,
-                    true,
-                )?;
-                if entity_type == "elpify" {
-                    let build_id = Uuid::new_v4().to_string();
-                    trx.put_link(&format!("VmBuilds::{}::{}", vm_id, build_id), "true");
-                    let app_async = app_for_handler.clone();
-                    let mid = program.id.clone();
-                    let eid = input.entity_id.clone();
-                    let path = entity_folder_path.clone();
-                    let etype = entity_type.clone();
-                    let _ = async_once(move || {
-                        app_async
-                            .tools()
-                            .vmm()
-                            .build_vm_image(&mid, &eid, &path, &etype);
-                    });
-                }
-                program.push(&*trx);
-                app_for_handler.tools().vmm().assign(&program.id);
             }
+            if set_entity_links {
+                trx.put_link(
+                    &format!("vmEntityPath::{}::{}", program.id, input.entity_id),
+                    &format!("{}/{}", build_folder_path, primary_file_name),
+                );
+                trx.put_link(
+                    &format!("vmEntityType::{}::{}", program.id, input.entity_id),
+                    &entity_type,
+                );
+            }
+            if build_on_deploy {
+                let build_id = Uuid::new_v4().to_string();
+                trx.put_link(&format!("VmBuilds::{}::{}", vm_id, build_id), "true");
+                let app_async = app_for_handler.clone();
+                let mid = program.id.clone();
+                let eid = input.entity_id.clone();
+                let path = build_folder_path.clone();
+                let etype = entity_type.clone();
+                let _ = async_once(move || {
+                    app_async
+                        .tools()
+                        .vmm()
+                        .build_vm_image(&mid, &eid, &path, &etype);
+                });
+            }
+            // Register the machine signal listener for every runtime. Without
+            // this, signals addressed to a creature's program are dropped (no
+            // listener) and every creature-to-creature signal silently times
+            // out.
+            program.push(&*trx);
+            app_for_handler.tools().vmm().assign(&program.id);
             entity_model.entity_type = entity_type;
             entity_model.push(&*trx);
             Ok(serde_json::to_value(PlugInput::default())?)
@@ -1219,10 +1189,11 @@ fn install_program_bootstrap(app: Arc<dyn ICore>) {
         Box::new(move |trx: &dyn ITrx| {
             let programs = Program::all(trx, -1, -1)?;
             for program in programs {
-                if matches!(
-                    program.runtime.as_str(),
-                    "wasm" | "elpify" | "javascript" | "elpian" | "fire" | "docker"
-                ) {
+                if app_for_closure
+                    .tools()
+                    .vmm()
+                    .is_supported_runtime(&program.runtime)
+                {
                     app_for_closure.tools().vmm().assign(&program.id);
                     let store_id = trx.get_link(&format!("vmAlarmStoreId::{}", program.id));
                     if !store_id.is_empty() {

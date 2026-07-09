@@ -1,0 +1,17 @@
+{
+  "key": "elpify",
+  "name": "Elpify Provable VM",
+  "version": "0.1.0",
+  "description": "Executes MASM programs with STARK proof generation; batches transactions per program entity into single-proof windows and verifies program execution proofs.",
+  "aliases": ["masm"],
+  "artifactExtensions": [".masm"],
+  "inProcess": true,
+  "defaultRuntime": false,
+  "entityFileName": "module.elpify.js",
+  "acceptsExtraFiles": false,
+  "buildOnDeploy": true,
+  "setEntityLinksOnDeploy": false,
+  "supportsChainTrxs": false,
+  "restorable": false,
+  "providesProgramVerification": true
+}

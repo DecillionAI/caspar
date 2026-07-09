@@ -1,0 +1,17 @@
+{
+  "key": "docker",
+  "name": "Docker Containers",
+  "version": "0.1.0",
+  "description": "Runs program entities as sandboxed docker containers (gVisor by default) with persistent per-VM bind mounts and image builds from deployed Dockerfiles.",
+  "aliases": [],
+  "artifactExtensions": [],
+  "inProcess": false,
+  "defaultRuntime": false,
+  "entityFileName": "Dockerfile",
+  "acceptsExtraFiles": true,
+  "buildOnDeploy": true,
+  "setEntityLinksOnDeploy": false,
+  "supportsChainTrxs": false,
+  "restorable": true,
+  "execFallback": true
+}

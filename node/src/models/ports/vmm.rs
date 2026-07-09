@@ -108,4 +108,31 @@ pub trait IVmm: Send + Sync {
     fn host_action_creature(&self, op: &str, input: &JsonValue, req_id: i64) -> (String, i64);
     /// Dispatch a program CRUD host action (get/list/update/listByMachine).
     fn host_action_program(&self, op: &str, input: &JsonValue, req_id: i64) -> (String, i64);
+
+    // ── Dynamic VM runtime registry ──────────────────────────────────────
+    //
+    // The node never hardcodes VM type keys; everything below is answered by
+    // the VM plugin registry, so the set of supported runtimes is exactly the
+    // set of plugins the host admin compiled into this binary.
+
+    /// Canonical keys of every VM runtime compiled into this node.
+    fn supported_runtimes(&self) -> Vec<String>;
+    /// Whether `runtime` (key or alias) names a registered VM type.
+    fn is_supported_runtime(&self, runtime: &str) -> bool;
+    /// Whether `runtime` executes inside the node process (managed runtime).
+    fn is_managed_runtime(&self, runtime: &str) -> bool;
+    /// Whether `runtime` executes grouped chain transactions.
+    fn runtime_supports_chain_trxs(&self, runtime: &str) -> bool;
+    /// Deploy behaviour of `runtime` as declared by its plugin:
+    /// `{ entityFileName, acceptsExtraFiles, buildOnDeploy,
+    ///    setEntityLinksOnDeploy }`. `None` for unknown runtimes.
+    fn runtime_deploy_spec(&self, runtime: &str) -> Option<JsonValue>;
+    /// Ask `runtime`'s plugin to plan a standalone entity launch.
+    /// `ctx`: `{ machineId, programId, entityId, vmId, resources, params }` →
+    /// `{ input, links: [[key, value], ...] }`.
+    fn plan_run_entity(&self, runtime: &str, ctx: &JsonValue) -> Result<JsonValue, String>;
+    /// Ask `runtime`'s plugin to plan a standalone entity stop.
+    /// `ctx`: `{ machineId, programId, entityId, vmId }` →
+    /// `{ input, links: [{field, key, required}, ...] }`.
+    fn plan_stop_entity(&self, runtime: &str, ctx: &JsonValue) -> Result<JsonValue, String>;
 }

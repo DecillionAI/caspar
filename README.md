@@ -58,8 +58,13 @@ See [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md) for the full breakdown.
 - `node/` — main node runtime (**Rust**; binaries `caspar-node`, `caspar-keygen`)
   - `node/src/` — action router, core transactions, chain, VM manager, telemetry
   - `node/crates/` — `elpify-lang` (Miden STARK), `elpian-vm`, `async-wasi`,
-    `wasmedge-sys`/`-types`/`-macro`
+    `wasmedge-sys`/`-types`/`-macro`, `caspar-vm-plugins` (generated VM
+    plugin registration)
+- `vm-sdk/` — `caspar-vm-sdk`: the interface SDK every VM plugin implements
+- `vms/` — pluggable VM runtime projects (`wasm`, `javascript`, `docker`,
+  `fire`, `elpian`, `elpify`, plus any admin-added types); see `vms/README.md`
 - `cmd/casparctl/` — operator CLI (**Rust**): install / control / telemetry TUI
+  / VM plugin selection (`casparctl vms …`)
 - `sdk/` — Python client (`caspar_client.py`) + sample creatures
 - `docs/` — architecture, API, consensus notes, benchmarks, setup
 - `reports/` — benchmark run artifacts (`reports/final/` is current)
@@ -78,6 +83,13 @@ casparctl stats        # live telemetry TUI
 casparctl pause
 casparctl resume
 casparctl stop
+
+# pick which VM types this node supports (plugin-based VMM)
+casparctl vms list             # discover the VM projects in vms/
+casparctl vms disable docker   # exclude a VM type from the next build
+casparctl vms enable docker    # include it again
+casparctl vms sync             # regenerate the node's registration code
+casparctl vms new myvm         # scaffold a brand-new VM plugin project
 casparctl uninstall
 casparctl purge
 ```

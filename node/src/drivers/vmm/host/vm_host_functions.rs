@@ -1,8 +1,5 @@
 use crate::drivers::vmm::prelude::*;
 use crate::drivers::vmm::globals::with_global_app;
-use crate::drivers::vmm::controllers::docker_vm_controller::DockerVmController;
-use crate::drivers::vmm::controllers::fire_vm_controller::FireVmController;
-use crate::drivers::vmm::models::vm_runtime::{verify_program_execution_from_packet, parse_u64_array_field, parse_u8_array_field};
 use crate::drivers::vmm::bridge::runtime_io::wasm_send;
 use crate::drivers::vmm::host::functions::*;
 
@@ -459,18 +456,3 @@ pub(crate) fn host_fn_signal_group(input: &JsonValue) -> String {
     }
 }
 
-pub(crate) fn with_docker_controller<T, F>(f: F) -> Result<T, String>
-where
-    F: FnOnce(&DockerVmController) -> Result<T, String>,
-{
-    let controller = DockerVmController::new()?;
-    f(&controller)
-}
-
-pub(crate) fn with_fire_controller<T, F>(f: F) -> Result<T, String>
-where
-    F: FnOnce(&FireVmController) -> Result<T, String>,
-{
-    let controller = FireVmController::new()?;
-    f(&controller)
-}

@@ -323,12 +323,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "blockingqueue"
-version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "763bb38f196c65b369c68796e6d15b83d7eb63c354f2ab7c03c13edd13f2c4ff"
-
-[[package]]
 name = "bollard"
 version = "0.17.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -421,13 +415,11 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
- "blockingqueue",
- "bollard",
+ "caspar-vm-plugins",
+ "caspar-vm-sdk",
  "chrono",
  "crossbeam-channel",
  "dashmap",
- "elpian_vm",
- "elpify-lang",
  "futures-util",
  "getrandom 0.2.17",
  "hex",
@@ -452,10 +444,89 @@ dependencies = [
  "sha2 0.11.0",
  "tar",
  "thiserror 2.0.18",
- "timedmap",
  "tokio",
  "tungstenite",
  "uuid",
+]
+
+[[package]]
+name = "caspar-vm-docker"
+version = "0.1.0"
+dependencies = [
+ "bollard",
+ "caspar-vm-sdk",
+ "chrono",
+ "futures-util",
+ "serde_json",
+ "tar",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
+name = "caspar-vm-elpian"
+version = "0.1.0"
+dependencies = [
+ "caspar-vm-sdk",
+ "elpian_vm",
+ "serde_json",
+]
+
+[[package]]
+name = "caspar-vm-elpify"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "caspar-vm-sdk",
+ "elpify-lang",
+ "serde_json",
+]
+
+[[package]]
+name = "caspar-vm-fire"
+version = "0.1.0"
+dependencies = [
+ "caspar-vm-sdk",
+ "serde_json",
+]
+
+[[package]]
+name = "caspar-vm-javascript"
+version = "0.1.0"
+dependencies = [
+ "caspar-vm-sdk",
+ "elpify-lang",
+ "serde_json",
+]
+
+[[package]]
+name = "caspar-vm-plugins"
+version = "0.1.0"
+dependencies = [
+ "caspar-vm-docker",
+ "caspar-vm-elpian",
+ "caspar-vm-elpify",
+ "caspar-vm-fire",
+ "caspar-vm-javascript",
+ "caspar-vm-sdk",
+ "caspar-vm-wasm",
+]
+
+[[package]]
+name = "caspar-vm-sdk"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "caspar-vm-wasm"
+version = "0.1.0"
+dependencies = [
+ "caspar-vm-sdk",
+ "serde_json",
  "wasmedge-sys",
  "wasmedge-types",
 ]
@@ -755,7 +826,6 @@ version = "0.5.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7cd812cc2bc1d69d4764bd80df88b4317eaef9e773c75226407d9bc0876b211c"
 dependencies = [
- "powerfmt",
  "serde_core",
 ]
 
@@ -3668,9 +3738,9 @@ dependencies = [
 
 [[package]]
 name = "serde_with"
-version = "3.20.0"
+version = "3.21.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e72c1c2cb7b223fafb600a619537a871c2818583d619401b785e7c0b746ccde2"
+checksum = "76a5c54c7310e7b8b9577c286d7e399ddd876c3e12b3ed917a8aabc4b96e9e8c"
 dependencies = [
  "base64 0.22.1",
  "bs58",
@@ -4136,12 +4206,11 @@ dependencies = [
 
 [[package]]
 name = "time"
-version = "0.3.47"
+version = "0.3.53"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "743bd48c283afc0388f9b8827b976905fb217ad9e647fae3a379a9283c4def2c"
+checksum = "18dfaaeddcb932337b5e7866ee7d0ce9b76d2fd092997146f187ec09b4558a50"
 dependencies = [
  "deranged",
- "itoa",
  "num-conv",
  "powerfmt",
  "serde_core",
@@ -4151,25 +4220,19 @@ dependencies = [
 
 [[package]]
 name = "time-core"
-version = "0.1.8"
+version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7694e1cfe791f8d31026952abf09c69ca6f6fa4e1a1229e18988f06a04a12dca"
+checksum = "9e1c906769ad99c88eaa54e728060edef082f8e358ff32030cb7c7d315e81109"
 
 [[package]]
 name = "time-macros"
-version = "0.2.27"
+version = "0.2.31"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2e70e4c5a0e0a8a4823ad65dfe1a6930e4f4d756dcd9dd7939022b5e8c501215"
+checksum = "c431b87111666e491a90baa837f914fb45cd5dc3c268591b0220ff5057f2085f"
 dependencies = [
  "num-conv",
  "time-core",
 ]
-
-[[package]]
-name = "timedmap"
-version = "1.0.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0cc430736149d1428180bd452a3fdc981a29e818ee7513929c7d4c73f24df778"
 
 [[package]]
 name = "tinystr"

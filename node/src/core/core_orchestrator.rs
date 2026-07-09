@@ -235,10 +235,7 @@ impl Core {
                 }),
             );
             let runtime_type = runtime_slot.lock().unwrap().clone();
-            if matches!(
-                runtime_type.as_str(),
-                "wasm" | "docker" | "javascript" | "elpify" | "elpian" | "fire"
-            ) {
+            if self.tools().vmm().is_supported_runtime(&runtime_type) {
                 let listeners = self.tools().signaler().listeners();
                 let listener = listeners.get(machine_id).map(|e| e.value().clone());
                 if let Some(listener) = listener {
@@ -259,10 +256,10 @@ impl Core {
             let payload = packet.payload.clone();
             let trans = self.clone();
             thread::spawn(move || {
-                if matches!(
-                    runtime_clone.as_str(),
-                    "wasm" | "javascript" | "elpify" | "elpian" | "fire"
-                ) {
+                // Only in-process (managed) runtimes are cold-started to
+                // handle a chain message; externally supervised VMs are
+                // reached via their live gateway listeners above.
+                if trans.tools().vmm().is_managed_runtime(&runtime_clone) {
                     let data = String::from_utf8_lossy(&payload).into_owned();
                     trans.tools().vmm().run_vm(&machine_id_owned, &store_id, &data);
                 }
@@ -603,12 +600,14 @@ impl ICore for Core {
     }
     fn app_pending_trxs(&self) {
         let pending = std::mem::take(&mut *self.app_pending_trxs.lock().unwrap());
-        let wasm_trxs: Vec<WorkerTrx> = pending
+        // Group-executable chain transactions are those whose runtime plugin
+        // declares chain-transaction support.
+        let chain_trxs: Vec<WorkerTrx> = pending
             .into_iter()
-            .filter(|t| t.runtime == "wasm")
+            .filter(|t| self.tools().vmm().runtime_supports_chain_trxs(&t.runtime))
             .collect();
-        if !wasm_trxs.is_empty() {
-            self.tools().vmm().execute_chain_trxs_group(wasm_trxs);
+        if !chain_trxs.is_empty() {
+            self.tools().vmm().execute_chain_trxs_group(chain_trxs);
         }
     }
     fn ip_addr(&self) -> String {
