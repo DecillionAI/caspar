@@ -92,6 +92,26 @@ pub struct DeployInput {
     pub payload: String,
     #[serde(default)]
     pub metadata: HashMap<String, Value>,
+    /// Deployment scope: `"cluster"` (aliases: `"global"`, `"distributed"`)
+    /// propagates the creature program to every Caspar instance of this
+    /// origin so any edge instance can execute it; `"local"` (default, alias
+    /// empty) keeps it on the receiving instance only.
+    #[serde(default)]
+    pub distribution: String,
+    /// Boolean shorthand for `distribution: "cluster"`.
+    #[serde(default)]
+    pub distributed: bool,
+}
+
+impl DeployInput {
+    /// True when the developer opted into cluster-wide propagation.
+    pub fn wants_distribution(&self) -> bool {
+        self.distributed
+            || matches!(
+                self.distribution.trim().to_lowercase().as_str(),
+                "cluster" | "global" | "distributed"
+            )
+    }
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

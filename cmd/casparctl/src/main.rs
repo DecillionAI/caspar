@@ -35,6 +35,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, bail, Context, Result};
 
+mod cluster;
 mod vms;
 use chrono::{DateTime, Local};
 use regex::Regex;
@@ -148,6 +149,7 @@ fn main() {
         "stats" => run_stats(&args[2..]),
         "pprof" => run_pprof(&args[2..]),
         "vms" => vms::run_vms(&args[2..]),
+        "cluster" => cluster::run_cluster(&args[2..]),
         "help" | "-h" | "--help" => {
             print_usage();
             Ok(())
@@ -178,7 +180,8 @@ fn print_usage() {
          stop       Stop the Caspar container\n  \
          stats      Realtime multi-section dashboard (container + telemetry + chain)\n  \
          pprof      Query the node runtime profiler (rust pprof crate)\n  \
-         vms        Manage the node's pluggable VM types (list/enable/disable/sync/new)\n\n\
+         vms        Manage the node's pluggable VM types (list/enable/disable/sync/new)\n  \
+         cluster    Orchestrate the geo-distributed instance mesh (peers/config/status)\n\n\
          Run \"casparctl <command> --help\" for command-specific flags."
     );
 }

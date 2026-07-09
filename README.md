@@ -33,6 +33,13 @@ written in **Rust** (the previous Go implementation is retained only under
   inside WASM and is attested by Miden **STARK** zero-knowledge proofs.
 - **Federation bridge** — authenticated cross-origin request/update propagation
   for composing creatures across independent deployments.
+- **Geo-distributed instance mesh** — instances of the same origin form an
+  edge-style global cluster replicated with **OpenRaft**: shell API state is
+  available on every instance, creatures can opt into cluster-wide
+  distributed deployment (`distribution: "cluster"`), and distributed VM
+  state propagates through the consensus while local-mode VMs stay
+  node-local. Orchestrated via `casparctl cluster …`
+  (see [`docs/CLUSTER.md`](docs/CLUSTER.md)).
 - **Shard-parallel scale-out** — each shard is a self-contained three-node
   hashgraph group; aggregate throughput scales linearly with shard count.
 - **Telemetry** — a snapshot HTTP API and a live `casparctl stats` TUI.
@@ -91,6 +98,12 @@ casparctl vms disable docker   # exclude a VM type from the next build
 casparctl vms enable docker    # include it again
 casparctl vms sync             # regenerate the node's registration code
 casparctl vms new myvm         # scaffold a brand-new VM plugin project
+
+# orchestrate the geo-distributed instance mesh (OpenRaft cluster)
+casparctl cluster status                                    # leader/membership/RTT
+casparctl cluster add-peer --id 2 --addr eu.example.com:7440 --region eu-west
+casparctl cluster apply -f cluster.json                     # whole-cluster config
+casparctl cluster config set heartbeat_interval_ms 250      # one knob at a time
 casparctl uninstall
 casparctl purge
 ```
