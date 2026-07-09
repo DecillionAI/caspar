@@ -57,12 +57,13 @@ See [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md) for the full breakdown.
 
 - `node/` — main node runtime (**Rust**; binaries `caspar-node`, `caspar-keygen`)
   - `node/src/` — action router, core transactions, chain, VM manager, telemetry
-  - `node/crates/` — `elpify-lang` (Miden STARK), `elpian-vm`, `async-wasi`,
-    `wasmedge-sys`/`-types`/`-macro`, `caspar-vm-plugins` (generated VM
-    plugin registration)
+  - `node/crates/` — `caspar-vm-plugins` (generated VM plugin registration)
 - `vm-sdk/` — `caspar-vm-sdk`: the interface SDK every VM plugin implements
 - `vms/` — pluggable VM runtime projects (`wasm`, `javascript`, `docker`,
-  `fire`, `elpian`, `elpify`, plus any admin-added types); see `vms/README.md`
+  `fire`, `elpian`, `elpify`, plus any admin-added types); see `vms/README.md`.
+  Runtime library crates live with the plugin that uses them:
+  `vms/wasm/crates/` (`wasmedge-sys`/`-types`/`-macro`, `async-wasi`),
+  `vms/elpify/crates/elpify-lang` (Miden STARK), `vms/elpian/crates/elpian-vm`
 - `cmd/casparctl/` — operator CLI (**Rust**): install / control / telemetry TUI
   / VM plugin selection (`casparctl vms …`)
 - `sdk/` — Python client (`caspar_client.py`) + sample creatures

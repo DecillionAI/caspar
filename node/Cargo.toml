@@ -12,28 +12,12 @@ path = "src/main.rs"
 name = "caspar-keygen"
 path = "src/bin/keygen.rs"
 
+# The per-runtime library crates (wasmedge*, elpian-vm, elpify-lang, …) live
+# inside the VM plugin projects that use them (../vms/<key>/crates); the only
+# crate left here is the generated caspar-vm-plugins aggregation crate.
 [workspace]
 resolver = "2"
-# `crates/*` keeps the runtime-library crates (wasmedge, elpian, elpify, the
-# generated caspar-vm-plugins aggregation crate, …) buildable as workspace
-# members even when the node itself no longer depends on them directly — the
-# VM plugin projects under ../vms reference them by path.
 members = [".", "crates/*"]
-
-[workspace.dependencies]
-async-wasi = { path = "crates/async-wasi", version = "0.2.0" }
-cfg-if = "1.0.0"
-parking_lot = "0.12.1"
-wasmedge-macro = { path = "crates/wasmedge-macro", version = "0.6" }
-wasmedge-types = { path = "crates/wasmedge-types", version = "0.6" }
-wat = "1.0"
-
-# Local workspace crates. The package names follow the per-crate
-# `[package].name` (the elpian crate uses the underscored form, the others
-# use the hyphenated form).
-elpian_vm    = { path = "crates/elpian-vm",   version = "0.1.0" }
-elpify-lang  = { path = "crates/elpify-lang", version = "0.1.0" }
-wasmedge-sys = { path = "crates/wasmedge-sys", version = "0.19.4" }
 
 [dependencies]
 anyhow = "1.0.102"
