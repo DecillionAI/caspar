@@ -186,6 +186,18 @@ fn main() {
         .unwrap_or(8079);
     app.tools().vmm().start_docker_gateway(docker_gateway_port);
 
+    // ── VMM HTTP ingress ──────────────────────────────────────────────────────
+    // Inbound HTTP server that accepts requests shaped as
+    // `/{creatureId}/{programId}/{entityId}/{path…}` and forwards them to the
+    // HTTP server of the VM the entity belongs to: the docker runtime proxies to
+    // the container's HTTP server, every other runtime falls back to signalling
+    // the VM. Disabled when the port is unset/zero.
+    let vm_http_ingress_port: i64 = env::var("VM_HTTP_INGRESS_PORT")
+        .ok()
+        .and_then(|p| p.parse().ok())
+        .unwrap_or(8090);
+    app.tools().vmm().start_http_ingress(vm_http_ingress_port);
+
     let port_tcp: i64 = env::var("CLIENT_TCP_API_PORT")
         .ok()
         .and_then(|p| p.parse().ok())

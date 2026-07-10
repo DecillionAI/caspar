@@ -33,6 +33,25 @@ fn gateway_network_name() -> String {
     std::env::var("CASPAR_GATEWAY_NETWORK").unwrap_or_else(|_| "kasper".to_string())
 }
 
+/// TCP port the HTTP server inside a container listens on. The VMM ingress
+/// proxies forwarded requests here; the same value is injected into the
+/// container's environment so the application knows where to bind.
+fn vm_http_port() -> u16 {
+    std::env::var("CASPAR_VM_HTTP_PORT")
+        .ok()
+        .and_then(|p| p.trim().parse::<u16>().ok())
+        .unwrap_or(8080)
+}
+
+/// Timeout (seconds) for a forwarded request to the container HTTP server.
+fn vm_http_timeout_secs() -> u64 {
+    std::env::var("CASPAR_VM_HTTP_TIMEOUT_SECS")
+        .ok()
+        .and_then(|p| p.trim().parse::<u64>().ok())
+        .filter(|s| *s > 0)
+        .unwrap_or(30)
+}
+
 pub struct DockerVmPlugin {
     meta: VmPluginMeta,
 }
@@ -537,6 +556,159 @@ impl DockerVmController {
         Ok(None)
     }
 
+    /// Resolve the IP address of `container_id` on the gateway bridge network
+    /// (falling back to any network it is attached to). Used to proxy inbound
+    /// HTTP requests to the HTTP server running inside the container.
+    fn find_container_ip(&self, container_id: &str) -> Result<Option<String>, String> {
+        let summaries = self.with_async(self.docker.list_containers(Some(
+            ListContainersOptions::<String> {
+                all: false,
+                ..Default::default()
+            },
+        )))?;
+        let gateway_net = gateway_network_name();
+        for c in summaries {
+            let is_match = c
+                .names
+                .as_ref()
+                .map(|names| {
+                    names
+                        .iter()
+                        .any(|n| n.trim_start_matches('/') == container_id)
+                })
+                .unwrap_or(false);
+            if !is_match {
+                continue;
+            }
+            let networks = match c
+                .network_settings
+                .as_ref()
+                .and_then(|ns| ns.networks.as_ref())
+            {
+                Some(n) => n,
+                None => return Ok(None),
+            };
+            // Prefer the shared gateway network; fall back to any attached net.
+            if let Some(ep) = networks.get(&gateway_net) {
+                if let Some(ip) = ep.ip_address.as_deref().filter(|s| !s.is_empty()) {
+                    return Ok(Some(ip.to_string()));
+                }
+            }
+            for ep in networks.values() {
+                if let Some(ip) = ep.ip_address.as_deref().filter(|s| !s.is_empty()) {
+                    return Ok(Some(ip.to_string()));
+                }
+            }
+            return Ok(None);
+        }
+        Ok(None)
+    }
+
+    /// Proxy a packaged inbound HTTP request to the HTTP server running inside
+    /// the target container and return its real response.
+    fn forward_http(&self, packet: &JsonValue) -> Result<JsonValue, String> {
+        let machine_id = packet["machineId"].as_str().unwrap_or("");
+        if machine_id.is_empty() {
+            return Err("machineId is required".to_string());
+        }
+        let identity = DockerIdentity::from_packet(packet);
+        let container_id = docker_container_id(
+            machine_id,
+            &identity.entity_id,
+            &identity.container_name,
+            &identity.vm_id,
+        );
+
+        // Resume a suspended sandbox before forwarding, mirroring exec_vm's
+        // wake-on-use behaviour.
+        match self.container_state(&container_id)? {
+            Some(s) if s == "running" => {}
+            _ => {
+                let _ = self.run_vm(packet);
+            }
+        }
+
+        let ip = self
+            .find_container_ip(&container_id)?
+            .ok_or_else(|| format!("no running container found for {}", container_id))?;
+        let port = vm_http_port();
+
+        let raw_path = packet["path"].as_str().unwrap_or("/");
+        let path = if raw_path.starts_with('/') {
+            raw_path.to_string()
+        } else {
+            format!("/{}", raw_path)
+        };
+        let query = packet["query"].as_str().unwrap_or("");
+        let url = if query.is_empty() {
+            format!("http://{}:{}{}", ip, port, path)
+        } else {
+            format!("http://{}:{}{}?{}", ip, port, path, query)
+        };
+
+        let method_str = packet["method"].as_str().unwrap_or("GET").to_uppercase();
+        let method = reqwest::Method::from_bytes(method_str.as_bytes())
+            .map_err(|e| format!("invalid HTTP method '{}': {}", method_str, e))?;
+        let body = packet["bodyBase64"]
+            .as_str()
+            .filter(|s| !s.is_empty())
+            .map(|s| {
+                use base64::Engine;
+                base64::engine::general_purpose::STANDARD
+                    .decode(s)
+                    .map_err(|e| format!("invalid bodyBase64: {}", e))
+            })
+            .transpose()?
+            .unwrap_or_default();
+
+        let client = reqwest::blocking::Client::builder()
+            .timeout(Duration::from_secs(vm_http_timeout_secs()))
+            .build()
+            .map_err(|e| format!("http client init failed: {}", e))?;
+        let mut builder = client.request(method, &url).body(body);
+        if let Some(headers) = packet["headers"].as_object() {
+            for (k, v) in headers {
+                // Skip hop-by-hop headers the client will recompute.
+                if k.eq_ignore_ascii_case("host")
+                    || k.eq_ignore_ascii_case("content-length")
+                    || k.eq_ignore_ascii_case("connection")
+                {
+                    continue;
+                }
+                if let Some(val) = v.as_str() {
+                    builder = builder.header(k, val);
+                }
+            }
+        }
+
+        let response = builder
+            .send()
+            .map_err(|e| format!("forwarding to container HTTP server failed: {}", e))?;
+        let status = response.status().as_u16();
+        let mut resp_headers = Map::new();
+        for (k, v) in response.headers().iter() {
+            if let Ok(val) = v.to_str() {
+                resp_headers.insert(k.as_str().to_string(), json!(val));
+            }
+        }
+        let bytes = response
+            .bytes()
+            .map_err(|e| format!("failed to read container HTTP response body: {}", e))?;
+        use base64::Engine;
+        let body_b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
+
+        Ok(json!({
+            "ok": true,
+            "runtime": "docker",
+            "machineId": machine_id,
+            "vmId": identity.vm_id,
+            "containerId": container_id,
+            "status": status,
+            "headers": JsonValue::Object(resp_headers),
+            "bodyBase64": body_b64,
+        }))
+    }
+
     /// Returns the docker container state (`"running"` / `"exited"` / ...)
     /// or `None` if the container does not exist.
     fn container_state(&self, container_id: &str) -> Result<Option<String>, String> {
@@ -692,6 +864,13 @@ impl VmPlugin for DockerVmPlugin {
             .flatten()
     }
 
+    /// Docker VMs run a persistent HTTP server inside the container, so the
+    /// packaged request is proxied straight to it (rather than the generic
+    /// signal fallback the other runtimes use).
+    fn forward_http(&self, packet: &JsonValue) -> Result<JsonValue, String> {
+        self.with_controller(|c| c.forward_http(packet))
+    }
+
     /// Standalone runEntity plan: docker launches need a generated container
     /// name (recorded as a state link so stop/billing can find it), the image
     /// reference derived from machine + entity, and the params delivered as
@@ -781,6 +960,9 @@ fn gateway_container_env(vm_id: &str) -> Vec<String> {
         format!("CASPAR_GATEWAY_HOST={}", host),
         format!("CASPAR_GATEWAY_PORT={}", port),
         format!("CASPAR_VM_ID={}", vm_id),
+        // The port the container's own HTTP server should bind to so the VMM
+        // HTTP ingress can proxy inbound requests to it.
+        format!("CASPAR_VM_HTTP_PORT={}", vm_http_port()),
     ]
 }
 

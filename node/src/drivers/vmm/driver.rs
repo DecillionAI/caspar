@@ -61,6 +61,12 @@ pub struct Vmm {
     /// is no gateway global.
     pub(crate) gateway: Arc<crate::drivers::vmm::network::docker_host::DockerHostGateway>,
 
+    /// The VMM HTTP ingress server. Accepts inbound
+    /// `/{creatureId}/{programId}/{entityId}/{path…}` requests and forwards
+    /// them to the VM the entity belongs to. Owned here for the same reason as
+    /// the gateway — reached only through the canonical `tools().vmm()` path.
+    pub(crate) http_ingress: Arc<crate::drivers::vmm::network::ingress::VmHttpIngress>,
+
     /// docker container name → authoritative VM identity. Populated when the
     /// node launches a docker creature; the gateway resolves a connection's
     /// identity by mapping its source IP to a container name and looking it up
@@ -86,6 +92,7 @@ impl Vmm {
         // compiled into this binary (the generated caspar-vm-plugins crate).
         crate::drivers::vmm::host_bridge::init_vm_plugins();
         let gateway = crate::drivers::vmm::network::docker_host::DockerHostGateway::new(app.clone());
+        let http_ingress = crate::drivers::vmm::network::ingress::VmHttpIngress::new(app.clone());
         let vmm = Arc::new(Vmm {
             app,
             storage_root: storage_root.to_string(),
@@ -95,6 +102,7 @@ impl Vmm {
             vm_trx: DashMap::new(),
             resource_locks: DashMap::new(),
             gateway,
+            http_ingress,
             vm_containers: DashMap::new(),
         });
         vmm
@@ -375,6 +383,10 @@ impl IVmm for Vmm {
 
     fn start_docker_gateway(&self, port: i64) {
         self.gateway.listen(port);
+    }
+
+    fn start_http_ingress(&self, port: i64) {
+        self.http_ingress.listen(port);
     }
 
     fn register_vm_container(

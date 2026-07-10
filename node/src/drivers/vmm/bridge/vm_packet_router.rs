@@ -30,6 +30,7 @@ pub fn route_vm_packet(packet: &JsonValue) -> String {
             }
             VmPacketKind::HostCall => handle_unified_host_call(&owned),
             VmPacketKind::VerifyProgramExecution => dispatch_verify_program_packet(&owned),
+            VmPacketKind::ForwardHttp => dispatch_forward_http_packet(&owned),
             VmPacketKind::ApiResponse => {
                 json!({"ok": true, "skipped": "in-process mode"}).to_string()
             }
@@ -125,6 +126,28 @@ where
         }
     };
     match op(&plugin, packet) {
+        Ok(res) => res.to_string(),
+        Err(err) => json!({"ok": false, "error": err}).to_string(),
+    }
+}
+
+fn dispatch_forward_http_packet(packet: &JsonValue) -> String {
+    // Resolve the runtime the same way run_vm does: explicit `runtime`/`vmType`
+    // hint first, then artifact-extension detection on the entity path, then the
+    // default runtime. The ingress fills `runtime` from the entity's recorded
+    // type, so this normally resolves directly.
+    let ast_path = packet["entityPath"]
+        .as_str()
+        .or_else(|| packet["astPath"].as_str())
+        .unwrap_or("");
+    let plugin = match vm_registry::resolve_for_packet(packet, ast_path) {
+        Some(p) => p,
+        None => {
+            return json!({"ok": false, "error": "no VM runtime plugins are registered"})
+                .to_string()
+        }
+    };
+    match plugin.forward_http(packet) {
         Ok(res) => res.to_string(),
         Err(err) => json!({"ok": false, "error": err}).to_string(),
     }

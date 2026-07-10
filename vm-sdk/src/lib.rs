@@ -32,7 +32,7 @@ pub mod util;
 
 pub use host::{host, host_or_err, set_host, KvOp, VmHost};
 pub use meta::VmPluginMeta;
-pub use plugin::VmPlugin;
+pub use plugin::{forward_http_via_signal, VmPlugin};
 pub use util::{
     normalize_runtime, panic_message, parse_u64_array_field, parse_u8_array_field,
     parse_vm_resource_limits, VmResourceLimits,

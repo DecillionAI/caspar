@@ -31,6 +31,13 @@ pub trait IVmm: Send + Sync {
     /// No-op when `port <= 0` or already running. The gateway is owned by the
     /// VMM instance — callers reach it only through `tools().vmm()`.
     fn start_docker_gateway(&self, port: i64);
+
+    /// Start the VMM HTTP ingress listener. It accepts requests shaped as
+    /// `/{creatureId}/{programId}/{entityId}/{path…}` and forwards them to the
+    /// HTTP server of the VM the entity belongs to (docker proxies to the
+    /// container; other runtimes fall back to signalling). No-op when
+    /// `port <= 0` or already running.
+    fn start_http_ingress(&self, port: i64);
     /// Bind a docker container *name* to its VM's authoritative identity. Done
     /// when the node launches the container, so a gateway connection can be
     /// identified by resolving its source IP → container name → this identity.
