@@ -166,9 +166,10 @@ pub trait VmPlugin: Send + Sync {
     // ── Inbound HTTP forwarding ───────────────────────────────────────────
     //
     // The VMM exposes an HTTP ingress at
-    //   `{node instance url}/{creatureId}/{programId}/{entityId}/{path…}`
-    // It strips the three identity segments, packages the remaining request,
-    // and calls [`VmPlugin::forward_http`] on the entity's runtime plugin.
+    //   `{node instance url}/{creatureId}/{programId}/{entityId}/{vmId}/{path…}`
+    // It strips the four identity segments, packages the remaining request, and
+    // calls [`VmPlugin::forward_http`] on the entity's runtime plugin. `vmId`
+    // names the specific VM instance the request is forwarded to.
 
     /// Forward an inbound HTTP request to the entity's VM.
     ///

@@ -3,14 +3,14 @@
 //! A long-lived HTTP listener that accepts requests shaped as
 //!
 //! ```text
-//! {caspar node instance url}/{creatureId}/{programId}/{entityId}/{path…}
+//! {caspar node instance url}/{creatureId}/{programId}/{entityId}/{vmId}/{path…}
 //! ```
 //!
-//! and forwards them to the HTTP server of the VM that the entity belongs to.
-//! The ingress strips the three identity segments, resolves the entity's
-//! runtime (and, when applicable, the running VM instance), packages the
-//! remaining request into a `forwardHttp` packet, and hands it to the unified
-//! VM packet router. The router dispatches it to the entity's runtime plugin
+//! and forwards them to the HTTP server of the VM instance named by `vmId`.
+//! The ingress strips the four identity segments, resolves the entity's
+//! runtime (and the target instance's container name, when applicable),
+//! packages the remaining request into a `forwardHttp` packet, and hands it to
+//! the unified VM packet router. The router dispatches it to the entity's plugin
 //! through the `caspar_vm_sdk` registry — so no VM type is named here:
 //!
 //! * five of the six runtimes fall back to the SDK's generic
@@ -111,7 +111,7 @@ impl VmHttpIngress {
                     None,
                     json!({
                         "ok": false,
-                        "error": "path must be /{creatureId}/{programId}/{entityId}/{path…}"
+                        "error": "path must be /{creatureId}/{programId}/{entityId}/{vmId}/{path…}"
                     })
                     .to_string()
                     .into_bytes(),
@@ -119,7 +119,7 @@ impl VmHttpIngress {
             }
         };
 
-        let resolved = self.resolve_target(&seg.program_id, &seg.entity_id);
+        let resolved = self.resolve_target(&seg.program_id, &seg.entity_id, &seg.vm_id);
 
         let mut headers_map = serde_json::Map::new();
         for (k, v) in &req.headers {
@@ -134,7 +134,7 @@ impl VmHttpIngress {
             "programId": seg.program_id,
             "machineId": seg.program_id,
             "entityId": seg.entity_id,
-            "vmId": resolved.vm_id,
+            "vmId": seg.vm_id,
             "containerName": resolved.container_name,
             "entityPath": resolved.entity_path,
             "method": req.method,
@@ -168,12 +168,15 @@ impl VmHttpIngress {
         (status, status_reason(status), content_type, extra_headers, body)
     }
 
-    /// Resolve the runtime, running VM instance, and entity module path for an
-    /// entity from the node state (all best-effort — a missing instance simply
-    /// yields empty fields and the plugin decides how to proceed).
-    fn resolve_target(&self, program_id: &str, entity_id: &str) -> ResolvedTarget {
+    /// Resolve the runtime, the target VM instance's container name, and the
+    /// entity module path from the node state (all best-effort — missing links
+    /// simply yield empty fields and the plugin decides how to proceed). The
+    /// caller supplies the `vm_id` explicitly (it is a required path segment),
+    /// so this never has to guess which instance to target.
+    fn resolve_target(&self, program_id: &str, entity_id: &str, vm_id: &str) -> ResolvedTarget {
         let program_id = program_id.to_string();
         let entity_id = entity_id.to_string();
+        let vm_id = vm_id.to_string();
         let slot = Arc::new(Mutex::new(ResolvedTarget::default()));
         let slot_c = slot.clone();
         self.app.modify_state(
@@ -207,19 +210,15 @@ impl VmHttpIngress {
                     out.entity_path = entity_path;
                 }
 
-                // A running VM instance of this entity, if one exists. Keys are
-                // `link::VmInstance::{program}::{entity}::{vmId}`.
-                let prefix = format!("link::VmInstance::{}::{}::", program_id, entity_id);
-                if let Some(key) = trx.get_by_prefix(&prefix).into_iter().next() {
-                    if let Some(vm_id) = key.rsplit("::").next() {
-                        out.vm_id = vm_id.to_string();
-                        let name = trx.get_link(&format!(
-                            "VmContainerName::{}::{}::{}",
-                            program_id, entity_id, out.vm_id
-                        ));
-                        if !name.trim().is_empty() {
-                            out.container_name = name;
-                        }
+                // Container name recorded at launch for this specific VM
+                // instance, if any (`VmContainerName::{program}::{entity}::{vmId}`).
+                if !vm_id.is_empty() {
+                    let name = trx.get_link(&format!(
+                        "VmContainerName::{}::{}::{}",
+                        program_id, entity_id, vm_id
+                    ));
+                    if !name.trim().is_empty() {
+                        out.container_name = name;
                     }
                 }
 
@@ -235,7 +234,6 @@ impl VmHttpIngress {
 #[derive(Clone, Default)]
 struct ResolvedTarget {
     runtime: String,
-    vm_id: String,
     container_name: String,
     entity_path: String,
 }
@@ -252,22 +250,28 @@ struct IdentitySegments {
     creature_id: String,
     program_id: String,
     entity_id: String,
+    vm_id: String,
     rest_path: String,
 }
 
-/// Split a request path into `/{creatureId}/{programId}/{entityId}/{rest…}`.
+/// Split a request path into
+/// `/{creatureId}/{programId}/{entityId}/{vmId}/{rest…}`. All four identity
+/// segments are required; the VM id names the specific instance the request is
+/// forwarded to.
 fn split_identity(path: &str) -> Option<IdentitySegments> {
     let trimmed = path.trim_start_matches('/');
-    let mut it = trimmed.splitn(4, '/');
+    let mut it = trimmed.splitn(5, '/');
     let creature_id = it.next().filter(|s| !s.is_empty())?.to_string();
     let program_id = it.next().filter(|s| !s.is_empty())?.to_string();
     let entity_id = it.next().filter(|s| !s.is_empty())?.to_string();
+    let vm_id = it.next().filter(|s| !s.is_empty())?.to_string();
     let rest = it.next().unwrap_or("");
     let rest_path = format!("/{}", rest);
     Some(IdentitySegments {
         creature_id,
         program_id,
         entity_id,
+        vm_id,
         rest_path,
     })
 }

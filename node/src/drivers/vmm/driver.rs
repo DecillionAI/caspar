@@ -62,8 +62,8 @@ pub struct Vmm {
     pub(crate) gateway: Arc<crate::drivers::vmm::network::docker_host::DockerHostGateway>,
 
     /// The VMM HTTP ingress server. Accepts inbound
-    /// `/{creatureId}/{programId}/{entityId}/{path…}` requests and forwards
-    /// them to the VM the entity belongs to. Owned here for the same reason as
+    /// `/{creatureId}/{programId}/{entityId}/{vmId}/{path…}` requests and
+    /// forwards them to the named VM instance. Owned here for the same reason as
     /// the gateway — reached only through the canonical `tools().vmm()` path.
     pub(crate) http_ingress: Arc<crate::drivers::vmm::network::ingress::VmHttpIngress>,
 

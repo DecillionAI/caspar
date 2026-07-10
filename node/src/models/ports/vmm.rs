@@ -33,8 +33,8 @@ pub trait IVmm: Send + Sync {
     fn start_docker_gateway(&self, port: i64);
 
     /// Start the VMM HTTP ingress listener. It accepts requests shaped as
-    /// `/{creatureId}/{programId}/{entityId}/{path…}` and forwards them to the
-    /// HTTP server of the VM the entity belongs to (docker proxies to the
+    /// `/{creatureId}/{programId}/{entityId}/{vmId}/{path…}` and forwards them
+    /// to the HTTP server of the named VM instance (docker proxies to the
     /// container; other runtimes fall back to signalling). No-op when
     /// `port <= 0` or already running.
     fn start_http_ingress(&self, port: i64);

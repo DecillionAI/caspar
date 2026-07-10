@@ -188,8 +188,8 @@ fn main() {
 
     // ── VMM HTTP ingress ──────────────────────────────────────────────────────
     // Inbound HTTP server that accepts requests shaped as
-    // `/{creatureId}/{programId}/{entityId}/{path…}` and forwards them to the
-    // HTTP server of the VM the entity belongs to: the docker runtime proxies to
+    // `/{creatureId}/{programId}/{entityId}/{vmId}/{path…}` and forwards them to
+    // the HTTP server of the named VM instance: the docker runtime proxies to
     // the container's HTTP server, every other runtime falls back to signalling
     // the VM. Disabled when the port is unset/zero.
     let vm_http_ingress_port: i64 = env::var("VM_HTTP_INGRESS_PORT")
