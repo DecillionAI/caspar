@@ -163,6 +163,38 @@ pub trait VmPlugin: Send + Sync {
         }))
     }
 
+    // ── Inbound HTTP forwarding ───────────────────────────────────────────
+    //
+    // The VMM exposes an HTTP ingress at
+    //   `{node instance url}/{creatureId}/{programId}/{entityId}/{vmId}/{path…}`
+    // It strips the four identity segments, packages the remaining request, and
+    // calls [`VmPlugin::forward_http`] on the entity's runtime plugin. `vmId`
+    // names the specific VM instance the request is forwarded to.
+
+    /// Forward an inbound HTTP request to the entity's VM.
+    ///
+    /// `packet`:
+    /// `{ creatureId, programId, entityId, machineId, vmId, containerName,
+    ///    method, path, query, headers: {..}, bodyBase64 }`
+    ///
+    /// where `path` is the remainder of the request URL *after* the
+    /// `creatureId/programId/entityId` prefix, `query` the raw query string,
+    /// and `bodyBase64` the base64-encoded request body.
+    ///
+    /// The response is `{ ok, status, headers: {..}, body | bodyBase64 }`.
+    ///
+    /// The default implementation is the generic fallback every runtime
+    /// supports: it packages the request into a `creatures/signal` addressed
+    /// to the entity and hands it to the node's signalling API, so the VM
+    /// handles the request on its next run. Because signalling is
+    /// asynchronous the response is a `202 Accepted` acknowledgement.
+    /// Runtimes that keep a long-lived HTTP server *inside* the VM (e.g.
+    /// docker) override this to proxy the request straight to that server and
+    /// return its real HTTP response.
+    fn forward_http(&self, packet: &Value) -> Result<Value, String> {
+        forward_http_via_signal(packet)
+    }
+
     // ── Optional capabilities ─────────────────────────────────────────────
 
     /// Verify a program execution proof (provable runtimes only).
@@ -174,6 +206,77 @@ pub trait VmPlugin: Send + Sync {
             self.meta().key
         ))
     }
+}
+
+/// The generic HTTP-forwarding fallback shared by every runtime that does not
+/// run a long-lived HTTP server inside its VM.
+///
+/// The packaged request is wrapped into a `stores::Send`-shaped
+/// `creatures/signal` addressed to the entity's program and delivered through
+/// the node's signalling API (`signalUser`). The node's per-machine signal
+/// listener picks it up and runs the VM for the target entity, which handles
+/// the request as an ordinary signal. Delivery is asynchronous, so the caller
+/// receives a `202 Accepted` acknowledgement rather than the VM's own output.
+pub fn forward_http_via_signal(packet: &Value) -> Result<Value, String> {
+    let host = crate::host::host_or_err()?;
+
+    let program_id = packet["programId"].as_str().unwrap_or("").trim().to_string();
+    if program_id.is_empty() {
+        return Err("forward_http requires a programId".to_string());
+    }
+    let entity_id = packet["entityId"].as_str().unwrap_or("").trim().to_string();
+
+    // The packaged HTTP request delivered to the VM as the signal payload.
+    let http = json!({
+        "kind": "httpRequest",
+        "creatureId": packet["creatureId"].as_str().unwrap_or(""),
+        "programId": program_id,
+        "entityId": entity_id,
+        "method": packet["method"].as_str().unwrap_or("GET"),
+        "path": packet["path"].as_str().unwrap_or("/"),
+        "query": packet["query"].as_str().unwrap_or(""),
+        "headers": packet["headers"].clone(),
+        "bodyBase64": packet["bodyBase64"].as_str().unwrap_or(""),
+    });
+
+    // `stores::Send`-shaped signal the VMM's per-machine listener understands:
+    // `action: "single"` + the target entity id, with the request in `data`.
+    let signal = json!({
+        "action": "single",
+        "entityId": entity_id,
+        "data": http.to_string(),
+    });
+
+    let call = json!({
+        "op": "signalUser",
+        "programId": program_id,
+        "input": {
+            "key": "creatures/signal",
+            "userId": program_id,
+            "packet": signal.to_string(),
+        }
+    });
+
+    let raw = host.unified_host_call(&call);
+    let acked = serde_json::from_str::<Value>(&raw)
+        .ok()
+        .and_then(|v| v["ok"].as_bool())
+        .unwrap_or(false);
+
+    let body = json!({
+        "ok": acked,
+        "forwarded": "signal",
+        "programId": program_id,
+        "entityId": entity_id,
+    })
+    .to_string();
+
+    Ok(json!({
+        "ok": acked,
+        "status": if acked { 202 } else { 502 },
+        "headers": { "content-type": "application/json" },
+        "body": body,
+    }))
 }
 
 /// Convenience: merge extra fields into a plan `input` object.

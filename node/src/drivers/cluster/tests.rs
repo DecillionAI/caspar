@@ -210,6 +210,7 @@ impl crate::models::ports::vmm::IVmm for StubVmm {
         (String::new(), 0)
     }
     fn start_docker_gateway(&self, _: i64) {}
+    fn start_http_ingress(&self, _: i64) {}
     fn register_vm_container(&self, _: &str, _: &str, _: &str, _: &str, _: &str) {}
     fn unregister_vm_container(&self, _: &str) {}
     fn identify_container_by_ip(&self, _: &str) -> Option<(String, String, String, String)> {
@@ -278,6 +279,9 @@ impl crate::models::ports::vmm::IVmm for StubVmm {
     }
     fn plan_stop_entity(&self, _: &str, _: &Value) -> Result<Value, String> {
         Err("stub".into())
+    }
+    fn forward_http(&self, _: &Value) -> Value {
+        Value::Null
     }
 }
 

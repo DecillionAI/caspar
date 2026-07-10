@@ -31,6 +31,13 @@ pub trait IVmm: Send + Sync {
     /// No-op when `port <= 0` or already running. The gateway is owned by the
     /// VMM instance — callers reach it only through `tools().vmm()`.
     fn start_docker_gateway(&self, port: i64);
+
+    /// Start the VMM HTTP ingress listener. It accepts requests shaped as
+    /// `/{creatureId}/{programId}/{entityId}/{vmId}/{path…}` and forwards them
+    /// to the HTTP server of the named VM instance (docker proxies to the
+    /// container; other runtimes fall back to signalling). No-op when
+    /// `port <= 0` or already running.
+    fn start_http_ingress(&self, port: i64);
     /// Bind a docker container *name* to its VM's authoritative identity. Done
     /// when the node launches the container, so a gateway connection can be
     /// identified by resolving its source IP → container name → this identity.
@@ -135,4 +142,19 @@ pub trait IVmm: Send + Sync {
     /// `ctx`: `{ machineId, programId, entityId, vmId }` →
     /// `{ input, links: [{field, key, required}, ...] }`.
     fn plan_stop_entity(&self, runtime: &str, ctx: &JsonValue) -> Result<JsonValue, String>;
+
+    /// Forward a packaged inbound HTTP request to the VM instance it targets.
+    ///
+    /// `request`: `{ creatureId, programId, entityId, vmId, method, path,
+    ///              query, headers, bodyBase64 }`.
+    ///
+    /// The VMM resolves the entity's module path + runtime (the same
+    /// resolution the signal listener and `runVm` use) and dispatches a
+    /// `forwardHttp` packet to the entity's plugin through the packet router —
+    /// docker proxies to the container's HTTP server, every other runtime
+    /// falls back to signalling the VM. Returns the plugin's response value
+    /// `{ ok, status, headers, body | bodyBase64 }`. Owning this here keeps
+    /// forwarding a capability of the VMM instance rather than free-standing
+    /// logic reaching into the packet router directly.
+    fn forward_http(&self, request: &JsonValue) -> JsonValue;
 }

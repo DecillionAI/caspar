@@ -61,6 +61,12 @@ pub struct Vmm {
     /// is no gateway global.
     pub(crate) gateway: Arc<crate::drivers::vmm::network::docker_host::DockerHostGateway>,
 
+    /// The VMM HTTP ingress server. Accepts inbound
+    /// `/{creatureId}/{programId}/{entityId}/{vmId}/{path…}` requests and
+    /// forwards them to the named VM instance. Owned here for the same reason as
+    /// the gateway — reached only through the canonical `tools().vmm()` path.
+    pub(crate) http_ingress: Arc<crate::drivers::vmm::network::ingress::VmHttpIngress>,
+
     /// docker container name → authoritative VM identity. Populated when the
     /// node launches a docker creature; the gateway resolves a connection's
     /// identity by mapping its source IP to a container name and looking it up
@@ -86,6 +92,7 @@ impl Vmm {
         // compiled into this binary (the generated caspar-vm-plugins crate).
         crate::drivers::vmm::host_bridge::init_vm_plugins();
         let gateway = crate::drivers::vmm::network::docker_host::DockerHostGateway::new(app.clone());
+        let http_ingress = crate::drivers::vmm::network::ingress::VmHttpIngress::new(app.clone());
         let vmm = Arc::new(Vmm {
             app,
             storage_root: storage_root.to_string(),
@@ -95,6 +102,7 @@ impl Vmm {
             vm_trx: DashMap::new(),
             resource_locks: DashMap::new(),
             gateway,
+            http_ingress,
             vm_containers: DashMap::new(),
         });
         vmm
@@ -375,6 +383,10 @@ impl IVmm for Vmm {
 
     fn start_docker_gateway(&self, port: i64) {
         self.gateway.listen(port);
+    }
+
+    fn start_http_ingress(&self, port: i64) {
+        self.http_ingress.listen(port);
     }
 
     fn register_vm_container(
@@ -698,6 +710,27 @@ impl IVmm for Vmm {
         caspar_vm_sdk::registry::get(runtime)
             .ok_or_else(|| format!("runtime '{}' is not registered", runtime))?
             .plan_stop_entity(ctx)
+    }
+
+    fn forward_http(&self, request: &Value) -> Value {
+        let program_id = request["programId"].as_str().unwrap_or("");
+        let entity_id = request["entityId"].as_str().unwrap_or("");
+        // Resolve the entity's module path + runtime through the VMM's own
+        // resolver (the same one the signal listener and runVm use), then hand
+        // the packet router a `forwardHttp` packet shaped exactly like a runVm
+        // packet so it resolves the responsible plugin identically.
+        let (ast_path, vm_type) = self.resolve_vm_execution_target(program_id, entity_id);
+        let mut packet = request.clone();
+        if let Some(obj) = packet.as_object_mut() {
+            obj.insert("type".to_string(), json!("forwardHttp"));
+            obj.insert("vmType".to_string(), json!(vm_type));
+            obj.insert("astPath".to_string(), json!(ast_path));
+            obj.insert("machineId".to_string(), json!(program_id));
+        }
+        // Dispatch through the VMM's own router entry — the same seam
+        // `send_to_engine` uses — and return the plugin's parsed response.
+        let raw = dispatch_packet(&packet);
+        serde_json::from_str(&raw).unwrap_or(Value::Null)
     }
 }
 
