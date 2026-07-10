@@ -53,6 +53,9 @@ use crate::drivers::network::framing::{
 use crate::models::core::ICore;
 use crate::models::packet::{build_error_json, ResponseSimpleMessage};
 use crate::models::ports::network::ws::IWs;
+use crate::models::ports::ratelimit::{
+    rate_limited_body, Protocol, RateLimitDecision, RateLimitKey, RATE_LIMITED_RES_CODE,
+};
 use crate::models::ports::network::TlsConfig;
 use crate::models::ports::signaler::Listener;
 use crate::models::transaction::ITrx;
@@ -194,6 +197,34 @@ impl Ws {
             parsed.payload.len(),
             socket.peer
         );
+
+        // Cross-protocol admission control — the same shared limiter the TCP and
+        // HTTP-ingress transports use. Key on the socket's verified user id (set
+        // only after signature auth); pre-auth traffic bills the peer IP. See
+        // `Tcp::process_inbound` for the rationale.
+        let verified_user = socket.user_id();
+        let rl_key = if verified_user.is_empty() {
+            RateLimitKey::anonymous(Protocol::Ws, &peer_ip, &parsed.path)
+        } else {
+            RateLimitKey::authenticated(Protocol::Ws, &verified_user, &peer_ip, &parsed.path)
+        };
+        if let RateLimitDecision::Limited { retry_after, scope } =
+            self.app.tools().rate_limiter().check(&rl_key)
+        {
+            let body = serde_json::to_vec(&rate_limited_body(retry_after, scope))
+                .unwrap_or_default();
+            socket.write_response(&parsed.packet_id, RATE_LIMITED_RES_CODE, &body);
+            eprintln!(
+                "[ws] << path={} pkt={} code={} rate_limited scope={} retry_ms={} elapsed_ms={}",
+                parsed.path,
+                parsed.packet_id,
+                RATE_LIMITED_RES_CODE,
+                scope.as_str(),
+                retry_after.as_millis(),
+                started.elapsed().as_millis()
+            );
+            return;
+        }
 
         match parsed.path.as_str() {
             "logout" => {

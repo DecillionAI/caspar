@@ -42,6 +42,10 @@ written in **Rust** (the previous Go implementation is retained only under
   (see [`docs/CLUSTER.md`](docs/CLUSTER.md)).
 - **Shard-parallel scale-out** — each shard is a self-contained three-node
   hashgraph group; aggregate throughput scales linearly with shard count.
+- **Cross-protocol rate limiting** — one shared token-bucket limiter throttles
+  client requests across the TCP, WebSocket, and HTTP-ingress transports, so a
+  client's quota is unified regardless of protocol; per-user and per-IP tiers
+  plus a node-wide safety net (see [`docs/RATE_LIMITING.md`](docs/RATE_LIMITING.md)).
 - **Telemetry** — a snapshot HTTP API and a live `casparctl stats` TUI.
 
 ## 📊 Current Measured State (`reports/final`, 2026-05-29)
@@ -133,5 +137,6 @@ Full instructions: [`docs/GETTING_STARTED.md`](docs/GETTING_STARTED.md).
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — subsystems and mechanisms
 - [`docs/API_REFERENCE.md`](docs/API_REFERENCE.md) — wire protocol + routes
 - [`docs/CONSENSUS_NOTES.md`](docs/CONSENSUS_NOTES.md) — Babble behaviour & routing
+- [`docs/RATE_LIMITING.md`](docs/RATE_LIMITING.md) — cross-protocol client request throttling
 - [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md) — measured performance
 - `sdk/README.md` — client SDK and samples

@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use crate::models::ports::file::IFile;
 use crate::models::ports::network::INetwork;
+use crate::models::ports::ratelimit::IRateLimiter;
 use crate::models::ports::security::ISecurity;
 use crate::models::ports::signaler::ISignaler;
 use crate::models::ports::storage::IStorage;
@@ -15,4 +16,8 @@ pub trait ITools: Send + Sync {
     fn network(&self) -> Arc<dyn INetwork>;
     fn file(&self) -> Arc<dyn IFile>;
     fn vmm(&self) -> Arc<dyn IVmm>;
+    /// The shared, protocol-agnostic client-request rate limiter. Every
+    /// client-facing transport consults this single instance so a client's
+    /// quota is unified across TCP, WebSocket, and the HTTP ingress.
+    fn rate_limiter(&self) -> Arc<dyn IRateLimiter>;
 }

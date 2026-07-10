@@ -6,6 +6,7 @@
 
 pub mod file;
 pub mod network;
+pub mod ratelimit;
 pub mod security;
 pub mod signaler;
 pub mod storage;

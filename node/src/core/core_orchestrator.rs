@@ -29,6 +29,7 @@ use serde_json::{json, Value};
 use crate::drivers::network::framing::tls_config_from_files;
 use crate::models::ports::file::IFile;
 use crate::models::ports::network::INetwork;
+use crate::models::ports::ratelimit::IRateLimiter;
 use crate::models::ports::security::ISecurity;
 use crate::models::ports::signaler::ISignaler;
 use crate::models::ports::storage::IStorage;
@@ -73,6 +74,7 @@ pub struct Tools {
     network: Arc<dyn INetwork>,
     file: Arc<dyn IFile>,
     vmm: Arc<dyn IVmm>,
+    rate_limiter: Arc<dyn IRateLimiter>,
 }
 
 impl ITools for Tools {
@@ -93,6 +95,9 @@ impl ITools for Tools {
     }
     fn vmm(&self) -> Arc<dyn IVmm> {
         self.vmm.clone()
+    }
+    fn rate_limiter(&self) -> Arc<dyn IRateLimiter> {
+        self.rate_limiter.clone()
     }
 }
 
@@ -821,6 +826,12 @@ impl Core {
             }
         }
 
+        // Cross-protocol client-request rate limiter. One instance is shared by
+        // every client-facing transport (TCP / WS / HTTP ingress) so a client's
+        // quota is unified across protocols. Configured from `RATE_LIMIT_*` env.
+        let rate_limiter: Arc<dyn crate::models::ports::ratelimit::IRateLimiter> =
+            crate::drivers::ratelimit::RateLimiter::from_env();
+
         // Install tools + chain restore.
         let tools: Arc<dyn ITools> = Arc::new(Tools {
             security,
@@ -829,6 +840,7 @@ impl Core {
             network: network.clone(),
             file,
             vmm,
+            rate_limiter,
         });
         *self.tools.lock().unwrap() = Some(tools);
         network.chain().restore_from_storage();

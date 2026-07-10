@@ -310,6 +310,13 @@ impl ITools for StubTools {
     fn vmm(&self) -> Arc<dyn crate::models::ports::vmm::IVmm> {
         self.vmm.clone()
     }
+    fn rate_limiter(&self) -> Arc<dyn crate::models::ports::ratelimit::IRateLimiter> {
+        // Cluster tests never exercise client-request admission; hand back a
+        // real limiter so the trait is satisfied without a bespoke stub.
+        crate::drivers::ratelimit::RateLimiter::new(
+            crate::drivers::ratelimit::RateLimiterConfig::default(),
+        )
+    }
 }
 
 struct StubCore {
