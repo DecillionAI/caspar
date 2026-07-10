@@ -7,13 +7,14 @@
 //! ```
 //!
 //! and forwards them to the HTTP server of the VM instance named by `vmId`.
-//! The ingress strips the four identity segments, resolves the entity's module
-//! path + runtime through the canonical `tools().vmm()` path (the same
-//! resolution the signal listener and `runVm` use), packages the remaining
-//! request into a `forwardHttp` packet carrying `astPath`/`vmType`, and hands
-//! it to the unified VM packet router. The router resolves the responsible
-//! plugin through the `caspar_vm_sdk` registry exactly as it does for a
-//! `runVm` — so no VM type is named here:
+//!
+//! The ingress is a *pure HTTP adapter*: it parses the request, strips the four
+//! identity segments, and hands the packaged request to its owning node
+//! instance's VMM via `self.app.tools().vmm().forward_http(..)`. It never
+//! reaches into the packet router or plugin registry itself, so it carries no
+//! process-wide state and is scoped entirely to the `ICore` instance it was
+//! constructed with. The VMM's `forward_http` resolves the entity's runtime
+//! and dispatches to its plugin, where:
 //!
 //! * five of the six runtimes fall back to the SDK's generic
 //!   [`forward_http_via_signal`](caspar_vm_sdk::forward_http_via_signal), which
@@ -119,28 +120,17 @@ impl VmHttpIngress {
             }
         };
 
-        // Resolve the entity's module path + runtime the same way the signal
-        // listener and `runVm` do — through the canonical `tools().vmm()` path —
-        // and hand them to the packet router as `astPath`/`vmType`, so it
-        // resolves the responsible plugin exactly as it does for a `runVm`.
-        let (ast_path, vm_type) = self
-            .app
-            .tools()
-            .vmm()
-            .resolve_vm_execution_target(&seg.program_id, &seg.entity_id);
-
         let mut headers_map = serde_json::Map::new();
         for (k, v) in &req.headers {
             headers_map.insert(k.clone(), json!(v));
         }
 
-        let packet = json!({
-            "type": "forwardHttp",
-            "vmType": vm_type,
-            "astPath": ast_path,
+        // Package the request and hand it to this node instance's VMM to
+        // forward — the ingress is a pure HTTP adapter and never reaches into
+        // the packet router or plugin registry itself.
+        let request = json!({
             "creatureId": seg.creature_id,
             "programId": seg.program_id,
-            "machineId": seg.program_id,
             "entityId": seg.entity_id,
             "vmId": seg.vm_id,
             "method": req.method,
@@ -150,8 +140,7 @@ impl VmHttpIngress {
             "bodyBase64": BASE64_STANDARD.encode(&req.body),
         });
 
-        let raw = crate::drivers::vmm::dispatch_packet(&packet);
-        let value: JsonValue = serde_json::from_str(&raw).unwrap_or(JsonValue::Null);
+        let value = self.app.tools().vmm().forward_http(&request);
 
         if value["ok"].as_bool() != Some(true) {
             let err = value["error"]

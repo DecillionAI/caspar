@@ -712,8 +712,25 @@ impl IVmm for Vmm {
             .plan_stop_entity(ctx)
     }
 
-    fn resolve_vm_execution_target(&self, machine_id: &str, entity_id: &str) -> (String, String) {
-        Vmm::resolve_vm_execution_target(self, machine_id, entity_id)
+    fn forward_http(&self, request: &Value) -> Value {
+        let program_id = request["programId"].as_str().unwrap_or("");
+        let entity_id = request["entityId"].as_str().unwrap_or("");
+        // Resolve the entity's module path + runtime through the VMM's own
+        // resolver (the same one the signal listener and runVm use), then hand
+        // the packet router a `forwardHttp` packet shaped exactly like a runVm
+        // packet so it resolves the responsible plugin identically.
+        let (ast_path, vm_type) = self.resolve_vm_execution_target(program_id, entity_id);
+        let mut packet = request.clone();
+        if let Some(obj) = packet.as_object_mut() {
+            obj.insert("type".to_string(), json!("forwardHttp"));
+            obj.insert("vmType".to_string(), json!(vm_type));
+            obj.insert("astPath".to_string(), json!(ast_path));
+            obj.insert("machineId".to_string(), json!(program_id));
+        }
+        // Dispatch through the VMM's own router entry — the same seam
+        // `send_to_engine` uses — and return the plugin's parsed response.
+        let raw = dispatch_packet(&packet);
+        serde_json::from_str(&raw).unwrap_or(Value::Null)
     }
 }
 

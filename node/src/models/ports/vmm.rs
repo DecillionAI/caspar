@@ -143,10 +143,18 @@ pub trait IVmm: Send + Sync {
     /// `{ input, links: [{field, key, required}, ...] }`.
     fn plan_stop_entity(&self, runtime: &str, ctx: &JsonValue) -> Result<JsonValue, String>;
 
-    /// Resolve `(entityModulePath, runtimeKey)` for a machine/entity using the
-    /// same entity-type-link → program-record → default-runtime resolution the
-    /// signal-listener and `runVm` paths use. Callers put the result into a VM
-    /// packet's `astPath` / `vmType` fields so the packet router resolves the
-    /// responsible plugin without any VM type being named here.
-    fn resolve_vm_execution_target(&self, machine_id: &str, entity_id: &str) -> (String, String);
+    /// Forward a packaged inbound HTTP request to the VM instance it targets.
+    ///
+    /// `request`: `{ creatureId, programId, entityId, vmId, method, path,
+    ///              query, headers, bodyBase64 }`.
+    ///
+    /// The VMM resolves the entity's module path + runtime (the same
+    /// resolution the signal listener and `runVm` use) and dispatches a
+    /// `forwardHttp` packet to the entity's plugin through the packet router —
+    /// docker proxies to the container's HTTP server, every other runtime
+    /// falls back to signalling the VM. Returns the plugin's response value
+    /// `{ ok, status, headers, body | bodyBase64 }`. Owning this here keeps
+    /// forwarding a capability of the VMM instance rather than free-standing
+    /// logic reaching into the packet router directly.
+    fn forward_http(&self, request: &JsonValue) -> JsonValue;
 }

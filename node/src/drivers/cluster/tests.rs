@@ -280,8 +280,8 @@ impl crate::models::ports::vmm::IVmm for StubVmm {
     fn plan_stop_entity(&self, _: &str, _: &Value) -> Result<Value, String> {
         Err("stub".into())
     }
-    fn resolve_vm_execution_target(&self, _: &str, _: &str) -> (String, String) {
-        (String::new(), String::new())
+    fn forward_http(&self, _: &Value) -> Value {
+        Value::Null
     }
 }
 
