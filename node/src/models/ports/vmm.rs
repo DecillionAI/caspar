@@ -142,4 +142,11 @@ pub trait IVmm: Send + Sync {
     /// `ctx`: `{ machineId, programId, entityId, vmId }` →
     /// `{ input, links: [{field, key, required}, ...] }`.
     fn plan_stop_entity(&self, runtime: &str, ctx: &JsonValue) -> Result<JsonValue, String>;
+
+    /// Resolve `(entityModulePath, runtimeKey)` for a machine/entity using the
+    /// same entity-type-link → program-record → default-runtime resolution the
+    /// signal-listener and `runVm` paths use. Callers put the result into a VM
+    /// packet's `astPath` / `vmType` fields so the packet router resolves the
+    /// responsible plugin without any VM type being named here.
+    fn resolve_vm_execution_target(&self, machine_id: &str, entity_id: &str) -> (String, String);
 }

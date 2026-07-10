@@ -132,14 +132,11 @@ where
 }
 
 fn dispatch_forward_http_packet(packet: &JsonValue) -> String {
-    // Resolve the runtime the same way run_vm does: explicit `runtime`/`vmType`
-    // hint first, then artifact-extension detection on the entity path, then the
-    // default runtime. The ingress fills `runtime` from the entity's recorded
-    // type, so this normally resolves directly.
-    let ast_path = packet["entityPath"]
-        .as_str()
-        .or_else(|| packet["astPath"].as_str())
-        .unwrap_or("");
+    // Resolve the plugin exactly as `runVm` does: the ingress fills the packet's
+    // `vmType`/`astPath` from the entity's recorded runtime, so `resolve_for_packet`
+    // (vmType hint → artifact detection → default) picks the same plugin `runVm`
+    // would for this entity.
+    let ast_path = packet["astPath"].as_str().unwrap_or("");
     let plugin = match vm_registry::resolve_for_packet(packet, ast_path) {
         Some(p) => p,
         None => {

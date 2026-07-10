@@ -711,6 +711,10 @@ impl IVmm for Vmm {
             .ok_or_else(|| format!("runtime '{}' is not registered", runtime))?
             .plan_stop_entity(ctx)
     }
+
+    fn resolve_vm_execution_target(&self, machine_id: &str, entity_id: &str) -> (String, String) {
+        Vmm::resolve_vm_execution_target(self, machine_id, entity_id)
+    }
 }
 
 /// Small shim that owns the same handles as `Vmm` and can be cloned/wrapped

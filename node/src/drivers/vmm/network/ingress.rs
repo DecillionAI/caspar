@@ -7,11 +7,13 @@
 //! ```
 //!
 //! and forwards them to the HTTP server of the VM instance named by `vmId`.
-//! The ingress strips the four identity segments, resolves the entity's
-//! runtime (and the target instance's container name, when applicable),
-//! packages the remaining request into a `forwardHttp` packet, and hands it to
-//! the unified VM packet router. The router dispatches it to the entity's plugin
-//! through the `caspar_vm_sdk` registry — so no VM type is named here:
+//! The ingress strips the four identity segments, resolves the entity's module
+//! path + runtime through the canonical `tools().vmm()` path (the same
+//! resolution the signal listener and `runVm` use), packages the remaining
+//! request into a `forwardHttp` packet carrying `astPath`/`vmType`, and hands
+//! it to the unified VM packet router. The router resolves the responsible
+//! plugin through the `caspar_vm_sdk` registry exactly as it does for a
+//! `runVm` — so no VM type is named here:
 //!
 //! * five of the six runtimes fall back to the SDK's generic
 //!   [`forward_http_via_signal`](caspar_vm_sdk::forward_http_via_signal), which
@@ -25,8 +27,6 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::drivers::vmm::prelude::*;
 use crate::models::core::ICore;
-use crate::models::transaction::ITrx;
-use crate::shell::api::model::Program;
 
 /// Maximum request body the ingress will buffer (16 MiB).
 const MAX_BODY: usize = 16 * 1024 * 1024;
@@ -119,7 +119,15 @@ impl VmHttpIngress {
             }
         };
 
-        let resolved = self.resolve_target(&seg.program_id, &seg.entity_id, &seg.vm_id);
+        // Resolve the entity's module path + runtime the same way the signal
+        // listener and `runVm` do — through the canonical `tools().vmm()` path —
+        // and hand them to the packet router as `astPath`/`vmType`, so it
+        // resolves the responsible plugin exactly as it does for a `runVm`.
+        let (ast_path, vm_type) = self
+            .app
+            .tools()
+            .vmm()
+            .resolve_vm_execution_target(&seg.program_id, &seg.entity_id);
 
         let mut headers_map = serde_json::Map::new();
         for (k, v) in &req.headers {
@@ -128,15 +136,13 @@ impl VmHttpIngress {
 
         let packet = json!({
             "type": "forwardHttp",
-            "runtime": resolved.runtime,
-            "vmType": resolved.runtime,
+            "vmType": vm_type,
+            "astPath": ast_path,
             "creatureId": seg.creature_id,
             "programId": seg.program_id,
             "machineId": seg.program_id,
             "entityId": seg.entity_id,
             "vmId": seg.vm_id,
-            "containerName": resolved.container_name,
-            "entityPath": resolved.entity_path,
             "method": req.method,
             "path": seg.rest_path,
             "query": req.query,
@@ -167,75 +173,6 @@ impl VmHttpIngress {
         let body = decode_body(&value);
         (status, status_reason(status), content_type, extra_headers, body)
     }
-
-    /// Resolve the runtime, the target VM instance's container name, and the
-    /// entity module path from the node state (all best-effort — missing links
-    /// simply yield empty fields and the plugin decides how to proceed). The
-    /// caller supplies the `vm_id` explicitly (it is a required path segment),
-    /// so this never has to guess which instance to target.
-    fn resolve_target(&self, program_id: &str, entity_id: &str, vm_id: &str) -> ResolvedTarget {
-        let program_id = program_id.to_string();
-        let entity_id = entity_id.to_string();
-        let vm_id = vm_id.to_string();
-        let slot = Arc::new(Mutex::new(ResolvedTarget::default()));
-        let slot_c = slot.clone();
-        self.app.modify_state(
-            true,
-            Box::new(move |trx: &dyn ITrx| {
-                let mut out = ResolvedTarget::default();
-
-                // Runtime: entity-type link → program record → default.
-                let entity_type =
-                    trx.get_link(&format!("vmEntityType::{}::{}", program_id, entity_id));
-                if !entity_type.trim().is_empty() {
-                    out.runtime = entity_type.trim().to_lowercase();
-                } else {
-                    let program = Program {
-                        id: program_id.clone(),
-                        ..Default::default()
-                    }
-                    .pull(trx);
-                    if !program.runtime.trim().is_empty() {
-                        out.runtime = program.runtime.trim().to_lowercase();
-                    } else {
-                        out.runtime =
-                            caspar_vm_sdk::registry::default_key().unwrap_or_default();
-                    }
-                }
-
-                // Entity module path (used for artifact-extension resolution).
-                let entity_path =
-                    trx.get_link(&format!("vmEntityPath::{}::{}", program_id, entity_id));
-                if !entity_path.trim().is_empty() {
-                    out.entity_path = entity_path;
-                }
-
-                // Container name recorded at launch for this specific VM
-                // instance, if any (`VmContainerName::{program}::{entity}::{vmId}`).
-                if !vm_id.is_empty() {
-                    let name = trx.get_link(&format!(
-                        "VmContainerName::{}::{}::{}",
-                        program_id, entity_id, vm_id
-                    ));
-                    if !name.trim().is_empty() {
-                        out.container_name = name;
-                    }
-                }
-
-                *slot_c.lock().unwrap() = out;
-                Ok(())
-            }),
-        );
-        let resolved = slot.lock().unwrap().clone();
-        resolved
-    }
-}
-
-#[derive(Clone, Default)]
-struct ResolvedTarget {
-    runtime: String,
-    container_name: String,
-    entity_path: String,
 }
 
 struct HttpRequest {
