@@ -28,6 +28,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::drivers::vmm::prelude::*;
 use crate::models::core::ICore;
+use crate::models::ports::ratelimit::{Protocol, RateLimitDecision, RateLimitKey};
 
 /// Maximum request body the ingress will buffer (16 MiB).
 const MAX_BODY: usize = 16 * 1024 * 1024;
@@ -83,6 +84,15 @@ impl VmHttpIngress {
     }
 
     fn handle_connection(self: Arc<Self>, mut stream: TcpStream) {
+        // Best-effort remote IP for rate-limit bucketing. The ingress is
+        // unauthenticated, so every request is billed to its peer IP under the
+        // anonymous tier of the shared cross-protocol limiter.
+        let peer_ip = stream
+            .peer_addr()
+            .ok()
+            .map(|a| a.ip().to_string())
+            .unwrap_or_default();
+
         let req = match parse_request(&mut stream) {
             Ok(r) => r,
             Err(e) => {
@@ -92,7 +102,7 @@ impl VmHttpIngress {
             }
         };
 
-        let (status, reason, content_type, headers, body) = self.route(&req);
+        let (status, reason, content_type, headers, body) = self.route(&req, &peer_ip);
         write_response(&mut stream, status, &reason, &content_type, headers, body);
     }
 
@@ -101,7 +111,34 @@ impl VmHttpIngress {
     fn route(
         &self,
         req: &HttpRequest,
+        peer_ip: &str,
     ) -> (u16, String, String, Option<Vec<(String, String)>>, Vec<u8>) {
+        // Cross-protocol admission control. The HTTP ingress is anonymous, so
+        // requests are billed to the peer IP under the shared limiter's
+        // anonymous tier — the same instance the TCP/WS transports use, so a
+        // client cannot dodge its quota by switching to HTTP. On rejection we
+        // answer a standards-compliant 429 with a `Retry-After` header.
+        let rl_key = RateLimitKey::anonymous(Protocol::Http, peer_ip, &req.path);
+        if let RateLimitDecision::Limited { retry_after, scope } =
+            self.app.tools().rate_limiter().check(&rl_key)
+        {
+            let retry_secs = retry_after.as_secs_f64().ceil().max(1.0) as u64;
+            return (
+                429,
+                status_reason(429),
+                "application/json".to_string(),
+                Some(vec![("Retry-After".to_string(), retry_secs.to_string())]),
+                json!({
+                    "ok": false,
+                    "error": "rate_limited",
+                    "scope": scope.as_str(),
+                    "retryAfterMs": retry_after.as_millis() as u64,
+                })
+                .to_string()
+                .into_bytes(),
+            );
+        }
+
         let seg = match split_identity(&req.path) {
             Some(s) => s,
             None => {
@@ -340,6 +377,7 @@ fn status_reason(status: u16) -> String {
         403 => "Forbidden",
         404 => "Not Found",
         405 => "Method Not Allowed",
+        429 => "Too Many Requests",
         500 => "Internal Server Error",
         502 => "Bad Gateway",
         503 => "Service Unavailable",

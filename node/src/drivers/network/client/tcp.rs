@@ -34,6 +34,9 @@ use crate::drivers::network::framing::{
 use crate::models::core::ICore;
 use crate::models::packet::{build_error_json, ResponseSimpleMessage};
 use crate::models::ports::network::tcp::ITcp;
+use crate::models::ports::ratelimit::{
+    rate_limited_body, Protocol, RateLimitDecision, RateLimitKey, RATE_LIMITED_RES_CODE,
+};
 use crate::models::ports::network::TlsConfig;
 use crate::models::ports::signaler::Listener;
 use crate::models::transaction::ITrx;
@@ -172,6 +175,36 @@ impl Tcp {
             parsed.payload.len(),
             socket.peer
         );
+
+        // Cross-protocol admission control. Every inbound client request — the
+        // `authenticate`/`logout` shortcuts included — passes through the shared
+        // rate limiter before any work is done. We key on the socket's
+        // *verified* user id (set only after a successful signature auth), never
+        // the unverified `parsed.user_id`, so a spoofed id cannot mint a fresh
+        // bucket; pre-auth traffic is billed to the peer IP.
+        let verified_user = socket.user_id();
+        let rl_key = if verified_user.is_empty() {
+            RateLimitKey::anonymous(Protocol::Tcp, &peer_ip, &parsed.path)
+        } else {
+            RateLimitKey::authenticated(Protocol::Tcp, &verified_user, &peer_ip, &parsed.path)
+        };
+        if let RateLimitDecision::Limited { retry_after, scope } =
+            self.app.tools().rate_limiter().check(&rl_key)
+        {
+            let body = serde_json::to_vec(&rate_limited_body(retry_after, scope))
+                .unwrap_or_default();
+            socket.write_response(&parsed.packet_id, RATE_LIMITED_RES_CODE, &body);
+            eprintln!(
+                "[tcp] << path={} pkt={} code={} rate_limited scope={} retry_ms={} elapsed_ms={}",
+                parsed.path,
+                parsed.packet_id,
+                RATE_LIMITED_RES_CODE,
+                scope.as_str(),
+                retry_after.as_millis(),
+                started.elapsed().as_millis()
+            );
+            return;
+        }
 
         match parsed.path.as_str() {
             "logout" => {
