@@ -11,6 +11,7 @@ use std::sync::{Arc, Mutex};
 
 use base64::{engine::general_purpose::STANDARD as B64, Engine};
 use rsa::pkcs1v15::Pkcs1v15Encrypt;
+use rsa::pkcs1v15::{Signature as Pkcs1Signature, VerifyingKey as Pkcs1VerifyingKey};
 use rsa::pkcs8::{DecodePrivateKey, DecodePublicKey};
 use rsa::pss::{Signature as PssSignature, VerifyingKey};
 use rsa::rand_core::OsRng;
@@ -173,13 +174,27 @@ impl ISecurity for Security {
             Ok(s) => s,
             Err(_) => return (false, String::new(), false),
         };
-        let verifying_key = VerifyingKey::<Sha256>::new(pub_key);
-        let sig = match PssSignature::try_from(signature.as_slice()) {
-            Ok(s) => s,
-            Err(_) => return (false, String::new(), false),
+        // Primary scheme: RSA-PSS-SHA256 (what the SDKs and the CLI produce).
+        // Fallback: RSASSA-PKCS#1 v1.5 SHA-256 — Godot/mbedTLS clients (the
+        // Victor game client) can only produce v1.5 signatures, so accepting
+        // both lets every client speak over the same signed action protocol.
+        // Both checks run against the same registered public key; accepting a
+        // second deterministic padding of the same 2048-bit RSA-SHA256 pair
+        // does not weaken the identity binding.
+        let verifying_key = VerifyingKey::<Sha256>::new(pub_key.clone());
+        let pss_ok = match PssSignature::try_from(signature.as_slice()) {
+            Ok(sig) => verifying_key.verify(packet, &sig).is_ok(),
+            Err(_) => false,
         };
-        if verifying_key.verify(packet, &sig).is_err() {
-            return (false, String::new(), false);
+        if !pss_ok {
+            let v15_key = Pkcs1VerifyingKey::<Sha256>::new(pub_key);
+            let v15_ok = match Pkcs1Signature::try_from(signature.as_slice()) {
+                Ok(sig) => v15_key.verify(packet, &sig).is_ok(),
+                Err(_) => false,
+            };
+            if !v15_ok {
+                return (false, String::new(), false);
+            }
         }
 
         // Successful — fetch user type / god flag.
