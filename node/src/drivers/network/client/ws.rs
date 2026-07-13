@@ -78,6 +78,7 @@ pub struct Socket {
     peer: String,
     user_id: Mutex<String>,
     disconnected: AtomicBool,
+    listener_registered: AtomicBool,
     /// Single producer / single consumer in steady state, but we use a
     /// standard `mpsc` so any number of writer threads can enqueue without
     /// taking a lock on the WS itself. `None` once the socket has shut down.
@@ -91,6 +92,7 @@ impl Socket {
             peer,
             user_id: Mutex::new(String::new()),
             disconnected: AtomicBool::new(false),
+            listener_registered: AtomicBool::new(false),
             outbound: Mutex::new(Some(outbound)),
         })
     }
@@ -351,6 +353,18 @@ impl Ws {
                     body.len(),
                     started.elapsed().as_millis()
                 );
+                // Lazily register the update-stream listener after the first
+                // successful authenticated request on this connection, exactly
+                // like Tcp does. Without this, a WS client that dev-logs-in
+                // via /creatures/login (and never calls the token-based
+                // /creatures/authenticate) has no listener, so creature signal
+                // results (creatures/signal/result) are silently dropped.
+                if !parsed.user_id.is_empty()
+                    && !socket.listener_registered.load(Ordering::Acquire)
+                {
+                    socket.listener_registered.store(true, Ordering::Release);
+                    self.attach_user_listener(socket, &parsed.user_id);
+                }
             }
             Err(e) => {
                 socket.write_response(
