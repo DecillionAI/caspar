@@ -44,6 +44,20 @@ A single leading byte tags each frame:
 - `3` execution error
 - `4` auth/authorization failure
 
+### Request signatures
+
+Signed actions carry a base64 RSA-SHA256 signature over the exact payload
+bytes, verified against the public key registered at login/create. Two
+padding schemes are accepted:
+
+- **RSA-PSS** (primary — what the Python SDK, the deploy tooling and the
+  Decillion CLI produce), and
+- **RSASSA-PKCS#1 v1.5** (fallback — what mbedTLS-backed clients such as the
+  Victor/Godot game client can produce via Godot's `Crypto.sign`).
+
+Both bind the same key and digest; clients should prefer PSS when their
+crypto stack supports it.
+
 ### Consensus routing
 
 Whether an action is ordered through the Babble chain is determined by its
