@@ -112,7 +112,9 @@ step "Step 2: WasmEdge runtime ($WASMEDGE_VERSION)"
 # libwasmedge.so.<SOVERSION> where SOVERSION differs from the project version.
 WASMEDGE_LIB_FILE=""
 for search_dir in "$WASMEDGE_HOME/lib" "/usr/local/lib" "/usr/lib"; do
-  found=$(find "$search_dir" -maxdepth 2 -name "libwasmedge.so.*.*" 2>/dev/null | head -1)
+  # `|| true`: a missing search dir (fresh container) or head's early pipe
+  # close would otherwise abort the whole script via `set -euo pipefail`.
+  found=$(find "$search_dir" -maxdepth 2 -name "libwasmedge.so.*.*" 2>/dev/null | head -1 || true)
   if [[ -n "$found" ]]; then
     # Verify the corresponding include dir exists — wasmedge-sys needs headers too.
     found_inc="${search_dir%/lib*}/include"
@@ -129,7 +131,7 @@ if [[ -z "$WASMEDGE_LIB_FILE" ]]; then
   curl -sSf "https://raw.githubusercontent.com/WasmEdge/WasmEdge/$WASMEDGE_VERSION/utils/install.sh" \
     | bash -s -- -v "$WASMEDGE_VERSION"
 
-  WASMEDGE_LIB_FILE=$(find "$WASMEDGE_HOME/lib" -maxdepth 2 -name "libwasmedge.so.*.*" 2>/dev/null | head -1)
+  WASMEDGE_LIB_FILE=$(find "$WASMEDGE_HOME/lib" -maxdepth 2 -name "libwasmedge.so.*.*" 2>/dev/null | head -1 || true)
   [[ -n "$WASMEDGE_LIB_FILE" ]] || die "WasmEdge install succeeded but library not found"
   ok "Installed WasmEdge: $WASMEDGE_LIB_FILE"
 fi
