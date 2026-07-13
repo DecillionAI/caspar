@@ -103,6 +103,15 @@ if ! command -v cargo &>/dev/null; then
 fi
 ok "cargo $(cargo --version 2>/dev/null | head -1)"
 
+# wasmedge-sys generates its FFI bindings with bindgen at build time, which
+# loads libclang dynamically. Fail fast with a hint instead of letting cargo
+# die mid-build with an opaque "failed to run custom build command".
+if command -v ldconfig &>/dev/null && [[ -z "${LIBCLANG_PATH:-}" ]] \
+   && ! ldconfig -p 2>/dev/null | grep -qE 'libclang(-[0-9.]+)?\.so'; then
+  die "libclang not found (bindgen needs it to build wasmedge-sys) — install it, e.g.: apt-get install -y clang libclang-dev"
+fi
+ok "libclang available"
+
 # =============================================================================
 # Step 2 — WasmEdge runtime library
 # =============================================================================
@@ -154,7 +163,15 @@ else
   info "Running cargo build --release (casparctl)…"
   CTL_START=$SECONDS
   cd "$CTL_DIR"
-  cargo build --release 2>&1 | grep -E "^error|Compiling casparctl|Finished" || true
+  CTL_LOG="${TMPDIR:-/tmp}/caspar-ctl-build.log"
+  set +e
+  cargo build --release 2>&1 | tee "$CTL_LOG" | grep -E "^error|Compiling casparctl|Finished"
+  CARGO_STATUS=${PIPESTATUS[0]}
+  set -e
+  if [[ $CARGO_STATUS -ne 0 ]]; then
+    tail -n 60 "$CTL_LOG" >&2
+    die "cargo build failed for casparctl (exit $CARGO_STATUS) — full log: $CTL_LOG"
+  fi
   cd "$REPO_DIR"
   ok "casparctl built in $((SECONDS - CTL_START))s"
   [[ -f "$CTL_BIN" ]] || die "casparctl binary not found"
@@ -197,7 +214,15 @@ else
   info "Running cargo build --release (node workspace)…"
   BUILD_START=$SECONDS
   cd "$NODE_DIR"
-  cargo build --release 2>&1 | grep -E "^error|Compiling caspar|Finished" || true
+  NODE_LOG="${TMPDIR:-/tmp}/caspar-node-build.log"
+  set +e
+  cargo build --release 2>&1 | tee "$NODE_LOG" | grep -E "^error|Compiling caspar|Finished"
+  CARGO_STATUS=${PIPESTATUS[0]}
+  set -e
+  if [[ $CARGO_STATUS -ne 0 ]]; then
+    tail -n 60 "$NODE_LOG" >&2
+    die "cargo build failed for node workspace (exit $CARGO_STATUS) — full log: $NODE_LOG"
+  fi
   cd "$REPO_DIR"
   ok "Node workspace built in $((SECONDS - BUILD_START))s"
 fi
