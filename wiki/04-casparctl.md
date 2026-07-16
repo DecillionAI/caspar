@@ -76,40 +76,48 @@ casparctl stop    [--project-dir PATH]
 
 ---
 
-## casparctl run / node-status / node-stop
+## casparctl install --local / run / status / stop (local, no Docker)
 
 The container flow above (`install` + `start`) needs a Docker daemon, gVisor,
-and the nginx TLS proxy. `casparctl run` is the lightweight alternative for a
-sandbox or dev host: it launches the pre-built node binary from `dist/`
-directly, after generating a fresh single-node config and starting the QuestDB
-instance the node requires — no Docker needed.
+and the nginx TLS proxy. The local flow is the lightweight alternative for a
+sandbox or dev host: it runs the pre-built node binary from `dist/` directly.
+It is split into a one-time **install** phase and a repeatable **run** phase.
 
 ```bash
-casparctl run [--repo-dir PATH] [--data-dir PATH] [--detach] [--no-questdb]
-casparctl node-status [--data-dir PATH]
-casparctl node-stop   [--data-dir PATH]
+casparctl install --local [--repo-dir PATH] [--data-dir PATH] [--force]
+casparctl run             [--repo-dir PATH] [--data-dir PATH] [--detach] [--no-questdb]
+casparctl status          [--data-dir PATH]
+casparctl stop            [--data-dir PATH]
 ```
 
-- **`run`** — auto-detects the repo (the dir containing `dist/bin/caspar-node`),
-  and on first run generates keys (`caspar-keygen`), a PKCS#8 RSA
-  `OWNER_PRIVATE_KEY` (openssl), a single-node `.env`, and the babble
-  `peers.genesis.json`. It then starts QuestDB (needs Java 11+; uses
-  `dist/questdb/questdb.jar`), and launches the node with the bundled WasmEdge
+- **`install --local`** — the install phase. Verifies host requirements (node
+  binary, bundled WasmEdge library, `caspar-keygen`, QuestDB jar, Java, openssl)
+  and generates the node's config once: a babble consensus key (`caspar-keygen`),
+  a PKCS#8 RSA `OWNER_PRIVATE_KEY` (openssl), a single-node `.env`, and the
+  babble `peers.genesis.json`. It **starts nothing**. `--force` regenerates an
+  existing config. The repo is auto-detected (the dir containing
+  `dist/bin/caspar-node`); `--data-dir` defaults to `<repo>/caspar-data/node1`.
+- **`run`** — the run phase. Requires a config from `install --local` (it errors
+  otherwise). It **only starts things**: QuestDB (needs Java 11+;
+  `dist/questdb/questdb.jar`) and the node, launched with the bundled WasmEdge
   library on `LD_LIBRARY_PATH` and stock `runc` for container VMs. `--detach`
-  leaves the node running after the command returns; `--data-dir` defaults to
-  `<repo>/caspar-data/node1`.
-- **`node-status`** — shows the node/QuestDB process state, which client ports
-  are open, and a telemetry-snapshot liveness probe.
-- **`node-stop`** — stops the locally-run node and its QuestDB (by PID file).
+  leaves the node running after the command returns.
+- **`status`** — shows the node/QuestDB process state, which client ports are
+  open, and a telemetry-snapshot liveness probe.
+- **`stop`** — stops a locally-run node and its QuestDB when one is present;
+  otherwise it falls back to stopping the Docker container (so the single `stop`
+  command serves both flows).
 
 The node serves its client transports in **plaintext** here (TLS is normally
 terminated by the nginx proxy, which this flow omits). Connect the client CLI
 with `CASPAR_TLS=0` (see [Client CLI](09-client-cli.md#connecting-to-a-node)):
 
 ```bash
-casparctl run --detach
-casparctl node-status
+casparctl install --local        # one-time: requirements + config
+casparctl run --detach           # start QuestDB + node
+casparctl status
 CASPAR_TLS=0 CASPAR_PROTO=ws CASPAR_PORT=8076 caspar-client login alice alice@example.com
+casparctl stop                   # stop node + QuestDB
 ```
 
 ---

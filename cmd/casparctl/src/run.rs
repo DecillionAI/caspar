@@ -395,6 +395,73 @@ fn launch_node(repo: &Path, dir: &Path, detach: bool) -> Result<u32> {
 
 // ── subcommands ─────────────────────────────────────────────────────────────
 
+/// Verify every host prerequisite the local node needs to run.
+fn check_requirements(repo: &Path) -> Result<()> {
+    let node_bin = repo.join("dist/bin/caspar-node");
+    let built_bin = repo.join("node/target/release/caspar-node");
+    if !node_bin.exists() && !built_bin.exists() {
+        bail!("caspar-node binary not found (dist/bin/caspar-node or node/target/release/caspar-node)");
+    }
+    if !repo.join("dist/lib/wasmedge/libwasmedge.so.0").exists()
+        && !repo.join("dist/lib/wasmedge/libwasmedge.so").exists()
+    {
+        bail!("bundled WasmEdge library not found under dist/lib/wasmedge");
+    }
+    if !repo.join("dist/bin/caspar-keygen").exists() {
+        bail!("caspar-keygen not found at dist/bin/caspar-keygen");
+    }
+    if resolve_questdb_jar(repo).is_none() {
+        bail!("QuestDB jar not found (dist/questdb/questdb.jar or /opt/questdb/questdb.jar)");
+    }
+    if Command::new("java").arg("-version").output().is_err() {
+        bail!("java not found — QuestDB (required by the node) needs Java 11+");
+    }
+    if Command::new("openssl").arg("version").output().is_err() {
+        bail!("openssl not found — needed to generate the node owner key");
+    }
+    println!("✓ requirements OK (node binary, WasmEdge lib, keygen, QuestDB jar, java, openssl)");
+    Ok(())
+}
+
+/// `casparctl install --local` — the one-time local install phase: verify
+/// requirements and generate the node's config (keys, `.env`, babble genesis).
+/// Does not start anything; run `casparctl run` afterwards.
+pub fn install_local(args: &[String]) -> Result<()> {
+    if has_flag(args, "help") {
+        print_install_local_usage();
+        return Ok(());
+    }
+    let repo = resolve_repo_dir(args)?;
+    let dir = data_dir(args, &repo);
+    let force = has_flag(args, "force");
+
+    println!("→ Local install for {}", dir.display());
+    check_requirements(&repo)?;
+    ensure_dirs(&dir)?;
+
+    if dir.join(".env").exists() && !force {
+        println!(
+            "• Config already present at {} (use --force to regenerate)",
+            dir.join(".env").display()
+        );
+    } else {
+        println!("→ Generating fresh single-node config (keys, .env, babble genesis)…");
+        gen_babble_key(&repo, &dir)?;
+        let owner = gen_owner_key()?;
+        write_env(&dir, &owner)?;
+        write_peers_genesis(&dir)?;
+        println!("✓ config written to {}", dir.join(".env").display());
+    }
+
+    println!();
+    println!("✓ Local install complete. Start the node with:");
+    println!("    casparctl run");
+    Ok(())
+}
+
+/// `casparctl run` — the run phase: start QuestDB and the node from an
+/// already-installed config. Does no installation; run `casparctl install
+/// --local` first if the node has not been configured yet.
 pub fn run_run(args: &[String]) -> Result<()> {
     if has_flag(args, "help") {
         print_run_usage();
@@ -405,23 +472,18 @@ pub fn run_run(args: &[String]) -> Result<()> {
     let detach = has_flag(args, "detach");
     let skip_qdb = has_flag(args, "no-questdb");
 
-    println!("→ Caspar node data dir: {}", dir.display());
-    ensure_dirs(&dir)?;
     if !dir.join(".env").exists() {
-        println!("→ Generating fresh single-node config…");
-        gen_babble_key(&repo, &dir)?;
-        let owner = gen_owner_key()?;
-        write_env(&dir, &owner)?;
-        write_peers_genesis(&dir)?;
-        println!("✓ config written to {}", dir.join(".env").display());
-    } else {
-        println!("• Reusing existing config at {}", dir.join(".env").display());
-        // Regenerate genesis in case the babble key changed.
-        if dir.join("babble/key.pub").exists() {
-            let _ = write_peers_genesis(&dir);
-        }
+        bail!(
+            "no node config at {} — run `casparctl install --local` first",
+            dir.display()
+        );
+    }
+    // Keep the babble genesis in sync with the installed key (cheap, idempotent).
+    if dir.join("babble/key.pub").exists() {
+        let _ = write_peers_genesis(&dir);
     }
 
+    println!("→ Starting Caspar node from {}", dir.display());
     if !skip_qdb {
         start_questdb(&repo, &dir)?;
     }
@@ -433,8 +495,8 @@ pub fn run_run(args: &[String]) -> Result<()> {
         "  CASPAR_TLS=0 CASPAR_PROTO=ws CASPAR_PORT={} caspar-client login <username>",
         WS_PORT
     );
-    println!("Check status:  casparctl node-status");
-    println!("Stop it:       casparctl node-stop");
+    println!("Check status:  casparctl status");
+    println!("Stop it:       casparctl stop");
     Ok(())
 }
 
@@ -448,7 +510,7 @@ fn pid_alive(pid: u32) -> bool {
     Path::new(&format!("/proc/{}", pid)).exists()
 }
 
-pub fn run_node_status(args: &[String]) -> Result<()> {
+pub fn run_status(args: &[String]) -> Result<()> {
     let repo = resolve_repo_dir(args)?;
     let dir = data_dir(args, &repo);
     let node = read_pid(&dir, "caspar.pid");
@@ -487,8 +549,16 @@ pub fn run_node_status(args: &[String]) -> Result<()> {
     Ok(())
 }
 
-pub fn run_node_stop(args: &[String]) -> Result<()> {
-    let repo = resolve_repo_dir(args)?;
+/// Stop a locally-run node (and its QuestDB) if one is present. Returns whether
+/// anything was stopped, so the top-level `stop` command can fall back to the
+/// Docker-container flow when there is no local node.
+pub fn stop_local(args: &[String]) -> Result<bool> {
+    // A local node only exists next to a dist/ tree; if we can't resolve one,
+    // there is nothing native to stop — let the caller try the Docker flow.
+    let repo = match resolve_repo_dir(args) {
+        Ok(r) => r,
+        Err(_) => return Ok(false),
+    };
     let dir = data_dir(args, &repo);
     let mut stopped = false;
     for (name, label) in [("caspar.pid", "caspar-node"), ("questdb.pid", "QuestDB")] {
@@ -501,10 +571,7 @@ pub fn run_node_stop(args: &[String]) -> Result<()> {
             let _ = fs::remove_file(dir.join(name));
         }
     }
-    if !stopped {
-        println!("nothing running for {}", dir.display());
-    }
-    Ok(())
+    Ok(stopped)
 }
 
 /// Minimal HTTP GET for the telemetry liveness probe (no external deps).
@@ -529,18 +596,33 @@ fn http_get(port: u16, path: &str) -> Result<String> {
     }
 }
 
+fn print_install_local_usage() {
+    println!(
+        "casparctl install --local - one-time local install (no Docker)\n\n\
+         Usage:\n  casparctl install --local [flags]\n\n\
+         Flags:\n  \
+         --repo-dir PATH   repo root containing dist/ (auto-detected)\n  \
+         --data-dir PATH   node data directory (default <repo>/caspar-data/node1)\n  \
+         --force           regenerate the config even if it already exists\n\n\
+         Verifies the host requirements (node binary, bundled WasmEdge library,\n\
+         caspar-keygen, QuestDB jar, Java, openssl) and generates the node's\n\
+         config once: babble consensus key, PKCS#8 owner key, .env, and the\n\
+         babble peers.genesis.json. Starts nothing — run `casparctl run` next."
+    );
+}
+
 fn print_run_usage() {
     println!(
-        "casparctl run - launch a single Caspar node locally (no Docker)\n\n\
+        "casparctl run - start the installed local Caspar node (no Docker)\n\n\
          Usage:\n  casparctl run [flags]\n\n\
          Flags:\n  \
          --repo-dir PATH   repo root containing dist/ (auto-detected)\n  \
          --data-dir PATH   node data directory (default <repo>/caspar-data/node1)\n  \
          --detach          keep the node running after this command returns\n  \
          --no-questdb      do not start QuestDB (assume it is already running)\n\n\
-         Generates a fresh single-node config (keys, .env, babble genesis) on\n\
-         first run, starts QuestDB, and launches the pre-built dist/ node with\n\
-         the bundled WasmEdge library on the loader path.\n\n\
+         Starts QuestDB and the pre-built dist/ node (with the bundled WasmEdge\n\
+         library on the loader path) from a config produced by\n\
+         `casparctl install --local`. Does no installation itself.\n\n\
          The node serves plaintext client transports (TLS is normally handled\n\
          by an nginx proxy). Connect the client CLI with CASPAR_TLS=0."
     );
