@@ -212,6 +212,63 @@ plugin contract is in [VM SDK & Plugins](06-vm-sdk-and-plugins.md).
 
 ---
 
+## The docker-host bridge gateway
+
+WASM/elpian creatures reach the host in-process through `hostCall`. **Docker**
+creatures can't — they run sandboxed (gVisor/`runsc`) on the gateway docker
+network with **no other route out**. Their single channel to the node is one
+long-lived TCP connection to the **docker-host bridge gateway** (default port
+`8079`, `DOCKER_HOST_GATEWAY_PORT`; owned by the `Vmm` driver, started via
+`tools().vmm().start_docker_gateway(port)`). Over that one socket a container
+does everything: DB/storage host calls, outbound HTTP, signalling siblings,
+spawning/terminating VMs — and it **receives** signals pushed back over the same
+socket.
+
+**Identity is derived from the docker source IP — never declared.** A container
+holds no secret and is given no identity, only the gateway address
+(`CASPAR_GATEWAY_HOST`/`CASPAR_GATEWAY_PORT`, plus
+`--add-host host.docker.internal:host-gateway`). When the node launches a docker
+creature it records `container name → (vmId, creatureId, programId, machineId)`.
+On the container's `HELLO`, the node takes the connection's docker-network source
+IP and asks the docker daemon (bollard `list_containers`) which container owns
+that IP, maps it to the registered identity, and pins that identity to the
+connection for its lifetime — stamping it onto every request and ignoring any
+identity fields the container sends. A sandboxed container can't forge another
+container's bridge IP, so this gives docker creatures the same spoof-resistant
+posture as the in-process `hostCall` (which stamps the node-created runtime's own
+ids).
+
+### Wire protocol (chunked)
+
+```text
+[u32 BE frame_len][frame body]
+frame body: [u8 op][u64 BE message_id][u64 BE correlation_id][u32 BE seq][u32 BE total][chunk]
+```
+
+A logical message larger than `MAX_CHUNK` (64 KiB) is split across frames
+sharing `message_id` and reassembled (out-of-order tolerant); a single-chunk
+message uses `seq = 0, total = 1`.
+
+| op | name | direction | payload |
+|----|------|-----------|---------|
+| `0x01` | HELLO | container → node | `{}` (identity from source IP) |
+| `0x02` | WELCOME | node → container | `{ok, sessionId, vmId, machineId, creatureId, programId}` |
+| `0x10` | REQUEST | container → node | `{op, input}` |
+| `0x11` | RESPONSE | node → container | host-function result (JSON) |
+| `0x20` | SIGNAL | node → container | `{key, data}` |
+| `0x30` / `0x31` | PING / PONG | container ↔ node | `{}` / `{ok}` |
+| `0x40` | ERROR | node → container | `{ok:false, error}` (ends session) |
+
+A `REQUEST`'s `{op, input}` accepts any name `handle_unified_host_call` supports
+— the same entry point the in-process runtimes use (`dbOp`, `httpRequest`,
+`signal`, `signalUser`, `signalGroup`, `runVm`, `createStore`, …) — and the
+result is returned verbatim as the `RESPONSE`. When another creature signals the
+machine, the node pushes a `SIGNAL` frame onto the container's connection instead
+of cold-spawning a new VM. Config: `DOCKER_HOST_GATEWAY_PORT` (≤ 0 disables) and
+`DOCKER_HOST_GATEWAY_ADVERTISE_HOST` (default `host.docker.internal`).
+
+---
+
 ## Signals and the async result channel
 
 `creatures.signal` sends a signal to a creature/program entity. When the payload

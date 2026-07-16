@@ -114,10 +114,32 @@ cross-shard coordination, so aggregate throughput is additive:
 
 ## Cross-protocol rate limiting
 
-One shared token-bucket limiter throttles client requests across the TCP,
-WebSocket, and HTTP-ingress transports, so a client's quota is unified
-regardless of protocol. There are per-user and per-IP tiers plus a node-wide
-safety net.
+One shared token-bucket limiter (`IRateLimiter`, hung off `ITools`) throttles
+client requests across the TLS-TCP, TLS-WebSocket, and VMM HTTP-ingress
+transports. All three consult the **same** limiter instance keyed on identity —
+never on the wire the request arrived on — so a client cannot multiply its quota
+by spreading load across protocols. Each identity's bucket holds up to `burst`
+tokens, refills at `rate_per_sec`, and spends one token per request.
+
+Three tiers:
+
+| Tier | Keyed by | Purpose | Default |
+|------|----------|---------|---------|
+| **Authenticated** | verified `user_id` | fair per-user quota | 50 rps, burst 100 |
+| **Anonymous** | peer IP | pre-auth traffic (handshakes, `authenticate`); blunts connect floods | 10 rps, burst 20 |
+| **Global** | node-wide | aggregate safety net against distributed floods | 5000 rps, burst 10000 |
+
+The key derives only from **verified** identity (the `user_id` a socket pinned
+*after* a signature check, never the claimed id), so a spoofed id can't mint a
+fresh bucket; pre-auth traffic is billed to the hard-to-spoof peer IP. A
+rejected request returns action code `8` (TCP/WS) or `429 Too Many Requests`
+with `Retry-After` (HTTP), both carrying a `retryAfterMs` hint and the `scope`
+(`identity` vs `global`). Per-identity buckets live in a `DashMap` swept by a
+background thread (`RATE_LIMIT_IDLE_EVICT_SECS`, default 300 s), so the map can't
+grow unbounded. Every knob is an env var (`RATE_LIMIT_ENABLED`,
+`RATE_LIMIT_AUTH_RPS`/`_BURST`, `RATE_LIMIT_ANON_RPS`/`_BURST`,
+`RATE_LIMIT_GLOBAL_RPS`/`_BURST`); unset/malformed values fall back to defaults,
+and disabling admits every request.
 
 ---
 
