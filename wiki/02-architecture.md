@@ -172,6 +172,6 @@ additive.
 - `client-cli/` — TypeScript client CLI for the shell API (see
   [Client CLI](09-client-cli.md))
 - `sdk/` — Python client + sample creatures
-- `docs/` — architecture, API, consensus notes, benchmarks, setup
+- `wiki/` — the full project wiki (this documentation)
 - `reports/` — benchmark run artifacts
 - `bench-all.sh`, `run-nodes.sh`, `stop-nodes.sh`, `build-dist.sh` — operations

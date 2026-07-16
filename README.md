@@ -39,13 +39,13 @@ written in **Rust** (the previous Go implementation is retained only under
   distributed deployment (`distribution: "cluster"`), and distributed VM
   state propagates through the consensus while local-mode VMs stay
   node-local. Orchestrated via `casparctl cluster …`
-  (see [`docs/CLUSTER.md`](docs/CLUSTER.md)).
+  (see [the cluster guide](wiki/08-consensus-federation-cluster.md#geo-distributed-cluster)).
 - **Shard-parallel scale-out** — each shard is a self-contained three-node
   hashgraph group; aggregate throughput scales linearly with shard count.
 - **Cross-protocol rate limiting** — one shared token-bucket limiter throttles
   client requests across the TCP, WebSocket, and HTTP-ingress transports, so a
   client's quota is unified regardless of protocol; per-user and per-IP tiers
-  plus a node-wide safety net (see [`docs/RATE_LIMITING.md`](docs/RATE_LIMITING.md)).
+  plus a node-wide safety net (see [rate limiting](wiki/01-overview-and-features.md#cross-protocol-rate-limiting)).
 - **Telemetry** — a snapshot HTTP API and a live `casparctl stats` TUI.
 
 ## 📊 Current Measured State (`reports/final`, 2026-05-29)
@@ -61,7 +61,6 @@ Single shard = three local nodes (8074 / 8174 / 8274) sharing one Babble group.
 | Concurrent load success | **100%** across C = 1…32 |
 | WASM payload per node | **37 creatures, ≈11.6 MB** |
 
-See [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md) for the full breakdown.
 `reports/final/` is the authoritative benchmark artifact.
 
 ## 🧭 Repository Map
@@ -84,7 +83,6 @@ See [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md) for the full breakdown.
   SDK/plugins, the six VM types, consensus/federation/cluster, and the client
   CLI (see [`wiki/README.md`](wiki/README.md))
 - `sdk/` — Python client (`caspar_client.py`) + sample creatures
-- `docs/` — architecture, API, consensus notes, benchmarks, setup
 - `reports/` — benchmark run artifacts (`reports/final/` is current)
 - `bench-all.sh`, `run-nodes.sh`, `stop-nodes.sh`, `build-dist.sh` — operations
 - `node.old/` — legacy Go implementation (reference only)
@@ -135,17 +133,18 @@ make build                          # -> target/release/caspar-node
 cd .. && ./run-nodes.sh             # 3-node shard + QuestDB
 ```
 
-Full instructions: [`docs/GETTING_STARTED.md`](docs/GETTING_STARTED.md).
+Full instructions: [Getting Started](wiki/03-getting-started.md).
 
 ## 📚 Documentation
 
-- [`wiki/`](wiki/README.md) — **full project wiki** (overview, architecture,
-  protocol, casparctl, VM SDK & the six VM types, consensus/federation/cluster,
-  and the `caspar-client` CLI). Start here for an end-to-end guide.
-- [`docs/GETTING_STARTED.md`](docs/GETTING_STARTED.md) — prerequisites, build, run
-- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — subsystems and mechanisms
-- [`docs/API_REFERENCE.md`](docs/API_REFERENCE.md) — wire protocol + routes
-- [`docs/CONSENSUS_NOTES.md`](docs/CONSENSUS_NOTES.md) — Babble behaviour & routing
-- [`docs/RATE_LIMITING.md`](docs/RATE_LIMITING.md) — cross-protocol client request throttling
-- [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md) — measured performance
-- `sdk/README.md` — client SDK and samples
+The **full project wiki** lives in [`wiki/`](wiki/README.md) — start there for an
+end-to-end guide. Key pages:
+
+- [Getting Started](wiki/03-getting-started.md) — prerequisites, build, run, lifecycle
+- [Architecture](wiki/02-architecture.md) — subsystems and mechanisms
+- [Caspar Protocol](wiki/05-caspar-protocol.md) — wire format, routes, host-call ABI, docker-host gateway
+- [Casparctl](wiki/04-casparctl.md) — the operator CLI, every command
+- [VM SDK & Plugins](wiki/06-vm-sdk-and-plugins.md) + [VM Types & Implementation](wiki/07-vm-types-and-implementation.md)
+- [Consensus, Federation & Cluster](wiki/08-consensus-federation-cluster.md) — Babble behaviour/routing, rate limiting, cluster
+- [Client CLI](wiki/09-client-cli.md) — the `caspar-client` command reference
+- `sdk/README.md` — Python client SDK and samples

@@ -85,11 +85,15 @@ from deployed Dockerfiles, via the Bollard client. Not in-process
 **Packet identity:** `DockerIdentity::from_packet` reads `entityId` (or
 `imageName`), `containerName`, `vmId`, and `standalone`/`isStandalone`.
 
-**How it talks to the host:** it registers container identity
-(`register_vm_container`) for gateway identification (`identify_instance_by_ip`
-maps a source IP to a container name), and overrides `forward_http` to **proxy
-inbound HTTP straight to the server running inside the container** (returning
-its real response instead of the async `202`).
+**How it talks to the host:** a docker creature is sandboxed with no route out
+except one long-lived TCP connection to the **docker-host bridge gateway** (port
+`8079`), over which it makes every host call and receives pushed signals — its
+identity derived spoof-resistantly from the docker source IP. See
+[Protocol → docker-host bridge gateway](05-caspar-protocol.md#the-docker-host-bridge-gateway).
+The controller registers container identity (`register_vm_container`) for that
+identification, and overrides `forward_http` to **proxy inbound HTTP straight to
+the server running inside the container** (returning its real response instead of
+the async `202`).
 
 **Lifecycle:** `run_vm` starts/creates the container; `terminate_vm` suspends by
 default (removes on `purge`); `build_image` builds the image from the deployed
