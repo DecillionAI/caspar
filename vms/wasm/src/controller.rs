@@ -35,6 +35,17 @@ impl VmPlugin for WasmVmController {
     /// vmOutput error packet, and the VM slot is always released at the end.
     fn run_vm(&self, packet: &JsonValue) -> Result<JsonValue, String> {
         let ast_path = packet["astPath"].as_str().unwrap_or("").to_string();
+        // Reject an unresolved module path up front, before spawning the VM
+        // thread. Loading a wasm module from an empty path aborts the whole
+        // node inside WasmEdge's C++ loader (see runtime::execute_on_update),
+        // so a missing astPath must fail fast as an ordinary error here.
+        if ast_path.trim().is_empty() {
+            return Err(format!(
+                "wasm run requires a module path (astPath); none resolved for machine={} vm={}",
+                packet["machineId"].as_str().unwrap_or(""),
+                packet["vmId"].as_str().unwrap_or("main")
+            ));
+        }
         let input = packet["input"].as_str().unwrap_or("{}").to_string();
         let machine_id = packet["machineId"].as_str().unwrap_or("").to_string();
         let vm_id = packet["vmId"].as_str().unwrap_or("main").to_string();
@@ -146,6 +157,44 @@ impl VmPlugin for WasmVmController {
             return Err("astPath is required".to_string());
         }
         Ok(json!({"ok": true, "runtime": "wasm", "astPath": ast_path}))
+    }
+
+    /// Plan a standalone `runVm` for a deployed wasm entity.
+    ///
+    /// The generic SDK default omits `astPath`, which would launch the VM with
+    /// an empty module path (and abort the node in WasmEdge's loader). The wasm
+    /// runtime records the module path on deploy (`setEntityLinksOnDeploy`) at
+    /// the link `vmEntityPath::{machineId}::{entityId}`, so resolve it here and
+    /// include it in the launch input.
+    fn plan_run_entity(&self, ctx: &JsonValue) -> Result<JsonValue, String> {
+        let machine_id = ctx["machineId"].as_str().unwrap_or("");
+        let entity_id = ctx["entityId"].as_str().unwrap_or("");
+        let params = ctx["params"].clone();
+        let data = serde_json::to_string(&params).unwrap_or_else(|_| "{}".to_string());
+
+        let mut ast_path = String::new();
+        if !machine_id.is_empty() && !entity_id.is_empty() {
+            if let Some(h) = host() {
+                ast_path = h
+                    .state_get(&format!("vmEntityPath::{}::{}", machine_id, entity_id))
+                    .trim()
+                    .to_string();
+            }
+        }
+
+        Ok(json!({
+            "input": {
+                "runtime": self.meta().key,
+                "machineId": ctx["machineId"],
+                "entityId": ctx["entityId"],
+                "standalone": true,
+                "vmId": ctx["vmId"],
+                "resources": ctx["resources"],
+                "astPath": ast_path,
+                "data": data,
+            },
+            "links": [],
+        }))
     }
 
     /// Wasm "image build": run the entity's `build.sh` script (which compiles

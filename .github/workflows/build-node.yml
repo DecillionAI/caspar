@@ -1,0 +1,122 @@
+name: Build & publish caspar-node
+
+# Builds the caspar-node binary from source (via build-dist.sh) and commits the
+# refreshed artifacts back into the repo's dist/ folder, replacing the old
+# checked-in caspar-node binary. The Dockerfile and casparctl/run consume the
+# committed dist/ directly, so this keeps the shipped binary in sync with source.
+
+on:
+  # Manual trigger — build on demand for any branch.
+  workflow_dispatch:
+    inputs:
+      wasmedge_version:
+        description: 'WasmEdge runtime version to build/link against'
+        required: false
+        default: '0.14.0'
+        type: string
+  # Rebuild automatically when the node's source changes on the default branch.
+  # dist/ is intentionally NOT in these paths, so the artifact commit this
+  # workflow makes does not re-trigger itself.
+  push:
+    branches: [Main]
+    paths:
+      - 'node/**'
+      - 'vms/**'
+      - 'vm-sdk/**'
+      - 'cmd/casparctl/**'
+      - 'build-dist.sh'
+      - '.github/workflows/build-node.yml'
+
+# The job commits the rebuilt binary back to the repo.
+permissions:
+  contents: write
+
+# Never run two publish builds against the same ref at once — they would race
+# on the dist/ commit.
+concurrency:
+  group: build-node-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-publish:
+    name: Build caspar-node and publish to dist/
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    steps:
+      - name: Checkout (on the triggering branch, so we can push back)
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install build prerequisites
+        run: |
+          sudo apt-get update -y
+          # libclang is required by bindgen to build wasmedge-sys; the rest are
+          # standard native-build deps for the RocksDB / WasmEdge crates.
+          sudo apt-get install -y --no-install-recommends \
+            clang libclang-dev cmake build-essential pkg-config curl
+
+      - name: Set up Rust toolchain
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustc --version && cargo --version
+
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            node
+            cmd/casparctl
+          # Bump if a clean rebuild is ever needed.
+          key: caspar-node-dist-v1
+
+      - name: Pre-seed QuestDB jar (skip the download)
+        run: |
+          # build-dist.sh looks for /opt/questdb/questdb.jar and downloads it
+          # when absent. The repo already ships the jar under dist/, so reuse it
+          # and avoid a network fetch.
+          sudo mkdir -p /opt/questdb
+          if [ -f dist/questdb/questdb.jar ]; then
+            sudo cp dist/questdb/questdb.jar /opt/questdb/questdb.jar
+          fi
+          sudo chown -R "$USER" /opt/questdb
+
+      - name: Build dist/ (caspar-node binary + libraries)
+        run: |
+          ./build-dist.sh --wasmedge-ver "${{ inputs.wasmedge_version || '0.14.0' }}"
+
+      - name: Publish refreshed binary to dist/
+        run: |
+          set -euo pipefail
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          # Only the built artifacts; dist/ is where the node binary lives.
+          git add dist/
+
+          if git diff --cached --quiet; then
+            echo "dist/ is already up to date — nothing to publish."
+            exit 0
+          fi
+
+          echo "Changed dist/ files:"
+          git diff --cached --name-only
+
+          git commit -m "ci: rebuild caspar-node binary into dist/ [skip ci]"
+
+          # Rebase onto any commits that landed during the (long) build, then
+          # push. Retry once on a racing update.
+          branch="${{ github.ref_name }}"
+          for attempt in 1 2 3; do
+            if git pull --rebase --autostash origin "$branch" && git push origin "HEAD:$branch"; then
+              echo "Published rebuilt caspar-node to dist/ on $branch."
+              exit 0
+            fi
+            echo "push attempt $attempt failed; retrying…"
+            sleep $((attempt * 5))
+          done
+          echo "failed to push rebuilt dist/ after retries" >&2
+          exit 1

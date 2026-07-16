@@ -36,6 +36,7 @@ use std::time::{Duration, Instant};
 use anyhow::{anyhow, bail, Context, Result};
 
 mod cluster;
+mod run;
 mod vms;
 use chrono::{DateTime, Local};
 use regex::Regex;
@@ -139,7 +140,16 @@ fn main() {
         std::process::exit(1);
     }
     let result = match args[1].as_str() {
-        "install" => run_install(&args[2..]),
+        "install" => {
+            // `install --local` is the no-Docker local install phase (verify
+            // requirements + generate config); plain `install` is the Docker
+            // container setup.
+            if args[2..].iter().any(|a| a == "--local") {
+                run::install_local(&args[2..])
+            } else {
+                run_install(&args[2..])
+            }
+        }
         "uninstall" => run_uninstall(&args[2..]),
         "purge" => run_purge(&args[2..]),
         "start" => run_start(&args[2..]),
@@ -147,6 +157,8 @@ fn main() {
         "resume" => run_resume(&args[2..]),
         "stop" => run_stop(&args[2..]),
         "stats" => run_stats(&args[2..]),
+        "run" => run::run_run(&args[2..]),
+        "status" => run::run_status(&args[2..]),
         "pprof" => run_pprof(&args[2..]),
         "vms" => vms::run_vms(&args[2..]),
         "cluster" => cluster::run_cluster(&args[2..]),
@@ -172,12 +184,15 @@ fn print_usage() {
          Usage:\n  casparctl <command> [flags]\n\n\
          Commands:\n  \
          install    Full node setup (docker/gvisor/storage/certs/testnet bootstrap)\n  \
+         install --local  One-time local install without Docker (requirements + config)\n  \
          uninstall  Stop and remove the Caspar container\n  \
          purge      Uninstall + remove image and volumes\n  \
          start      Start the Caspar container\n  \
          pause      Pause the Caspar container\n  \
          resume     Resume (unpause) the Caspar container\n  \
-         stop       Stop the Caspar container\n  \
+         stop       Stop the local node (if any), else the Caspar container\n  \
+         run        Start the installed local node without Docker (QuestDB + node)\n  \
+         status     Show the locally-run node's process/port status\n  \
          stats      Realtime multi-section dashboard (container + telemetry + chain)\n  \
          pprof      Query the node runtime profiler (rust pprof crate)\n  \
          vms        Manage the node's pluggable VM types (list/enable/disable/sync/new)\n  \
@@ -506,6 +521,12 @@ fn run_resume(args: &[String]) -> Result<()> {
     lifecycle_command("unpause", args)
 }
 fn run_stop(args: &[String]) -> Result<()> {
+    // A node started by `casparctl run` is a native process, not a Docker
+    // container, so stop it here first. Only fall through to the Docker flow
+    // when there is no local node to stop.
+    if run::stop_local(args)? {
+        return Ok(());
+    }
     let mut fs_set = FlagSet::new("stop");
     fs_set.string(
         "project-dir",

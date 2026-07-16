@@ -146,6 +146,26 @@ impl WasmMac {
     /// left wasmedge holding a dangling pointer once the statement ended and
     /// caused intermittent segfaults during VM tear-down.
     pub fn execute_on_update(&mut self, input: String) -> Result<(), String> {
+        // Guard the FFI boundary: WasmEdge's `Loader::from_file` calls
+        // `std::filesystem::absolute(path)` in C++, which THROWS on an empty
+        // path ("cannot make absolute path: Invalid argument"). A C++ throw
+        // cannot unwind across the FFI boundary, so it aborts the whole node
+        // process (`std::terminate`) — uncatchable by the controller's
+        // `catch_unwind`. We must therefore never hand WasmEdge an invalid
+        // module path: validate it here and surface a normal Result::Err (which
+        // the controller turns into a contained vmOutput error) instead.
+        let mod_path = self.mod_path.trim().to_string();
+        if mod_path.is_empty() {
+            return Err(
+                "wasm module path is empty (no astPath resolved for this entity); \
+                 refusing to load"
+                    .to_string(),
+            );
+        }
+        if !std::path::Path::new(&mod_path).is_file() {
+            return Err(format!("wasm module file not found: {}", mod_path));
+        }
+
         self.running_.store(true, Ordering::Relaxed);
         struct RunningGuard(Arc<AtomicBool>);
         impl Drop for RunningGuard {
@@ -201,12 +221,12 @@ impl WasmMac {
         let conf = Config::create().map_err(|e| format!("loader config: {}", e))?;
         let loader = Loader::create(Some(&conf)).map_err(|e| format!("loader: {}", e))?;
         let main_mod_raw = loader
-            .from_file(self.mod_path.clone())
-            .map_err(|e| format!("load {}: {}", self.mod_path, e))?;
+            .from_file(mod_path.clone())
+            .map_err(|e| format!("load {}: {}", mod_path, e))?;
         let conf2 = Config::create().map_err(|e| format!("validator config: {}", e))?;
         let v = Validator::create(Some(&conf2)).map_err(|e| format!("validator: {}", e))?;
         v.validate(&main_mod_raw)
-            .map_err(|e| format!("validate {}: {}", self.mod_path, e))?;
+            .map_err(|e| format!("validate {}: {}", mod_path, e))?;
 
         if self.stop_.load(Ordering::Relaxed) {
             return Ok(());

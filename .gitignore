@@ -11,3 +11,6 @@ telemetry-rocks/
 # lockfiles are local artifacts
 vms/*/Cargo.lock
 vm-sdk/Cargo.lock
+
+# casparctl run local node data
+caspar-data/
