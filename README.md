@@ -77,6 +77,12 @@ See [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md) for the full breakdown.
   `vms/elpify/crates/elpify-lang` (Miden STARK), `vms/elpian/crates/elpian-vm`
 - `cmd/casparctl/` — operator CLI (**Rust**): install / control / telemetry TUI
   / VM plugin selection (`casparctl vms …`)
+- `client-cli/` — Caspar client CLI (**TypeScript**, `caspar-client`): shell-API
+  client for creatures/programs + VM project template scaffolding for all six
+  runtimes (see [`client-cli/README.md`](client-cli/README.md))
+- `wiki/` — full project wiki: overview, architecture, protocol, casparctl, VM
+  SDK/plugins, the six VM types, consensus/federation/cluster, and the client
+  CLI (see [`wiki/README.md`](wiki/README.md))
 - `sdk/` — Python client (`caspar_client.py`) + sample creatures
 - `docs/` — architecture, API, consensus notes, benchmarks, setup
 - `reports/` — benchmark run artifacts (`reports/final/` is current)
@@ -133,6 +139,9 @@ Full instructions: [`docs/GETTING_STARTED.md`](docs/GETTING_STARTED.md).
 
 ## 📚 Documentation
 
+- [`wiki/`](wiki/README.md) — **full project wiki** (overview, architecture,
+  protocol, casparctl, VM SDK & the six VM types, consensus/federation/cluster,
+  and the `caspar-client` CLI). Start here for an end-to-end guide.
 - [`docs/GETTING_STARTED.md`](docs/GETTING_STARTED.md) — prerequisites, build, run
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — subsystems and mechanisms
 - [`docs/API_REFERENCE.md`](docs/API_REFERENCE.md) — wire protocol + routes
