@@ -15,6 +15,7 @@
 //     runtimes (`vm.init` / `vm.types`).
 //
 import tls from "tls";
+import net from "net";
 import crypto from "crypto";
 import fs from "fs";
 import path from "path";
@@ -43,8 +44,12 @@ class Caspar {
   port2: number = 8076; // WebSocket action port (CLIENT_WS_API_PORT)
   host: string = "127.0.0.1";
   protocol: string = "ws";
+  // Transport TLS. A Caspar node serves plaintext ws/tcp directly; TLS is
+  // normally terminated by a front proxy (nginx). Set CASPAR_TLS=0 to connect
+  // straight to a node with no proxy (plain ws:// / plain TCP).
+  useTls: boolean = process.env.CASPAR_TLS !== "0";
   callbacks: { [key: string]: (packageId: number, obj: any) => void } = {};
-  socket: tls.TLSSocket | undefined;
+  socket: tls.TLSSocket | net.Socket | undefined;
   websocket: WebSocket | undefined;
   received: Buffer = Buffer.from([]);
   observePhase: boolean = true;
@@ -71,39 +76,55 @@ class Caspar {
     return new Promise((resolve, reject) => {
       const insecure = process.env.CASPAR_INSECURE === "1";
       if (this.protocol === "tcp") {
-        const options: tls.ConnectionOptions = {
-          host: this.host,
-          port: this.port,
-          servername: this.host,
-          rejectUnauthorized: !insecure,
-        };
-        this.socket = tls.connect(options, () => {
-          if (this.socket?.authorized) {
-            console.log("✔ Tcp TLS connection authorized");
-            this.authenticate();
-          } else {
-            console.log(
-              "⚠ TLS connection not authorized:",
-              this.socket?.authorizationError
-            );
-          }
-          resolve(undefined);
-        });
-        this.socket.on("error", async (e) => {
-          console.log(e);
-        });
-        this.socket.on("close", (e) => {
-          console.log(e);
-          this.connectoToTlsServer();
-        });
-        this.socket.on("data", (data) => {
+        const onData = (data: Buffer) => {
           setTimeout(() => {
             this.received = Buffer.concat([this.received, data]);
             this.readBytes();
           });
-        });
+        };
+        const onError = (e: any) => console.log(e);
+        const onClose = (e: any) => {
+          console.log(e);
+          this.connectoToTlsServer();
+        };
+        if (this.useTls) {
+          const options: tls.ConnectionOptions = {
+            host: this.host,
+            port: this.port,
+            servername: this.host,
+            rejectUnauthorized: !insecure,
+          };
+          const s = tls.connect(options, () => {
+            if (s.authorized) {
+              console.log("✔ Tcp TLS connection authorized");
+              this.authenticate();
+            } else {
+              console.log(
+                "⚠ TLS connection not authorized:",
+                s.authorizationError
+              );
+            }
+            resolve(undefined);
+          });
+          this.socket = s;
+          s.on("error", onError);
+          s.on("close", onClose);
+          s.on("data", onData);
+        } else {
+          // Plaintext TCP straight to the node (no proxy).
+          const s = net.connect({ host: this.host, port: this.port }, () => {
+            console.log("✔ Tcp (plaintext) connected");
+            this.authenticate();
+            resolve(undefined);
+          });
+          this.socket = s;
+          s.on("error", onError);
+          s.on("close", onClose);
+          s.on("data", onData);
+        }
       } else {
-        this.websocket = new WebSocket(`wss://${this.host}:${this.port2}`, {
+        const scheme = this.useTls ? "wss" : "ws";
+        this.websocket = new WebSocket(`${scheme}://${this.host}:${this.port2}`, {
           rejectUnauthorized: !insecure,
         } as any);
         this.websocket.on("open", () => {

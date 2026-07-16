@@ -30,8 +30,15 @@ environment variables:
 | `CASPAR_HOST` | node host | `127.0.0.1` |
 | `CASPAR_PROTO` | `ws` or `tcp` | `ws` |
 | `CASPAR_PORT` | action port | ws `8076`, tcp `8077` |
-| `CASPAR_INSECURE` | `1` to skip TLS verification (dev) | unset |
+| `CASPAR_TLS` | `0` for plaintext `ws://` / TCP (direct-to-node, no proxy) | `1` (TLS) |
+| `CASPAR_INSECURE` | `1` to skip TLS certificate verification (dev) | unset |
 | `CASPAR_SIGNAL_TIMEOUT_MS` | signal round-trip timeout | `30000` |
+
+> **Direct vs. proxied.** A Caspar node serves its `ws`/`tcp` client transports
+> in **plaintext**; TLS is normally terminated by a front proxy (nginx). When
+> you connect straight to a node with no proxy — e.g. one started by
+> `casparctl run` — set `CASPAR_TLS=0`. Keep the default (TLS) when connecting
+> through the proxied production endpoint.
 
 Credentials are stored in the working directory under `auth/userId.txt` and
 `auth/privateKey.txt`; downloads land in `files/`.

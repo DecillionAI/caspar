@@ -76,6 +76,44 @@ casparctl stop    [--project-dir PATH]
 
 ---
 
+## casparctl run / node-status / node-stop
+
+The container flow above (`install` + `start`) needs a Docker daemon, gVisor,
+and the nginx TLS proxy. `casparctl run` is the lightweight alternative for a
+sandbox or dev host: it launches the pre-built node binary from `dist/`
+directly, after generating a fresh single-node config and starting the QuestDB
+instance the node requires — no Docker needed.
+
+```bash
+casparctl run [--repo-dir PATH] [--data-dir PATH] [--detach] [--no-questdb]
+casparctl node-status [--data-dir PATH]
+casparctl node-stop   [--data-dir PATH]
+```
+
+- **`run`** — auto-detects the repo (the dir containing `dist/bin/caspar-node`),
+  and on first run generates keys (`caspar-keygen`), a PKCS#8 RSA
+  `OWNER_PRIVATE_KEY` (openssl), a single-node `.env`, and the babble
+  `peers.genesis.json`. It then starts QuestDB (needs Java 11+; uses
+  `dist/questdb/questdb.jar`), and launches the node with the bundled WasmEdge
+  library on `LD_LIBRARY_PATH` and stock `runc` for container VMs. `--detach`
+  leaves the node running after the command returns; `--data-dir` defaults to
+  `<repo>/caspar-data/node1`.
+- **`node-status`** — shows the node/QuestDB process state, which client ports
+  are open, and a telemetry-snapshot liveness probe.
+- **`node-stop`** — stops the locally-run node and its QuestDB (by PID file).
+
+The node serves its client transports in **plaintext** here (TLS is normally
+terminated by the nginx proxy, which this flow omits). Connect the client CLI
+with `CASPAR_TLS=0` (see [Client CLI](09-client-cli.md#connecting-to-a-node)):
+
+```bash
+casparctl run --detach
+casparctl node-status
+CASPAR_TLS=0 CASPAR_PROTO=ws CASPAR_PORT=8076 caspar-client login alice alice@example.com
+```
+
+---
+
 ## casparctl stats
 
 A realtime multi-section terminal dashboard: container inspect (state/health/

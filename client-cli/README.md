@@ -41,8 +41,13 @@ your node with environment variables:
 | `CASPAR_HOST`       | node host                                 | `127.0.0.1` |
 | `CASPAR_PROTO`      | `ws` or `tcp`                             | `ws`        |
 | `CASPAR_PORT`       | action port (ws: 8076, tcp: 8077)         | proto default |
+| `CASPAR_TLS`        | `0` = plaintext `ws://`/TCP (direct-to-node, no proxy) | `1` (TLS) |
 | `CASPAR_INSECURE`   | `1` to skip TLS verification (dev only)   | unset       |
 | `CASPAR_SIGNAL_TIMEOUT_MS` | signal round-trip timeout          | `30000`     |
+
+> A node serves plaintext `ws`/`tcp` (TLS is normally terminated by an nginx
+> proxy). Connecting straight to a node — e.g. one started by `casparctl run` —
+> requires `CASPAR_TLS=0`.
 
 ## Run modes
 

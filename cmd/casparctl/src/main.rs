@@ -36,6 +36,7 @@ use std::time::{Duration, Instant};
 use anyhow::{anyhow, bail, Context, Result};
 
 mod cluster;
+mod run;
 mod vms;
 use chrono::{DateTime, Local};
 use regex::Regex;
@@ -147,6 +148,9 @@ fn main() {
         "resume" => run_resume(&args[2..]),
         "stop" => run_stop(&args[2..]),
         "stats" => run_stats(&args[2..]),
+        "run" => run::run_run(&args[2..]),
+        "node-status" => run::run_node_status(&args[2..]),
+        "node-stop" => run::run_node_stop(&args[2..]),
         "pprof" => run_pprof(&args[2..]),
         "vms" => vms::run_vms(&args[2..]),
         "cluster" => cluster::run_cluster(&args[2..]),
@@ -178,6 +182,9 @@ fn print_usage() {
          pause      Pause the Caspar container\n  \
          resume     Resume (unpause) the Caspar container\n  \
          stop       Stop the Caspar container\n  \
+         run        Launch a single node locally without Docker (dist/ binary + QuestDB)\n  \
+         node-status Show the locally-run node's process/port status\n  \
+         node-stop  Stop the locally-run node (and its QuestDB)\n  \
          stats      Realtime multi-section dashboard (container + telemetry + chain)\n  \
          pprof      Query the node runtime profiler (rust pprof crate)\n  \
          vms        Manage the node's pluggable VM types (list/enable/disable/sync/new)\n  \

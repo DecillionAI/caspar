@@ -92,6 +92,21 @@ cd node
 ./target/release/caspar-node
 ```
 
+### D) `casparctl run` — local single node, no Docker ✅
+
+The lightest path (works in a plain sandbox): launches the pre-built `dist/`
+node with a generated single-node config and QuestDB, no Docker/gVisor/proxy.
+
+```bash
+casparctl run --detach       # generate config, start QuestDB, launch the node
+casparctl node-status        # process/port/telemetry status
+casparctl node-stop          # stop node + QuestDB
+```
+
+This node serves **plaintext** client transports, so connect the client CLI
+with `CASPAR_TLS=0` (see [Client CLI](09-client-cli.md)). See
+[Casparctl → run](04-casparctl.md#casparctl-run--node-status--node-stop).
+
 ---
 
 ## Node lifecycle at a glance (for operators / agents)
