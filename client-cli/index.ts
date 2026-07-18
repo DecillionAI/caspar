@@ -815,7 +815,10 @@ class Caspar {
       });
     },
     readBuildLogs: async (
-      machineId: string
+      vmId: string = "main",
+      logType: string = "build",
+      offset: number = 0,
+      count: number = 200
     ): Promise<{ resCode: number; obj: any }> => {
       if (!this.userId) {
         return {
@@ -823,8 +826,15 @@ class Caspar {
           obj: { message: USER_ID_NOT_SET_ERR_MSG },
         };
       }
-      return await this.sendRequest(this.userId, "/programs/readVmLogs", {
-        vmId: machineId,
+      // The node registers this under /machines (not /programs), and docker
+      // BUILD output is recorded before any VM exists, under the runtime's
+      // node-wide "main" stream with logType "build" — see the docker VM
+      // plugin's emit_vm_log calls.
+      return await this.sendRequest(this.userId, "/machines/readVmLogs", {
+        vmId: vmId || "main",
+        logType: logType || "build",
+        offset,
+        count,
       });
     },
   };
@@ -1433,10 +1443,10 @@ const commands: {
   "programs.readBuildLogs": async (
     args: string[]
   ): Promise<{ resCode: number; obj: any }> => {
-    if (args.length !== 1) {
+    if (args.length > 2) {
       return { resCode: 30, obj: { message: "invalid parameters count" } };
     }
-    return await app.programs.readBuildLogs(args[0]);
+    return await app.programs.readBuildLogs(args[0] || "main", args[1] || "build");
   },
   // ── VM project templates (offline) ─────────────────────────────────────────
   "vm.types": async (
@@ -1526,9 +1536,13 @@ const helpEntries: { [key: string]: string } = {
   "programs.list": `programs.list [offset] [count]
   → List programs.
   Example: programs.list 0 15`,
-  "programs.readBuildLogs": `programs.readBuildLogs [vmId]
-  → Read a program/VM's build & runtime logs.
-  Example: programs.readBuildLogs 876@global`,
+  "programs.readBuildLogs": `programs.readBuildLogs [optional vmId] [optional logType]
+  → Read VM logs. Docker image BUILD output is recorded under the runtime's
+  node-wide "main" stream with logType "build" — the defaults — so a bare
+  \`programs.readBuildLogs\` shows the current image build. Pass a real vmId
+  with logType "runtime" for a running VM's logs.
+  Example1: programs.readBuildLogs
+  Example2: programs.readBuildLogs 3bb9ed93-b842-4f8d-af36-6251969c62d6 runtime`,
   "vm.types": `vm.types
   → List the six VM runtimes a Caspar node supports.
   Example: vm.types`,
