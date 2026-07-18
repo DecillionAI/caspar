@@ -858,9 +858,17 @@ fn read_vm_logs(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
                 }
             }
             if owner_user_id.is_empty() {
-                return Err(anyhow!("vm not found"));
-            }
-            if owner_user_id != state.info().user_id() {
+                // Docker image BUILD output is emitted before any VM exists,
+                // under the runtime's node-wide "main" stream with log type
+                // "build" (see the docker plugin's emit_vm_log calls) — there
+                // is no VmInstance link to anchor ownership to, so build
+                // streams stay readable by any authenticated user, matching
+                // how the runtime records them (one shared stream, no
+                // per-program isolation).
+                if input.log_type != "build" {
+                    return Err(anyhow!("vm not found"));
+                }
+            } else if owner_user_id != state.info().user_id() {
                 return Err(anyhow!("you are not owner of this vm"));
             }
             let count = if input.count <= 0 { 100 } else { input.count };
