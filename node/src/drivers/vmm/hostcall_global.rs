@@ -44,6 +44,15 @@ impl Vmm {
             "signal" => self.handle_signal_store(&input, req_id),
             "terminateVm" => self.handle_terminate_vm(&input, req_id),
             "sendMessageOnChain" => self.handle_send_message_on_chain(&input, req_id),
+            "createProgram" => self.handle_program_crud("create", &input, req_id),
+            "deleteProgram" | "deleteOwnedProgram" => {
+                self.handle_program_crud("delete", &input, req_id)
+            }
+            "getProgram" => self.handle_program_crud("get", &input, req_id),
+            "listPrograms" => self.handle_program_crud("list", &input, req_id),
+            "listProgramMachines" => self.handle_program_crud("listByMachine", &input, req_id),
+            "updateProgram" => self.handle_program_crud("update", &input, req_id),
+            "deployEntity" => self.handle_deploy_entity(&input, req_id),
             "createCreature" => self.handle_creature_crud("create", &input, req_id),
             "updateCreature" => self.handle_creature_crud("update", &input, req_id),
             "deleteCreature" => self.handle_creature_crud("delete", &input, req_id),

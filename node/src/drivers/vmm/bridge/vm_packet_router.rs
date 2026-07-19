@@ -38,14 +38,31 @@ pub fn route_vm_packet(packet: &JsonValue) -> String {
                 Ok(payload) => payload.to_string(),
                 Err(err) => json!({"ok": false, "error": err}).to_string(),
             },
-            VmPacketKind::Unknown => json!({
-                "ok": false,
-                "error": format!(
-                    "unsupported packet type: {}",
-                    owned["type"].as_str().unwrap_or("")
-                )
-            })
-            .to_string(),
+            VmPacketKind::Unknown => {
+                // Host-API envelopes carry the op under "key" instead of
+                // "type" (the appengine callback protocol): hand them to the
+                // VMM's key-based dispatcher so signal / createProgram /
+                // deployEntity / vmLog / plantTrigger… actually execute.
+                let key = owned["key"].as_str().unwrap_or("");
+                if !key.is_empty() {
+                    match crate::drivers::vmm::globals::with_global_app(|app| {
+                        app.tools().vmm().vm_callback(&owned.to_string()).0
+                    }) {
+                        Some(res) => res,
+                        None => json!({"ok": false, "error": "vmm not initialised"})
+                            .to_string(),
+                    }
+                } else {
+                    json!({
+                        "ok": false,
+                        "error": format!(
+                            "unsupported packet type: {}",
+                            owned["type"].as_str().unwrap_or("")
+                        )
+                    })
+                    .to_string()
+                }
+            }
         }
     }));
     match dispatch {

@@ -83,6 +83,16 @@ pub struct Send {
     pub is_temp: bool,
     #[serde(rename = "entityId", default, skip_serializing_if = "String::is_empty")]
     pub entity_id: String,
+    /// Correlation id carried across a proxy-entity round trip: the requester
+    /// (or the proxy itself) stamps it on the forwarded signal, the target
+    /// echoes it on its response signal, and the node uses it to route the
+    /// response back through the proxy entity to the original sender.
+    #[serde(
+        rename = "correlationId",
+        default,
+        skip_serializing_if = "String::is_empty"
+    )]
+    pub correlation_id: String,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

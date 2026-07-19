@@ -292,6 +292,32 @@ impl IVmm for Vmm {
                 if key != "creatures/signal" {
                     return;
                 }
+                let raw = serde_json::to_vec(&value).unwrap_or_default();
+                let entity_id = serde_json::from_slice::<stores::Send>(&raw)
+                    .ok()
+                    .map(|p| p.entity_id)
+                    .unwrap_or_default();
+                // Proxied response: a packet carrying a correlation id that one
+                // of this machine's proxy entities recorded is routed back to
+                // the original sender (with the proxy as sender identity)
+                // instead of running anything here.
+                if crate::drivers::vmm::proxy::try_route_proxy_response(
+                    &trans.app,
+                    &machine_id_owned,
+                    &value,
+                ) {
+                    return;
+                }
+                // Proxy entity request: no runnable exists — attach the
+                // entity's data file and forward the signal to its target.
+                if crate::drivers::vmm::proxy::try_forward_through_proxy(
+                    &trans.app,
+                    &machine_id_owned,
+                    &entity_id,
+                    &value,
+                ) {
+                    return;
+                }
                 // If a docker creature of this machine is connected to the
                 // bridge gateway, deliver the signal straight to its container
                 // over the live TCP connection instead of cold-spawning a VM.
@@ -305,11 +331,6 @@ impl IVmm for Vmm {
                 {
                     return;
                 }
-                let raw = serde_json::to_vec(&value).unwrap_or_default();
-                let entity_id = serde_json::from_slice::<stores::Send>(&raw)
-                    .ok()
-                    .map(|p| p.entity_id)
-                    .unwrap_or_default();
                 let (ast_path, vm_type) =
                     trans.resolve_vm_execution_target(&machine_id_owned, &entity_id);
                 let payload = json!({

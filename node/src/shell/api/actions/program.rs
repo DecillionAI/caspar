@@ -29,8 +29,8 @@ use crate::models::transaction::ITrx;
 use crate::models::state::IState;
 use crate::core::actor::model::secured::guard::Guard;
 use crate::shell::api::packets::program::{
-    CreateMachineInput, DeleteProgramInput, DeployInput, ListAppMachsInput, ListInput,
-    MachineBuildsInput, ReadVmLogsInput, RunProgramEntityInput, UpdateProgramInput,
+    CreateMachineInput, DeleteProgramInput, DeployInput, DownloadEntityInput, ListAppMachsInput,
+    ListInput, MachineBuildsInput, ReadVmLogsInput, RunProgramEntityInput, UpdateProgramInput,
     VmResourcesInput, VmTerminalInput,
 };
 use crate::shell::api::model::{Entity, Machine, Program, User};
@@ -998,6 +998,50 @@ fn deploy(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
                 return Err(anyhow!("access to vm denied"));
             }
             let entity_type = normalize_entity_type(&input.entity_type);
+            // Proxy entities are non-runnable: the deploy stores the payload
+            // as the entity's data file plus a target descriptor. Signals to
+            // the entity are forwarded to the target with the file attached
+            // and responses are routed back through the proxy (see
+            // drivers::vmm::proxy). No plugin, no build, no billing.
+            if entity_type == crate::drivers::vmm::proxy::PROXY_RUNTIME_KEY {
+                let config = crate::drivers::vmm::proxy::config_from_metadata(|k| {
+                    input.metadata.get(k).cloned()
+                })
+                .map_err(|e| anyhow!(e))?;
+                let data = base64::engine::general_purpose::STANDARD
+                    .decode(&input.payload)
+                    .map_err(|e| anyhow!("{}", e))?;
+                let build_folder_path = format!(
+                    "{}{}{}/entities/{}",
+                    app_for_handler.tools().storage().storage_root(),
+                    PLUGINS_TEMPLATE_NAME,
+                    program.id,
+                    input.entity_id
+                );
+                app_for_handler.tools().file().save_data_to_global_storage(
+                    &build_folder_path,
+                    &data,
+                    "proxy.data",
+                    true,
+                )?;
+                crate::drivers::vmm::proxy::record_proxy_entity(
+                    &*trx,
+                    &program.id,
+                    &input.entity_id,
+                    &format!("{}/proxy.data", build_folder_path),
+                    &config,
+                );
+                // Register the signal listener so the proxy entity actually
+                // receives (and forwards) signals addressed to this program.
+                program.push(&*trx);
+                app_for_handler.tools().vmm().assign(&program.id);
+                return Ok(json!({
+                    "proxy": true,
+                    "entityId": input.entity_id,
+                    "entityType": crate::drivers::vmm::proxy::PROXY_RUNTIME_KEY,
+                    "target": config.to_value(),
+                }));
+            }
             // The runtime's plugin declares how its entities deploy: the
             // primary file name, whether extra files are accepted, whether a
             // build must follow, and whether entity links are recorded. An
@@ -1091,6 +1135,17 @@ fn deploy(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
                     &entity_type,
                 );
             }
+            if input.downloadable {
+                // Downloadable entities (front-end scripts executed on the
+                // client) are served at any time via /programs/downloadEntity.
+                trx.put_link(
+                    &format!(
+                        "vmEntityDownloadable::{}::{}",
+                        program.id, input.entity_id
+                    ),
+                    &format!("{}/{}", build_folder_path, primary_file_name),
+                );
+            }
             if build_on_deploy {
                 let build_id = Uuid::new_v4().to_string();
                 trx.put_link(&format!("VmBuilds::{}::{}", vm_id, build_id), "true");
@@ -1146,6 +1201,49 @@ fn deploy(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
                 map.insert("distribution".into(), json!(distribution_label));
             }
             Ok(result)
+        },
+    )
+}
+
+/// `/programs/downloadEntity` — hand a deployed downloadable entity's file to
+/// the caller (base64). This is how front-end apps deployed as entities are
+/// fetched and executed on the client side at any time.
+fn download_entity(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
+    build_secure_action::<DownloadEntityInput, _>(
+        app,
+        "/programs/downloadEntity",
+        user_guard(),
+        move |state: Arc<dyn IState>, input: DownloadEntityInput| -> Result<Value> {
+            let trx = state.trx();
+            let program_id = if input.program_id.is_empty() {
+                input.machine_id.clone()
+            } else {
+                input.program_id.clone()
+            };
+            if program_id.is_empty() || input.entity_id.is_empty() {
+                return Err(anyhow!("programId and entityId are required"));
+            }
+            let path = trx.get_link(&format!(
+                "vmEntityDownloadable::{}::{}",
+                program_id, input.entity_id
+            ));
+            if path.is_empty() {
+                return Err(anyhow!("entity is not downloadable"));
+            }
+            let entity = Entity {
+                program_id: program_id.clone(),
+                entity_id: input.entity_id.clone(),
+                ..Default::default()
+            }
+            .pull(&*trx);
+            let bytes = std::fs::read(&path)
+                .map_err(|e| anyhow!("entity file unavailable: {}", e))?;
+            Ok(json!({
+                "programId": program_id,
+                "entityId": input.entity_id,
+                "entityType": entity.entity_type,
+                "payload": base64::engine::general_purpose::STANDARD.encode(bytes),
+            }))
         },
     )
 }
@@ -1322,6 +1420,7 @@ pub fn install(app: Arc<dyn ICore>) {
         close_vm_terminal(app.clone()),
         read_machine_builds(app.clone()),
         deploy(app.clone()),
+        download_entity(app.clone()),
         list_machines(app.clone()),
         list_programs(app.clone()),
         list_program_machines(app.clone()),
