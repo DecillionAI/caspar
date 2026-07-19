@@ -306,6 +306,7 @@ fn signal(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
                 data: input.data.clone(),
                 is_temp: input.temp,
                 entity_id: input.entity_id.clone(),
+                correlation_id: input.correlation_id.clone(),
                 ..Default::default()
             };
             let app_async = app_for_handler.clone();

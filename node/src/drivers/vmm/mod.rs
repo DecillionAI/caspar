@@ -22,6 +22,7 @@ pub mod hostcall_entities;
 pub mod hostcall_global;
 pub mod hostcall_logs;
 pub mod network;
+pub mod proxy;
 
 use serde_json::Value as JsonValue;
 

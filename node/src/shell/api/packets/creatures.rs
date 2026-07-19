@@ -68,6 +68,15 @@ pub struct SignalInput {
     pub program_id: String,
     #[serde(rename = "entityId", default, skip_serializing_if = "String::is_empty")]
     pub entity_id: String,
+    /// Optional correlation id stamped on the outgoing signal packet. When
+    /// the target entity is a proxy entity, the same id is used to route the
+    /// eventual response signal back through the proxy to this sender.
+    #[serde(
+        rename = "correlationId",
+        default,
+        skip_serializing_if = "String::is_empty"
+    )]
+    pub correlation_id: String,
     #[serde(default)]
     pub temp: bool,
 }

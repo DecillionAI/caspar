@@ -6,6 +6,7 @@ use std::fs;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
+use base64::Engine;
 use serde_json::{json, Map, Value};
 
 use crate::models::core::{StateClosure, ICore};
@@ -13,7 +14,7 @@ use crate::models::info::IInfo;
 use crate::models::transaction::ITrx;
 use crate::models::state::IState;
 use crate::core::actor::model::base::info::Info as BaseInfo;
-use crate::shell::api::model::{Creature, Program, Store};
+use crate::shell::api::model::{Creature, Entity, Machine, Program, Store};
 
 use super::driver::{check_bool, check_i64, check_str, normalize_runtime, Vmm};
 
@@ -200,6 +201,108 @@ impl Vmm {
     /// `machinePrograms::{machineId}::{programId}` links.
     pub(crate) fn handle_program_crud(&self, op: &str, input: &Value, req_id: i64) -> (String, i64) {
         match op {
+            "create" => {
+                let mut machine_id = check_str(input, "machineId", "");
+                if machine_id.is_empty() {
+                    machine_id = check_str(input, "appId", "");
+                }
+                if machine_id.is_empty() {
+                    return (r#"{"ok":false,"error":"machineId is required"}"#.into(), req_id);
+                }
+                let mut id = check_str(input, "programId", "");
+                if id.is_empty() {
+                    id = check_str(input, "id", "");
+                }
+                if id.is_empty() {
+                    id = self.gen_id("vm.program");
+                }
+                let runtime = check_str(input, "runtime", "wasm");
+                let path = check_str(input, "path", "");
+                let comment = check_str(input, "comment", "");
+                let metadata = input
+                    .get("metadata")
+                    .cloned()
+                    .unwrap_or_else(|| Value::Object(Map::new()));
+                let id_owned = id.clone();
+                let machine_id_owned = machine_id.clone();
+                self.app.modify_state(
+                    false,
+                    Box::new(move |t: &dyn ITrx| {
+                        let mut machine = Machine {
+                            id: machine_id_owned.clone(),
+                            ..Default::default()
+                        }
+                        .pull(t, false);
+                        if machine.id.is_empty() {
+                            machine.id = machine_id_owned.clone();
+                        }
+                        machine.machines_count += 1;
+                        machine.push(t);
+                        Program {
+                            id: id_owned.clone(),
+                            machine_id: machine_id_owned.clone(),
+                            runtime: runtime.clone(),
+                            path: path.clone(),
+                            comment: comment.clone(),
+                        }
+                        .push(t);
+                        let _ = t.put_json(
+                            &format!("ProgMeta::{}", id_owned),
+                            "metadata",
+                            &metadata,
+                            true,
+                        );
+                        t.put_link(
+                            &format!("machinePrograms::{}::{}", machine_id_owned, id_owned),
+                            "true",
+                        );
+                        Ok(())
+                    }),
+                );
+                (
+                    format!(
+                        "{{\"ok\":true,\"programId\":\"{}\",\"machineId\":\"{}\"}}",
+                        id, machine_id
+                    ),
+                    req_id,
+                )
+            }
+            "delete" => {
+                let mut id = check_str(input, "programId", "");
+                if id.is_empty() {
+                    id = check_str(input, "id", "");
+                }
+                if id.is_empty() {
+                    return (r#"{"ok":false,"error":"programId is required"}"#.into(), req_id);
+                }
+                let id_owned = id.clone();
+                self.app.modify_state(
+                    false,
+                    Box::new(move |t: &dyn ITrx| {
+                        let program = Program {
+                            id: id_owned.clone(),
+                            ..Default::default()
+                        }
+                        .pull(t);
+                        if !program.machine_id.is_empty() {
+                            let mut machine = Machine {
+                                id: program.machine_id.clone(),
+                                ..Default::default()
+                            }
+                            .pull(t, false);
+                            machine.machines_count -= 1;
+                            machine.push(t);
+                            t.del_key(&format!(
+                                "link::machinePrograms::{}::{}",
+                                program.machine_id, id_owned
+                            ));
+                        }
+                        t.del_index("Program", "id", "programId", &id_owned);
+                        Ok(())
+                    }),
+                );
+                (format!("{{\"ok\":true,\"programId\":\"{}\"}}", id), req_id)
+            }
             "get" => {
                 let mut id = check_str(input, "programId", "");
                 if id.is_empty() {
@@ -310,6 +413,249 @@ impl Vmm {
             }
             _ => (r#"{"ok":false,"error":"unsupported program op"}"#.into(), req_id),
         }
+    }
+
+    /// Host-call deploy of a program entity (`deployEntity`), the VM-side
+    /// twin of the shell's `/programs/deploy`. Supports every registered VM
+    /// runtime plus the pseudo-runtime `"proxy"`: a proxy entity stores the
+    /// payload as a non-runnable data file and a target descriptor; incoming
+    /// signals are forwarded to the target with the data attached (see
+    /// `drivers::vmm::proxy`). Host-call deploys are always local — cluster
+    /// distribution stays a shell-API concern.
+    pub(crate) fn handle_deploy_entity(&self, input: &Value, req_id: i64) -> (String, i64) {
+        use crate::drivers::vmm::proxy;
+
+        let mut program_id = check_str(input, "programId", "");
+        if program_id.is_empty() {
+            program_id = check_str(input, "machineId", "");
+        }
+        if program_id.is_empty() {
+            return (r#"{"ok":false,"error":"programId is required"}"#.into(), req_id);
+        }
+        let entity_id = check_str(input, "entityId", "");
+        if entity_id.is_empty() {
+            return (r#"{"ok":false,"error":"entityId is required"}"#.into(), req_id);
+        }
+        let entity_type = normalize_runtime(&check_str(input, "entityType", "wasm"));
+        let payload_b64 = check_str(input, "payload", "");
+        let data = match base64::engine::general_purpose::STANDARD.decode(&payload_b64) {
+            Ok(d) => d,
+            Err(e) => {
+                return (
+                    format!("{{\"ok\":false,\"error\":\"invalid payload base64: {}\"}}", e),
+                    req_id,
+                )
+            }
+        };
+        let metadata = input
+            .get("metadata")
+            .cloned()
+            .unwrap_or_else(|| Value::Object(Map::new()));
+        let build_folder_path = format!(
+            "{}/machines/{}/entities/{}",
+            self.storage.storage_root(),
+            program_id,
+            entity_id
+        );
+
+        if entity_type == proxy::PROXY_RUNTIME_KEY {
+            let config = match proxy::config_from_metadata(|k| metadata.get(k).cloned()) {
+                Ok(c) => c,
+                Err(e) => {
+                    return (
+                        format!("{{\"ok\":false,\"error\":\"{}\"}}", e.replace('"', "\\\"")),
+                        req_id,
+                    )
+                }
+            };
+            if let Err(e) =
+                self.file
+                    .save_data_to_global_storage(&build_folder_path, &data, "proxy.data", true)
+            {
+                return (
+                    format!("{{\"ok\":false,\"error\":\"{}\"}}", e.to_string().replace('"', "\\\"")),
+                    req_id,
+                );
+            }
+            let data_path = format!("{}/proxy.data", build_folder_path);
+            let program_id_owned = program_id.clone();
+            let entity_id_owned = entity_id.clone();
+            let config_owned = config.clone();
+            self.app.modify_state(
+                false,
+                Box::new(move |t: &dyn ITrx| {
+                    // Make sure the program record exists so its signal
+                    // listener resolves; a bare proxy program needs no
+                    // runtime of its own.
+                    let mut program = Program {
+                        id: program_id_owned.clone(),
+                        ..Default::default()
+                    }
+                    .pull(t);
+                    if program.id.is_empty() {
+                        program.id = program_id_owned.clone();
+                    }
+                    program.push(t);
+                    proxy::record_proxy_entity(
+                        t,
+                        &program_id_owned,
+                        &entity_id_owned,
+                        &data_path,
+                        &config_owned,
+                    );
+                    Ok(())
+                }),
+            );
+            self.app.tools().vmm().assign(&program_id);
+            let out = json!({
+                "ok": true,
+                "programId": program_id,
+                "entityId": entity_id,
+                "entityType": proxy::PROXY_RUNTIME_KEY,
+                "proxy": config.to_value(),
+            });
+            return (serde_json::to_string(&out).unwrap_or_default(), req_id);
+        }
+
+        let spec = match caspar_vm_sdk::registry::get(&entity_type) {
+            Some(p) => p.meta().deploy_spec_json(),
+            None => {
+                return (
+                    format!(
+                        "{{\"ok\":false,\"error\":\"invalid entityType, expected proxy or one of {}\"}}",
+                        caspar_vm_sdk::registry::keys().join("|")
+                    ),
+                    req_id,
+                )
+            }
+        };
+        let primary_file_name = spec["entityFileName"]
+            .as_str()
+            .unwrap_or("module.wasm")
+            .to_string();
+        let accepts_extra_files = spec["acceptsExtraFiles"].as_bool().unwrap_or(false);
+        let build_on_deploy = spec["buildOnDeploy"].as_bool().unwrap_or(false);
+        let set_entity_links = spec["setEntityLinksOnDeploy"].as_bool().unwrap_or(false);
+        if let Err(e) = self.file.save_data_to_global_storage(
+            &build_folder_path,
+            &data,
+            &primary_file_name,
+            true,
+        ) {
+            return (
+                format!("{{\"ok\":false,\"error\":\"{}\"}}", e.to_string().replace('"', "\\\"")),
+                req_id,
+            );
+        }
+        if accepts_extra_files {
+            if let Some(files) = metadata.get("files").and_then(Value::as_object) {
+                for (name, raw) in files {
+                    let Some(content_b64) = raw.as_str() else {
+                        return (
+                            r#"{"ok":false,"error":"file bytecode not string"}"#.into(),
+                            req_id,
+                        );
+                    };
+                    let bytes = match base64::engine::general_purpose::STANDARD
+                        .decode(content_b64)
+                    {
+                        Ok(b) => b,
+                        Err(e) => {
+                            return (
+                                format!(
+                                    "{{\"ok\":false,\"error\":\"invalid file base64: {}\"}}",
+                                    e
+                                ),
+                                req_id,
+                            )
+                        }
+                    };
+                    if let Err(e) = self.file.save_data_to_global_storage(
+                        &build_folder_path,
+                        &bytes,
+                        name,
+                        true,
+                    ) {
+                        return (
+                            format!(
+                                "{{\"ok\":false,\"error\":\"{}\"}}",
+                                e.to_string().replace('"', "\\\"")
+                            ),
+                            req_id,
+                        );
+                    }
+                }
+            }
+        }
+        let downloadable = check_bool(input, "downloadable", false);
+        let program_id_owned = program_id.clone();
+        let entity_id_owned = entity_id.clone();
+        let entity_type_owned = entity_type.clone();
+        let primary_owned = primary_file_name.clone();
+        let folder_owned = build_folder_path.clone();
+        self.app.modify_state(
+            false,
+            Box::new(move |t: &dyn ITrx| {
+                let mut program = Program {
+                    id: program_id_owned.clone(),
+                    ..Default::default()
+                }
+                .pull(t);
+                if program.id.is_empty() {
+                    program.id = program_id_owned.clone();
+                }
+                if program.runtime.is_empty() {
+                    program.runtime = entity_type_owned.clone();
+                }
+                program.push(t);
+                Entity {
+                    program_id: program_id_owned.clone(),
+                    entity_id: entity_id_owned.clone(),
+                    entity_type: entity_type_owned.clone(),
+                    image_name: entity_id_owned.clone(),
+                }
+                .push(t);
+                if set_entity_links {
+                    t.put_link(
+                        &format!("vmEntityPath::{}::{}", program_id_owned, entity_id_owned),
+                        &format!("{}/{}", folder_owned, primary_owned),
+                    );
+                    t.put_link(
+                        &format!("vmEntityType::{}::{}", program_id_owned, entity_id_owned),
+                        &entity_type_owned,
+                    );
+                }
+                if downloadable {
+                    // Downloadable entities (e.g. a front-end script executed
+                    // client-side) are fetched by clients at any time via
+                    // /programs/downloadEntity.
+                    t.put_link(
+                        &format!(
+                            "vmEntityDownloadable::{}::{}",
+                            program_id_owned, entity_id_owned
+                        ),
+                        &format!("{}/{}", folder_owned, primary_owned),
+                    );
+                }
+                Ok(())
+            }),
+        );
+        self.app.tools().vmm().assign(&program_id);
+        if build_on_deploy {
+            self.app
+                .tools()
+                .vmm()
+                .build_vm_image(&program_id, &entity_id, &build_folder_path, &entity_type);
+        }
+        let out = json!({
+            "ok": true,
+            "programId": program_id,
+            "entityId": entity_id,
+            "entityType": entity_type,
+            "entityPath": format!("{}/{}", build_folder_path, primary_file_name),
+            "downloadable": downloadable,
+        });
+        (serde_json::to_string(&out).unwrap_or_default(), req_id)
     }
 
     pub(crate) fn handle_resource_store_crud(

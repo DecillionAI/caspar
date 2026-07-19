@@ -208,7 +208,20 @@ pub struct RunProgramEntityInput {
     pub payment_signatures: Vec<String>,
 }
 
+/// `/programs/downloadEntity` — fetch a downloadable entity's script/file so
+/// a client can execute it locally (e.g. a deployed front-end app).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct DownloadEntityInput {
+    #[serde(rename = "machineId", default)]
+    pub machine_id: String,
+    #[serde(rename = "programId", default)]
+    pub program_id: String,
+    #[serde(rename = "entityId", default)]
+    pub entity_id: String,
+}
+
 input_impls! {
+    DownloadEntityInput => "",
     ListAppMachsInput => "",
     ReadVmLogsInput => "global",
     CreateAppInput => "global",
