@@ -208,15 +208,41 @@ fn proxy_identity(app: &Arc<dyn ICore>, program_id: &str) -> User {
 /// either a top-level `correlationId` or one embedded in the packet's `data`
 /// JSON string.
 fn extract_correlation_id(value: &Value) -> String {
-    if let Some(c) = value.get("correlationId").and_then(Value::as_str) {
-        if !c.is_empty() {
-            return c.to_string();
-        }
+    fn from_obj(v: &Value) -> String {
+        v.get("correlationId")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string()
+    }
+    let c = from_obj(value);
+    if !c.is_empty() {
+        return c;
     }
     if let Some(data) = value.get("data").and_then(Value::as_str) {
         if let Ok(parsed) = serde_json::from_str::<Value>(data) {
-            if let Some(c) = parsed.get("correlationId").and_then(Value::as_str) {
-                return c.to_string();
+            let c = from_obj(&parsed);
+            if !c.is_empty() {
+                return c;
+            }
+            // Client convention: the caller's payload travels as a JSON
+            // string under `data.payload` — the correlation id the requester
+            // wants echoed back lives inside it.
+            match parsed.get("payload") {
+                Some(Value::String(p)) => {
+                    if let Ok(inner) = serde_json::from_str::<Value>(p) {
+                        let c = from_obj(&inner);
+                        if !c.is_empty() {
+                            return c;
+                        }
+                    }
+                }
+                Some(obj @ Value::Object(_)) => {
+                    let c = from_obj(obj);
+                    if !c.is_empty() {
+                        return c;
+                    }
+                }
+                _ => {}
             }
         }
     }
