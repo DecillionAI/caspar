@@ -41,12 +41,42 @@ pub const PROXY_RUNTIME_KEY: &str = "proxy";
 /// Default payload field the proxy's data file content is attached under.
 pub const DEFAULT_ATTACH_FIELD: &str = "attachment";
 
+/// Default lifetime of a correlation record (ms). A target that never
+/// responds must not leak its correlation record forever: after this window
+/// the record is consumed by the reaper (or by a late response, which is
+/// then dropped).
+pub const DEFAULT_CORRELATION_TTL_MS: i64 = 10 * 60 * 1000;
+
+/// Floor for a per-entity configured TTL, so a typo cannot make records
+/// expire before the target has any chance to answer.
+const MIN_CORRELATION_TTL_MS: i64 = 1_000;
+
 fn correlation_key(correlation_id: &str) -> String {
     format!("Json::ProxyCorrelation::{}", correlation_id)
 }
 
+/// Expiry index: one link per live correlation
+/// (`ProxyCorrExpiry::{correlationId}` → expiry timestamp ms) so the reaper
+/// can enumerate records without scanning the JSON keyspace.
+fn correlation_expiry_link(correlation_id: &str) -> String {
+    format!("ProxyCorrExpiry::{}", correlation_id)
+}
+
+const CORRELATION_EXPIRY_PREFIX: &str = "ProxyCorrExpiry::";
+
 fn config_key(program_id: &str, entity_id: &str) -> String {
     format!("Json::ProxyEntity::{}::{}", program_id, entity_id)
+}
+
+fn now_ms() -> i64 {
+    chrono::Utc::now().timestamp_millis()
+}
+
+/// Delete a correlation record and its expiry-index link inside an open
+/// transaction.
+fn delete_correlation(trx: &dyn ITrx, correlation_id: &str) {
+    trx.del_json(&correlation_key(correlation_id), "record");
+    trx.del_key(&format!("link::{}", correlation_expiry_link(correlation_id)));
 }
 
 /// Normalized proxy-entity configuration.
@@ -55,6 +85,8 @@ pub struct ProxyConfig {
     pub target_program_id: String,
     pub target_entity_id: String,
     pub attach_field: String,
+    /// Correlation-record lifetime in ms; `0` means the node default.
+    pub correlation_ttl_ms: i64,
 }
 
 impl ProxyConfig {
@@ -63,6 +95,7 @@ impl ProxyConfig {
             "targetProgramId": self.target_program_id,
             "targetEntityId": self.target_entity_id,
             "attachField": self.attach_field,
+            "correlationTtlMs": self.correlation_ttl_ms,
         })
     }
 
@@ -72,11 +105,32 @@ impl ProxyConfig {
             target_program_id: s("targetProgramId"),
             target_entity_id: s("targetEntityId"),
             attach_field: s("attachField"),
+            correlation_ttl_ms: v
+                .get("correlationTtlMs")
+                .and_then(value_as_ms)
+                .unwrap_or(0),
         };
         if cfg.attach_field.is_empty() {
             cfg.attach_field = DEFAULT_ATTACH_FIELD.to_string();
         }
         cfg
+    }
+
+    /// The effective correlation-record lifetime for this proxy entity.
+    pub fn effective_correlation_ttl_ms(&self) -> i64 {
+        if self.correlation_ttl_ms <= 0 {
+            DEFAULT_CORRELATION_TTL_MS
+        } else {
+            self.correlation_ttl_ms.max(MIN_CORRELATION_TTL_MS)
+        }
+    }
+}
+
+fn value_as_ms(v: &Value) -> Option<i64> {
+    match v {
+        Value::Number(n) => n.as_i64().or_else(|| n.as_f64().map(|f| f as i64)),
+        Value::String(s) => s.trim().parse::<i64>().ok(),
+        _ => None,
     }
 }
 
@@ -118,10 +172,16 @@ where
     if attach_field.is_empty() {
         attach_field = DEFAULT_ATTACH_FIELD.to_string();
     }
+    let correlation_ttl_ms = nested
+        .get("correlationTtlMs")
+        .and_then(value_as_ms)
+        .or_else(|| get("proxyCorrelationTtlMs").as_ref().and_then(value_as_ms))
+        .unwrap_or(0);
     Ok(ProxyConfig {
         target_program_id,
         target_entity_id,
         attach_field,
+        correlation_ttl_ms,
     })
 }
 
@@ -263,8 +323,7 @@ pub fn try_route_proxy_response(
     if correlation_id.is_empty() {
         return false;
     }
-    let corr_key = correlation_key(&correlation_id);
-    let corr_key_owned = corr_key.clone();
+    let corr_key_owned = correlation_key(&correlation_id);
     let record = read_state(app, Map::new(), move |trx| {
         trx.get_json(&corr_key_owned, "record").unwrap_or_default()
     });
@@ -282,6 +341,25 @@ pub fn try_route_proxy_response(
     if sender_id.is_empty() {
         return false;
     }
+    // A correlation is only valid inside its lifetime window: a late
+    // response consumes the stale record but is not delivered — the
+    // requester has long since given up on it.
+    let expires_at = record.get("expiresAt").and_then(value_as_ms).unwrap_or(0);
+    if expires_at > 0 && now_ms() > expires_at {
+        let corr_owned = correlation_id.clone();
+        app.modify_state(
+            false,
+            Box::new(move |trx: &dyn ITrx| {
+                delete_correlation(trx, &corr_owned);
+                Ok(())
+            }),
+        );
+        crate::drivers::vmm::bridge::runtime_io::log(format!(
+            "proxy correlation {} expired; dropping late response for {}",
+            correlation_id, listener_machine_id
+        ));
+        return true;
+    }
     let proxy_entity_id = rec("proxyEntityId");
     // Preserve the responder's payload; a non-Send-shaped packet (e.g. a raw
     // result object from a docker creature) is carried whole in `data`.
@@ -298,10 +376,11 @@ pub fn try_route_proxy_response(
         ..Default::default()
     };
     // The correlation is one round trip: consume it before delivery.
+    let corr_owned = correlation_id.clone();
     app.modify_state(
         false,
         Box::new(move |trx: &dyn ITrx| {
-            trx.del_json(&corr_key, "record");
+            delete_correlation(trx, &corr_owned);
             Ok(())
         }),
     );
@@ -391,19 +470,24 @@ pub fn try_forward_through_proxy(
     payload.insert("replyTo".to_string(), json!(machine_id));
     payload.insert("proxyProgramId".to_string(), json!(machine_id));
     payload.insert("proxyEntityId".to_string(), json!(entity_id));
+    let created_at = now_ms();
+    let expires_at = created_at + config.effective_correlation_ttl_ms();
     let record = json!({
         "senderId": send.user.id,
         "proxyProgramId": machine_id,
         "proxyEntityId": entity_id,
         "targetProgramId": config.target_program_id,
         "targetEntityId": config.target_entity_id,
-        "createdAt": chrono::Utc::now().timestamp_millis(),
+        "createdAt": created_at,
+        "expiresAt": expires_at,
     });
     let corr_key = correlation_key(&correlation_id);
+    let expiry_link = correlation_expiry_link(&correlation_id);
     app.modify_state(
         false,
         Box::new(move |trx: &dyn ITrx| {
             let _ = trx.put_json(&corr_key, "record", &record, true);
+            trx.put_link(&expiry_link, &expires_at.to_string());
             Ok(())
         }),
     );
@@ -423,4 +507,58 @@ pub fn try_forward_through_proxy(
         true,
     );
     true
+}
+
+/// Drop every correlation record whose lifetime has elapsed. Records are
+/// found through the `ProxyCorrExpiry::{id}` link index; a link whose value
+/// cannot be parsed is treated as expired so a half-written entry can never
+/// survive forever.
+pub fn sweep_expired_correlations(app: &Arc<dyn ICore>) {
+    let now = now_ms();
+    let expired = read_state(app, Vec::<String>::new(), move |trx| {
+        let links = trx
+            .get_links_list(CORRELATION_EXPIRY_PREFIX, -1, -1, &[])
+            .unwrap_or_default();
+        let mut out = Vec::new();
+        for link in links {
+            let corr_id = link
+                .strip_prefix(CORRELATION_EXPIRY_PREFIX)
+                .unwrap_or(&link)
+                .to_string();
+            if corr_id.is_empty() {
+                continue;
+            }
+            let expires_at = trx.get_link(&link).trim().parse::<i64>().unwrap_or(0);
+            if expires_at <= now {
+                out.push(corr_id);
+            }
+        }
+        out
+    });
+    if expired.is_empty() {
+        return;
+    }
+    let count = expired.len();
+    app.modify_state(
+        false,
+        Box::new(move |trx: &dyn ITrx| {
+            for corr_id in &expired {
+                delete_correlation(trx, corr_id);
+            }
+            Ok(())
+        }),
+    );
+    crate::drivers::vmm::bridge::runtime_io::log(format!(
+        "proxy correlation reaper dropped {} expired record(s)",
+        count
+    ));
+}
+
+/// Spawn the background reaper that keeps the correlation store bounded even
+/// when a target fails silently and never responds.
+pub fn start_correlation_reaper(app: Arc<dyn ICore>) {
+    std::thread::spawn(move || loop {
+        std::thread::sleep(std::time::Duration::from_secs(60));
+        sweep_expired_correlations(&app);
+    });
 }
