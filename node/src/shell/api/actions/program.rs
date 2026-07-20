@@ -1429,6 +1429,9 @@ pub fn install(app: Arc<dyn ICore>) {
         actor.inject_secure_action(h);
     }
     install_program_bootstrap(app.clone());
+    // Reap proxy-entity correlation records whose response never arrived,
+    // so silent target failures cannot leak records into the database.
+    crate::drivers::vmm::proxy::start_correlation_reaper(app.clone());
     let billing_lock = Arc::new(Mutex::new(-1i64));
     let app_bg = app.clone();
     std::thread::spawn(move || loop {
