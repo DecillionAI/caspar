@@ -179,26 +179,26 @@ pub fn host_call(
             // Forward unrecognised ops (signalUser, signalGroup, …) through
             // the unified host-call dispatcher so they reach handlers with
             // access to the global signaler/storage.
-            let mut input = req["input"].clone();
-            if let Some(obj) = input.as_object_mut() {
-                if !obj.contains_key("programId") && !rt.machine_id.is_empty() {
-                    obj.insert(
-                        "programId".to_string(),
-                        JsonValue::String(rt.machine_id.clone()),
-                    );
-                }
-                if !obj.contains_key("machineId") && !rt.machine_id.is_empty() {
-                    obj.insert(
-                        "machineId".to_string(),
-                        JsonValue::String(rt.machine_id.clone()),
-                    );
-                }
-            }
+            //
+            // Identity is NEVER taken from the guest. A wasm creature fully
+            // controls `input`, so any identity it puts there is untrusted.
+            // The node-assigned VM runtime context (machine_id / vm_id, set by
+            // the node when it launched this VM — not by the guest) is the sole
+            // source of truth. We stamp it at the *packet* level, which
+            // `resolve_host_hierarchy` trusts over `input`, so the guest can
+            // neither fabricate nor spoof its identity. Operation arguments in
+            // `input` (which may legitimately name *other* programs/entities,
+            // e.g. a deploy target) are left untouched.
+            let input = req["input"].clone();
             match host() {
                 Some(h) => h.unified_host_call(&json!({
                     "type": "hostCall",
                     "op": op,
                     "input": input,
+                    "creatureId": rt.machine_id,
+                    "programId": rt.machine_id,
+                    "machineId": rt.machine_id,
+                    "vmId": rt.vm_id,
                 })),
                 None => json!({"ok": false, "error": "caspar vm host is not initialised"})
                     .to_string(),

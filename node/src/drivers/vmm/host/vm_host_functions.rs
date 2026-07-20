@@ -17,8 +17,19 @@ pub(crate) struct CachedVmHierarchy {
     pub(crate) program_id: String,
 }
 
-fn resolve_cached_vm_hierarchy(input: &JsonValue) -> CachedVmHierarchy {
-    let vm_id = input["vmId"].as_str().unwrap_or("").trim().to_string();
+fn resolve_cached_vm_hierarchy(packet: &JsonValue, input: &JsonValue) -> CachedVmHierarchy {
+    // The vmId used to resolve the out-of-band VM context must be the
+    // authoritative one the runtime stamped on the *packet* (the guest cannot
+    // reach it). Only fall back to `input.vmId` for runtimes that stamp their
+    // verified identity into the input envelope (e.g. the docker gateway),
+    // never letting an in-process guest pick which VM context it resolves to.
+    let vm_id = packet["vmId"]
+        .as_str()
+        .filter(|v| !v.trim().is_empty())
+        .or_else(|| input["vmId"].as_str().filter(|v| !v.trim().is_empty()))
+        .unwrap_or("")
+        .trim()
+        .to_string();
     if vm_id.is_empty() {
         return CachedVmHierarchy::default();
     }
@@ -44,13 +55,16 @@ fn value_from_packet_or_input<'a>(
 }
 
 pub(crate) fn resolve_host_hierarchy(packet: &JsonValue, input: &JsonValue) -> HostHierarchy {
-    let vm_id = input["vmId"]
+    // Prefer the authoritative, runtime-stamped packet vmId over anything the
+    // guest may have placed in `input`.
+    let vm_id = packet["vmId"]
         .as_str()
-        .or_else(|| packet["vmId"].as_str())
+        .filter(|v| !v.trim().is_empty())
+        .or_else(|| input["vmId"].as_str())
         .unwrap_or("")
         .trim()
         .to_string();
-    let cached = resolve_cached_vm_hierarchy(input);
+    let cached = resolve_cached_vm_hierarchy(packet, input);
 
     let creature_from_req = value_from_packet_or_input(packet, input, "creatureId");
     let creature_id_owned = if !cached.creature_id.is_empty() {
