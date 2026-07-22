@@ -23,7 +23,12 @@ fn read_user_type(app: &Arc<dyn ICore>, user_id: &str) -> String {
     app.modify_state(
         true,
         Box::new(move |trx: &dyn ITrx| {
-            let v = trx.get_column("User", &user_id_owned, "type");
+            // Creature is the authoritative identity record; fall back to the
+            // legacy User mirror for pre-unification data.
+            let mut v = trx.get_column("Creature", &user_id_owned, "type");
+            if v.is_empty() {
+                v = trx.get_column("User", &user_id_owned, "type");
+            }
             *slot_clone.lock().unwrap() = String::from_utf8_lossy(&v).into_owned();
             Ok(())
         }),

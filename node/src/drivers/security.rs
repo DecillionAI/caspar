@@ -206,9 +206,11 @@ impl ISecurity for Security {
         self.app.modify_state(
             true,
             Box::new(move |trx: &dyn ITrx| {
-                *typ_clone.lock().unwrap() =
-                    String::from_utf8_lossy(&trx.get_column("User", &user_id_owned, "type"))
-                        .into_owned();
+                let mut typ = trx.get_column("Creature", &user_id_owned, "type");
+                if typ.is_empty() {
+                    typ = trx.get_column("User", &user_id_owned, "type");
+                }
+                *typ_clone.lock().unwrap() = String::from_utf8_lossy(&typ).into_owned();
                 *god_clone.lock().unwrap() =
                     trx.get_string(&format!("god::{}", user_id_owned)) == "true";
                 Ok(())

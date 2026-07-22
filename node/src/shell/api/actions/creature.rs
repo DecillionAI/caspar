@@ -20,6 +20,7 @@ use crate::models::action::ISecureAction;
 use crate::models::core::ICore;
 use crate::models::input::IInput;
 use crate::models::transaction::object_to_map;
+use crate::models::transaction::ITrx;
 use crate::models::state::IState;
 use crate::core::actor::model::base::info::Info as BaseInfo;
 use crate::core::actor::model::secured::guard::Guard;
@@ -56,6 +57,92 @@ fn as_i64(raw: &Value) -> Option<i64> {
 }
 
 /// Build the `/creatures/create` action.
+// ─────────────────────────── Creature type registry ───────────────────────────
+//
+// A creature is the general model for every being on the network that can act
+// (hold a balance, own resources, hold accesses). Its base is fixed — id,
+// publicKey, balance, username — and the host system managing Caspar registers
+// *customized* creature types on top of that base, each declaring its own
+// behaviour (initial balance, whether it owns programs) and any custom fields.
+// Two types are registered out of the box: `human` (the primary being) and
+// `machine` (a non-human being that can own programs). Registration is
+// idempotent and runs in the install (bootstrap) phase of the shell API.
+
+fn creature_type_key(name: &str) -> String {
+    format!("Json::CreatureType::{}", name)
+}
+
+/// The spec of a registered creature type, if present.
+fn get_creature_type(trx: &dyn ITrx, name: &str) -> Option<Map<String, Value>> {
+    match trx.get_json(&creature_type_key(name), "spec") {
+        Ok(m) if !m.is_empty() => Some(m),
+        _ => None,
+    }
+}
+
+/// Register a creature type only if it does not already exist (idempotent).
+fn register_creature_type_if_absent(trx: &dyn ITrx, name: &str, spec: Value) {
+    if get_creature_type(trx, name).is_some() {
+        return;
+    }
+    if spec.is_object() {
+        let _ = trx.put_json(&creature_type_key(name), "spec", &spec, false);
+        trx.put_link(&format!("CreatureTypeExists::{}", name), "true");
+    }
+}
+
+/// Idempotently register the built-in creature types. Safe to call from every
+/// namespace's `install()` — the host can register additional custom types the
+/// same way.
+pub fn install_creature_types(app: Arc<dyn ICore>) {
+    app.modify_state(
+        false,
+        Box::new(|trx: &dyn ITrx| {
+            register_creature_type_if_absent(
+                trx,
+                "human",
+                json!({
+                    "isHuman": true,
+                    "ownsPrograms": false,
+                    "initialBalance": 1_000_000_000_000_000i64,
+                    "customFields": [],
+                    "desc": "The primary human being on the network."
+                }),
+            );
+            register_creature_type_if_absent(
+                trx,
+                "machine",
+                json!({
+                    "isHuman": false,
+                    "ownsPrograms": true,
+                    "initialBalance": 0i64,
+                    "customFields": [],
+                    "desc": "A non-human being that can own programs."
+                }),
+            );
+            Ok(())
+        }),
+    );
+}
+
+/// Resolve a creature type's `(initialBalance, ownsPrograms)`. Falls back to the
+/// legacy hard-coded behaviour when the registry has not been seeded yet (the
+/// very first creature is created before `install` runs), and rejects unknown
+/// types otherwise.
+fn resolve_creature_type(trx: &dyn ITrx, creature_type: &str) -> Result<(i64, bool)> {
+    match get_creature_type(trx, creature_type) {
+        Some(spec) => Ok((
+            spec.get("initialBalance").and_then(|v| v.as_i64()).unwrap_or(0),
+            spec.get("ownsPrograms").and_then(|v| v.as_bool()).unwrap_or(false),
+        )),
+        None => match creature_type {
+            "human" => Ok((1_000_000_000_000_000, false)),
+            "machine" => Ok((0, true)),
+            other => Err(anyhow!("unknown creature type: {}", other)),
+        },
+    }
+}
+
 fn create(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
     let app_for_handler = app.clone();
     build_secure_action::<CreatureCreateInput, _>(
@@ -94,11 +181,9 @@ fn create(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
             if trx.has_index("Creature", "username", "id", &username) {
                 return Err(anyhow!("creature username already exists"));
             }
-            let balance: i64 = if creature_type == "human" {
-                1_000_000_000_000_000
-            } else {
-                0
-            };
+            // Behaviour comes from the registered creature type, not hard-coded
+            // strings: initial balance + whether this type owns programs.
+            let (balance, owns_programs) = resolve_creature_type(&*trx, &creature_type)?;
             let creature = Creature {
                 id: app_for_handler
                     .tools()
@@ -114,8 +199,10 @@ fn create(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
                 ..Default::default()
             };
             creature.push(&*trx);
-            // Mirror to the User table so older code paths (security, signaler,
-            // guards) that read obj::User::{id}::{col} continue to work.
+            // Identity mirror for the legacy User index/DTO readers (search,
+            // getByUsername, the wire `User` struct). Balance is NEVER read from
+            // here anymore — Creature is the sole balance authority — so the
+            // mirror's balance column is vestigial and cannot diverge.
             User {
                 id: creature.id.clone(),
                 typ: creature.type_name.clone(),
@@ -124,9 +211,9 @@ fn create(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
                 balance: creature.balance,
             }
             .push(&*trx);
-            // Machine-type creatures double as "machines" in the program / Deploy
-            // API which keys off the Machine table.
-            if creature_type == "machine" {
+            // Types that own programs double as "machines" in the program /
+            // Deploy API which keys off the Machine table.
+            if owns_programs {
                 Machine {
                     id: creature.id.clone(),
                     chain_id: creature.chain_id.clone(),
@@ -374,35 +461,22 @@ fn mint(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
                 return Err(anyhow!("access denied"));
             }
             let trx = state.trx();
-            let username = User {
-                id: trx.get_link(&format!("UserEmailToId::{}", input.to_user_email)),
-                ..Default::default()
-            }
-            .pull(&*trx)
-            .username;
-            let to_user_id = trx.get_index("User", "username", "id", &username);
+            // The email→id link resolves the creature directly; credit the
+            // single authoritative Creature balance.
+            let to_user_id = trx.get_link(&format!("UserEmailToId::{}", input.to_user_email));
             if to_user_id.is_empty() {
                 return Err(anyhow!("target user not found"));
             }
-            let mut to_user = User {
+            let mut creature = Creature {
                 id: to_user_id,
                 ..Default::default()
             }
             .pull(&*trx);
-            to_user.balance += input.amount;
-            to_user.push(&*trx);
-            Creature {
-                id: to_user.id.clone(),
-                type_name: to_user.typ.clone(),
-                username: to_user.username.clone(),
-                public_key: to_user.public_key.clone(),
-                chain_id: "main".to_string(),
-                subchain_id: "main".to_string(),
-                owner_id: "free".to_string(),
-                balance: to_user.balance,
-                ..Default::default()
+            if creature.id.is_empty() || creature.type_name.is_empty() {
+                return Err(anyhow!("target user not found"));
             }
-            .push(&*trx);
+            creature.balance += input.amount;
+            creature.push(&*trx);
             Ok(json!({}))
         },
     )
@@ -448,7 +522,8 @@ fn lock_token(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
         user_guard(),
         move |state: Arc<dyn IState>, input: LockTokenInput| -> Result<Value> {
             let trx = state.trx();
-            let mut user = User {
+            // Balance authority is the Creature record (same as transfer/mint).
+            let mut user = Creature {
                 id: state.info().user_id(),
                 ..Default::default()
             }
@@ -495,7 +570,7 @@ fn lock_token(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
             }
             let lock_id = secure_unique_string();
             if input.typ == "pay" {
-                if !trx.has_obj("User", &input.target) {
+                if !trx.has_obj("Creature", &input.target) {
                     return Err(anyhow!("target user not acceptable"));
                 }
                 user.balance -= total_amount;
@@ -529,7 +604,8 @@ fn consume_lock(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
         user_guard(),
         move |state: Arc<dyn IState>, input: ConsumeLockInput| -> Result<Value> {
             let trx = state.trx();
-            let mut receiver = User {
+            // Balance authority is the Creature record (same as transfer/mint).
+            let mut receiver = Creature {
                 id: state.info().user_id(),
                 ..Default::default()
             }
@@ -537,10 +613,10 @@ fn consume_lock(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
             if input.typ != "pay" {
                 return Err(anyhow!("unknown lock type"));
             }
-            if !trx.has_obj("User", &input.user_id) {
+            if !trx.has_obj("Creature", &input.user_id) {
                 return Err(anyhow!("payer user not found"));
             }
-            let sender = User {
+            let sender = Creature {
                 id: input.user_id.clone(),
                 ..Default::default()
             }
@@ -993,12 +1069,38 @@ fn find(
     )
 }
 
+/// List the registered creature types (their specs). Lets the host inspect the
+/// extensible type registry.
+fn types(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
+    build_secure_action::<ListInput, _>(
+        app,
+        "/creatures/types",
+        user_guard(),
+        move |state: Arc<dyn IState>, _input: ListInput| -> Result<Value> {
+            let trx = state.trx();
+            let prefix = "CreatureTypeExists::";
+            let links = trx.get_links_list(prefix, -1, -1, &[]).unwrap_or_default();
+            let mut out: Vec<Value> = Vec::new();
+            for link in links {
+                let name = link.strip_prefix(prefix).unwrap_or(&link).to_string();
+                if let Some(mut spec) = get_creature_type(&*trx, &name) {
+                    spec.insert("name".to_string(), json!(name));
+                    out.push(Value::Object(spec));
+                }
+            }
+            Ok(json!({ "types": out }))
+        },
+    )
+}
+
 /// Install every creature action onto the actor.
 pub fn install(
     app: Arc<dyn ICore>,
     model_extender: HashMap<String, HashMap<String, ExtendedField>>,
 ) {
     let user_extender = model_extender.get("user").cloned().unwrap_or_default();
+    // Bootstrap phase: register the built-in creature types (idempotent).
+    install_creature_types(app.clone());
     let actor = app.actor();
     let handlers: Vec<Arc<dyn ISecureAction>> = vec![
         create(app.clone()),
@@ -1017,6 +1119,7 @@ pub fn install(
         meta(app.clone()),
         get_by_username(app.clone(), user_extender.clone()),
         find(app.clone(), user_extender.clone()),
+        types(app.clone()),
     ];
     for h in handlers {
         actor.inject_secure_action(h);
