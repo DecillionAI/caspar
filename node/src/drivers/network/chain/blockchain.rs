@@ -32,7 +32,7 @@ use crate::drivers::network::chain::peers::{Peer, PeerSet};
 use crate::drivers::network::chain::proxy::{
     CommitResponse, InmemProxy, ProxyHandler,
 };
-use crate::shell::api::model::{Chain, ChainShard, Machine, Program};
+use crate::shell::api::model::{Chain, ChainShard, Creature, Program};
 
 /// Extract the host portion of a peer's `net_addr` (`host:port` → `host`).
 fn peer_host(net_addr: &str) -> String {
@@ -391,13 +391,13 @@ impl IChain for Blockchain {
                     if vm.machine_id.is_empty() {
                         return Ok(());
                     }
-                    let app = Machine {
+                    let app = Creature {
                         id: vm.machine_id.clone(),
                         ..Default::default()
                     }
-                    .pull(trx, false);
-                    if app.chain_id == chain_id_owned && !app.shard_chain_id.is_empty() {
-                        *target_clone.lock().unwrap() = app.shard_chain_id.clone();
+                    .pull(trx);
+                    if app.chain_id == chain_id_owned && !app.subchain_id.is_empty() {
+                        *target_clone.lock().unwrap() = app.subchain_id.clone();
                     }
                     Ok(())
                 }),

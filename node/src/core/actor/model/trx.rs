@@ -562,7 +562,8 @@ impl ITrx for TrxWrapper {
     }
 
     fn get_pub_key(&self, tag: &str) -> Option<RsaPublicKey> {
-        let res = self.get_string(&format!("obj::User::{}::publicKey", tag));
+        // Creature is the single authoritative identity record.
+        let res = self.get_string(&format!("obj::Creature::{}::publicKey", tag));
         if res.is_empty() {
             return None;
         }

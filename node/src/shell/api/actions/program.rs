@@ -33,7 +33,7 @@ use crate::shell::api::packets::program::{
     ListInput, MachineBuildsInput, ReadVmLogsInput, RunProgramEntityInput, UpdateProgramInput,
     VmResourcesInput, VmTerminalInput,
 };
-use crate::shell::api::model::{Entity, Machine, Program, User};
+use crate::shell::api::model::{Creature, Entity, Program};
 use crate::shell::api::packets::plugin::PlugInput;
 use crate::shell::utils::future::async_once;
 
@@ -155,7 +155,7 @@ fn validate_and_build_vm_billing(
     }
     let payment = trx
         .get_json(
-            &format!("Json::User::{}", payer_id),
+            &format!("Json::Creature::{}", payer_id),
             &format!("lockedTokens.{}", lock_id),
         )
         .map_err(|_| anyhow!("payment lock not found"))?;
@@ -503,14 +503,14 @@ fn create_program(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
         user_guard(),
         move |state: Arc<dyn IState>, input: CreateMachineInput| -> Result<Value> {
             let trx = state.trx();
-            if !trx.has_obj("Machine", &input.app_id) {
+            if !trx.has_obj("Creature", &input.app_id) {
                 return Err(anyhow!("machine not found"));
             }
-            let mut machine = Machine {
+            let mut machine = Creature {
                 id: input.app_id.clone(),
                 ..Default::default()
             }
-            .pull(&*trx, false);
+            .pull(&*trx);
             if machine.owner_id != state.info().user_id() {
                 return Err(anyhow!("you are not owner of machine"));
             }
@@ -555,11 +555,11 @@ fn delete_program(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
                 return Err(anyhow!("program does not exist"));
             }
             let app_id = trx.get_index("Program", "id", "programId", &input.program_id);
-            let mut machine = Machine {
+            let mut machine = Creature {
                 id: app_id,
                 ..Default::default()
             }
-            .pull(&*trx, false);
+            .pull(&*trx);
             machine.machines_count -= 1;
             machine.push(&*trx);
             trx.del_index("Program", "id", "programId", &input.program_id);
@@ -642,11 +642,11 @@ fn run_program_entity(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
             let entity_type = normalize_entity_type(&entity.entity_type);
             // A program owns itself: authorize against the recorded program owner
             // rather than the deprecated app_id parent pointer.
-            let owner_machine = Machine {
+            let owner_machine = Creature {
                 id: program.machine_id.clone(),
                 ..Default::default()
             }
-            .pull(&*trx, false);
+            .pull(&*trx);
             if owner_machine.owner_id != state.info().user_id() {
                 return Err(anyhow!("you are not owner of this program"));
             }
@@ -776,11 +776,11 @@ fn stop_program_entity(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
             }
             let entity_type = normalize_entity_type(&entity.entity_type);
             // Authorize against the recorded program owner (no app_id).
-            let owner_machine = Machine {
+            let owner_machine = Creature {
                 id: program.machine_id.clone(),
                 ..Default::default()
             }
-            .pull(&*trx, false);
+            .pull(&*trx);
             if owner_machine.owner_id != state.info().user_id() {
                 return Err(anyhow!("you are not owner of this program"));
             }
@@ -848,11 +848,11 @@ fn read_vm_logs(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
                     if program.id.is_empty() {
                         break;
                     }
-                    owner_user_id = Machine {
+                    owner_user_id = Creature {
                         id: program.machine_id.clone(),
                         ..Default::default()
                     }
-                    .pull(&*trx, false)
+                    .pull(&*trx)
                     .owner_id;
                     break;
                 }
@@ -899,11 +899,11 @@ fn open_vm_terminal(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
                 ..Default::default()
             }
             .pull(&*trx);
-            let owner_machine = Machine {
+            let owner_machine = Creature {
                 id: program.machine_id.clone(),
                 ..Default::default()
             }
-            .pull(&*trx, false);
+            .pull(&*trx);
             if owner_machine.owner_id != state.info().user_id() {
                 return Err(anyhow!("you are not owner of this creature"));
             }
@@ -936,11 +936,11 @@ fn close_vm_terminal(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
                 ..Default::default()
             }
             .pull(&*trx);
-            let owner_machine = Machine {
+            let owner_machine = Creature {
                 id: program.machine_id.clone(),
                 ..Default::default()
             }
-            .pull(&*trx, false);
+            .pull(&*trx);
             if owner_machine.owner_id != state.info().user_id() {
                 return Err(anyhow!("you are not owner of this creature"));
             }
@@ -989,11 +989,11 @@ fn deploy(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
             }
             .pull(&*trx);
             // Authorize against the recorded program owner (no app_id).
-            let owner_machine = Machine {
+            let owner_machine = Creature {
                 id: program.machine_id.clone(),
                 ..Default::default()
             }
-            .pull(&*trx, false);
+            .pull(&*trx);
             if owner_machine.owner_id != state.info().user_id() {
                 return Err(anyhow!("access to vm denied"));
             }
@@ -1255,7 +1255,10 @@ fn list_machines(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
         user_guard(),
         move |state: Arc<dyn IState>, input: ListInput| -> Result<Value> {
             let trx = state.trx();
-            let machines = Machine::all(&*trx, input.offset, input.count)?;
+            // "Machines" are just creatures of type "machine".
+            let mut type_filter: HashMap<String, String> = HashMap::new();
+            type_filter.insert("type".to_string(), "machine".to_string());
+            let machines = Creature::all_query(&*trx, input.offset, input.count, &type_filter)?;
             let mut result: Vec<Map<String, Value>> = Vec::new();
             for machine in machines {
                 let profile = trx
@@ -1315,7 +1318,7 @@ fn list_program_machines(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
         move |state: Arc<dyn IState>, input: ListAppMachsInput| -> Result<Value> {
             let trx = state.trx();
             let prefix = format!("machinePrograms::{}::", input.app_id);
-            let users = User::list(&*trx, &prefix, &HashMap::new())?;
+            let users = Creature::list(&*trx, &prefix, &HashMap::new())?;
             let programs = Program::list(&*trx, &prefix)?;
             let mut program_by_machine_id: HashMap<String, Program> = HashMap::new();
             for program in programs {
@@ -1325,7 +1328,7 @@ fn list_program_machines(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
             for user in users {
                 let mut row: Map<String, Value> = Map::new();
                 row.insert("id".into(), json!(user.id));
-                row.insert("type".into(), json!(user.typ));
+                row.insert("type".into(), json!(user.type_name));
                 row.insert("username".into(), json!(user.username));
                 let comment = program_by_machine_id
                     .get(&user.id)

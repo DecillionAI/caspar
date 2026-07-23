@@ -14,7 +14,7 @@ use crate::models::info::IInfo;
 use crate::models::transaction::ITrx;
 use crate::models::state::IState;
 use crate::core::actor::model::base::info::Info as BaseInfo;
-use crate::shell::api::model::{Creature, Entity, Machine, Program, Store};
+use crate::shell::api::model::{Creature, Entity, Program, Store};
 
 use super::driver::{check_bool, check_i64, check_str, normalize_runtime, Vmm};
 
@@ -228,11 +228,11 @@ impl Vmm {
                 self.app.modify_state(
                     false,
                     Box::new(move |t: &dyn ITrx| {
-                        let mut machine = Machine {
+                        let mut machine = Creature {
                             id: machine_id_owned.clone(),
                             ..Default::default()
                         }
-                        .pull(t, false);
+                        .pull(t);
                         if machine.id.is_empty() {
                             machine.id = machine_id_owned.clone();
                         }
@@ -285,11 +285,11 @@ impl Vmm {
                         }
                         .pull(t);
                         if !program.machine_id.is_empty() {
-                            let mut machine = Machine {
+                            let mut machine = Creature {
                                 id: program.machine_id.clone(),
                                 ..Default::default()
                             }
-                            .pull(t, false);
+                            .pull(t);
                             machine.machines_count -= 1;
                             machine.push(t);
                             t.del_key(&format!(
@@ -1503,7 +1503,7 @@ impl Vmm {
                     return Ok(());
                 }
                 if let Ok(m) = t.get_json(
-                    &format!("Json::User::{}", token_owner_owned),
+                    &format!("Json::Creature::{}", token_owner_owned),
                     &format!("lockedTokens.{}", token_id_owned),
                 ) {
                     if let Some(amount) = m.get("amount").and_then(Value::as_f64) {

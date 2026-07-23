@@ -104,13 +104,100 @@ impl Creature {
         self
     }
 
+    pub fn delete(&self, trx: &dyn ITrx) {
+        for c in [
+            "|",
+            "id",
+            "type",
+            "username",
+            "publicKey",
+            "chainId",
+            "subchainId",
+            "ownerId",
+            "machinesCount",
+            "balance",
+        ] {
+            trx.del_key(&format!("obj::{}::{}::{}", Self::type_(), self.id, c));
+        }
+        if !self.username.is_empty() {
+            trx.del_index("Creature", "username", "id", &self.username);
+        }
+        trx.del_json(&format!("CreatMeta::{}", self.id), "metadata");
+    }
+
     pub fn all(trx: &dyn ITrx, offset: i64, count: i64) -> Result<Vec<Creature>> {
-        let objs = trx.get_obj_list(
-            "Creature",
-            &["*".to_string()],
-            &HashMap::new(),
-            &[offset, count],
-        )?;
+        Self::all_query(trx, offset, count, &HashMap::new())
+    }
+
+    /// List creatures referenced by a link prefix (mirrors the old User::list).
+    pub fn list(
+        trx: &dyn ITrx,
+        prefix: &str,
+        query: &HashMap<String, String>,
+    ) -> Result<Vec<Creature>> {
+        let mut list = trx.get_links_list(prefix, -1, -1, &[])?;
+        for entry in list.iter_mut() {
+            if let Some(stripped) = entry.strip_prefix(prefix) {
+                *entry = stripped.to_string();
+            }
+        }
+        let objs = trx.get_obj_list("Creature", &list, query, &[])?;
+        let mut entities: Vec<Creature> = objs
+            .into_iter()
+            .filter_map(|(id, m)| {
+                if m.is_empty() {
+                    return None;
+                }
+                let mut c = Creature {
+                    id,
+                    ..Default::default()
+                };
+                Creature::fill(&mut c, &m);
+                Some(c)
+            })
+            .collect();
+        entities.sort_by(|a, b| a.id.cmp(&b.id));
+        Ok(entities)
+    }
+
+    /// `all` with an object-column filter (e.g. `{"type": "machine"}`).
+    pub fn all_query(
+        trx: &dyn ITrx,
+        offset: i64,
+        count: i64,
+        query: &HashMap<String, String>,
+    ) -> Result<Vec<Creature>> {
+        let objs = trx.get_obj_list("Creature", &["*".to_string()], query, &[offset, count])?;
+        let mut entities: Vec<Creature> = objs
+            .into_iter()
+            .filter_map(|(id, m)| {
+                if m.is_empty() {
+                    return None;
+                }
+                let mut c = Creature {
+                    id,
+                    ..Default::default()
+                };
+                Creature::fill(&mut c, &m);
+                Some(c)
+            })
+            .collect();
+        entities.sort_by(|a, b| a.id.cmp(&b.id));
+        Ok(entities)
+    }
+
+    /// Full-text-ish search over an indexed column (mirrors the old User::search).
+    pub fn search(
+        trx: &dyn ITrx,
+        offset: i64,
+        count: i64,
+        from_column: &str,
+        word: &str,
+        filter: &HashMap<String, String>,
+    ) -> Result<Vec<Creature>> {
+        let links =
+            trx.search_link_vals_list("Creature", from_column, "id", word, filter, offset, count)?;
+        let objs = trx.get_obj_list("Creature", &links, &HashMap::new(), &[])?;
         let mut entities: Vec<Creature> = objs
             .into_iter()
             .filter_map(|(id, m)| {

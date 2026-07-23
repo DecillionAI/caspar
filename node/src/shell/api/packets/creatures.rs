@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::models::input::IInput;
-use crate::shell::api::model::{Session, User};
+use crate::shell::api::model::{Creature, Session};
 
 macro_rules! input_impls {
     ($($t:ty => $origin:expr),* $(,)?) => {
@@ -260,7 +260,7 @@ pub struct GetOutput {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct LoginOutput {
     #[serde(default)]
-    pub user: User,
+    pub user: Creature,
     #[serde(default)]
     pub session: Session,
     #[serde(rename = "privateKey", default)]
