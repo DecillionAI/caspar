@@ -21,8 +21,6 @@ pub struct Creature {
     pub chain_id: String,
     #[serde(rename = "subchainId", default)]
     pub subchain_id: String,
-    #[serde(rename = "shardChainId", default, skip_serializing_if = "String::is_empty")]
-    pub shard_chain_id: String,
     #[serde(rename = "ownerId", default, skip_serializing_if = "String::is_empty")]
     pub owner_id: String,
     #[serde(
@@ -58,7 +56,6 @@ impl Creature {
         cols.insert("publicKey".into(), self.public_key.as_bytes().to_vec());
         cols.insert("chainId".into(), self.chain_id.as_bytes().to_vec());
         cols.insert("subchainId".into(), self.subchain_id.as_bytes().to_vec());
-        cols.insert("shardChainId".into(), self.shard_chain_id.as_bytes().to_vec());
         cols.insert("ownerId".into(), self.owner_id.as_bytes().to_vec());
         cols.insert("balance".into(), bal);
         trx.put_obj(Self::type_(), &self.id, cols);
@@ -89,9 +86,6 @@ impl Creature {
         if let Some(v) = m.get("subchainId") {
             d.subchain_id = String::from_utf8_lossy(v).into_owned();
         }
-        if let Some(v) = m.get("shardChainId") {
-            d.shard_chain_id = String::from_utf8_lossy(v).into_owned();
-        }
         if let Some(v) = m.get("ownerId") {
             d.owner_id = String::from_utf8_lossy(v).into_owned();
         }
@@ -119,7 +113,6 @@ impl Creature {
             "publicKey",
             "chainId",
             "subchainId",
-            "shardChainId",
             "ownerId",
             "machinesCount",
             "balance",

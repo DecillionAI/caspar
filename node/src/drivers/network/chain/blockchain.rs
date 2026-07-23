@@ -396,8 +396,8 @@ impl IChain for Blockchain {
                         ..Default::default()
                     }
                     .pull(trx);
-                    if app.chain_id == chain_id_owned && !app.shard_chain_id.is_empty() {
-                        *target_clone.lock().unwrap() = app.shard_chain_id.clone();
+                    if app.chain_id == chain_id_owned && !app.subchain_id.is_empty() {
+                        *target_clone.lock().unwrap() = app.subchain_id.clone();
                     }
                     Ok(())
                 }),
