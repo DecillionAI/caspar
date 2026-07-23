@@ -10,13 +10,11 @@ pub mod file;
 pub mod machine_program;
 pub mod session;
 pub mod store;
-pub mod user;
 
 pub use chain::{Chain, ChainShard};
 pub use creature::Creature;
 pub use entity::Entity;
 pub use file::File;
-pub use machine_program::{Machine, Program};
+pub use machine_program::Program;
 pub use session::Session;
 pub use store::Store;
-pub use user::User;

@@ -31,7 +31,7 @@ use uuid::Uuid;
 
 use crate::models::core::ICore;
 use crate::models::transaction::ITrx;
-use crate::shell::api::model::{Machine, Program, User};
+use crate::shell::api::model::{Creature, Program};
 use crate::shell::api::packets::stores::Send as StoresSend;
 
 /// The pseudo-runtime key a proxy entity is deployed under. It is not a VM
@@ -238,26 +238,26 @@ where
 
 /// The identity a proxied packet travels under: the proxy's program, with the
 /// owning machine creature's username when available.
-fn proxy_identity(app: &Arc<dyn ICore>, program_id: &str) -> User {
+fn proxy_identity(app: &Arc<dyn ICore>, program_id: &str) -> Creature {
     let program_id_owned = program_id.to_string();
-    read_state(app, User::default(), move |trx| {
+    read_state(app, Creature::default(), move |trx| {
         let program = Program {
             id: program_id_owned.clone(),
             ..Default::default()
         }
         .pull(trx);
-        let machine = Machine {
+        let owner = Creature {
             id: program.machine_id.clone(),
             ..Default::default()
         }
-        .pull(trx, false);
-        User {
+        .pull(trx);
+        Creature {
             id: program_id_owned.clone(),
-            typ: "machine".to_string(),
-            username: if machine.username.is_empty() {
+            type_name: "machine".to_string(),
+            username: if owner.username.is_empty() {
                 program_id_owned.clone()
             } else {
-                machine.username
+                owner.username
             },
             ..Default::default()
         }

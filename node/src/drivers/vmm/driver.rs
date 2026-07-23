@@ -28,7 +28,7 @@ use crate::models::ports::vmm::IVmm;
 use crate::models::core::ICore;
 use crate::models::transaction::ITrx;
 use crate::models::worker::Trx as WorkerTrx;
-use crate::shell::api::model::{Program, Store, User};
+use crate::shell::api::model::{Creature, Program, Store};
 use crate::shell::api::packets::stores;
 
 /// Default appengine REP socket exposed *by* the node (the engine connects
@@ -155,7 +155,7 @@ impl Vmm {
         let store = store_slot.lock().unwrap().clone();
         let (ast_path, vm_type) = self.resolve_vm_execution_target(machine_id, entity_id);
         let send_payload = stores::Send {
-            user: User::default(),
+            user: Creature::default(),
             store,
             action: "single".to_string(),
             data: data.to_string(),
@@ -798,7 +798,7 @@ impl VmmShim {
         let (ast_path, vm_type) =
             resolve_vm_execution_target(&self.app, &self.storage, machine_id, "");
         let send_payload = stores::Send {
-            user: User::default(),
+            user: Creature::default(),
             store,
             action: "single".to_string(),
             data: data.to_string(),

@@ -64,10 +64,7 @@ impl Signaler {
         self.app.modify_state(
             true,
             Box::new(move |trx: &dyn ITrx| {
-                let mut v = trx.get_column("Creature", &user_id_owned, "username");
-                if v.is_empty() {
-                    v = trx.get_column("User", &user_id_owned, "username");
-                }
+                let v = trx.get_column("Creature", &user_id_owned, "username");
                 *slot_clone.lock().unwrap() = String::from_utf8_lossy(&v).into_owned();
                 Ok(())
             }),

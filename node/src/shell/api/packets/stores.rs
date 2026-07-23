@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::models::input::IInput;
-use crate::shell::api::model::{Store, User};
+use crate::shell::api::model::{Creature, Store};
 
 fn is_false(b: &bool) -> bool {
     !*b
@@ -72,7 +72,7 @@ pub struct CreateOutput {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Send {
     #[serde(default)]
-    pub user: User,
+    pub user: Creature,
     #[serde(default, skip_serializing_if = "store_is_empty")]
     pub store: Store,
     #[serde(default)]
@@ -112,7 +112,7 @@ pub struct AddMember {
     #[serde(rename = "storeId", default)]
     pub store_id: String,
     #[serde(default)]
-    pub user: User,
+    pub user: Creature,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -120,7 +120,7 @@ pub struct UpdateMember {
     #[serde(rename = "storeId", default)]
     pub store_id: String,
     #[serde(default)]
-    pub user: User,
+    pub user: Creature,
     #[serde(default)]
     pub metadata: HashMap<String, Value>,
 }
@@ -130,5 +130,5 @@ pub struct Join {
     #[serde(rename = "storeId", default)]
     pub store_id: String,
     #[serde(default)]
-    pub user: User,
+    pub user: Creature,
 }

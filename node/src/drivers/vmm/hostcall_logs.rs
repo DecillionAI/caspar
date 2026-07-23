@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 use serde_json::{json, Value};
 
 use crate::models::transaction::ITrx;
-use crate::shell::api::model::{Machine, Program};
+use crate::shell::api::model::{Creature, Program};
 
 use super::driver::{check_str, now_unix_ms, Vmm};
 
@@ -44,11 +44,11 @@ impl Vmm {
                     if program.id.is_empty() {
                         break;
                     }
-                    let machine = Machine {
+                    let machine = Creature {
                         id: program.machine_id.clone(),
                         ..Default::default()
                     }
-                    .pull(trx, false);
+                    .pull(trx);
                     *owner_clone.lock().unwrap() = machine.owner_id;
                     break;
                 }

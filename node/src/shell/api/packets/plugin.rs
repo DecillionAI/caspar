@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::shell::api::model::User;
+use crate::shell::api::model::Creature;
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct AssignOutput {}
@@ -10,7 +10,7 @@ pub struct AssignOutput {}
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct CreateOutput {
     #[serde(default)]
-    pub user: User,
+    pub user: Creature,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
