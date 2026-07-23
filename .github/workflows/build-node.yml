@@ -1,9 +1,22 @@
-name: Build & publish caspar-node
+name: Build & publish caspar binaries (multi-arch)
 
-# Builds the caspar-node binary from source (via build-dist.sh) and commits the
-# refreshed artifacts back into the repo's dist/ folder, replacing the old
-# checked-in caspar-node binary. The Dockerfile and casparctl/run consume the
-# committed dist/ directly, so this keeps the shipped binary in sync with source.
+# Builds the caspar binaries (caspar-node, caspar-keygen, casparctl) + the
+# WasmEdge runtime library from source via build-dist.sh, for BOTH amd64 and
+# arm64, and commits the refreshed artifacts back into the repo's dist/ folder.
+#
+# Layout committed to dist/ (the Dockerfile, casparctl and casparctl `run`
+# consume dist/ directly, all relative to dist/bin + dist/lib):
+#
+#   dist/bin/{caspar-node,caspar-keygen,casparctl}   # amd64 (canonical, unchanged)
+#   dist/lib/wasmedge/*                              # amd64
+#   dist/questdb/questdb.jar                         # arch-independent (shared)
+#   dist/arm64/bin/{caspar-node,caspar-keygen,casparctl}
+#   dist/arm64/lib/wasmedge/*
+#
+# amd64 stays in the canonical dist/bin + dist/lib so nothing that already
+# consumes dist/ has to change; every additional architecture lands under
+# dist/<arch>/. The e2e setup script selects dist/<arch>/ when the host is not
+# amd64.
 
 on:
   # Manual trigger — build on demand for any branch.
@@ -27,7 +40,7 @@ on:
       - 'build-dist.sh'
       - '.github/workflows/build-node.yml'
 
-# The job commits the rebuilt binary back to the repo.
+# The publish job commits the rebuilt binaries back to the repo.
 permissions:
   contents: write
 
@@ -38,17 +51,25 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build-and-publish:
-    name: Build caspar-node and publish to dist/
-    runs-on: ubuntu-latest
+  # ── Build dist/ for each architecture on a native runner ────────────────────
+  build:
+    name: Build caspar binaries (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+          # GitHub-hosted arm64 Linux runner (native — no emulation, so the
+          # cargo/RocksDB/WasmEdge native builds are fast and correct).
+          - arch: arm64
+            runner: ubuntu-24.04-arm
 
     steps:
-      - name: Checkout (on the triggering branch, so we can push back)
+      - name: Checkout
         uses: actions/checkout@v4
-        with:
-          ref: ${{ github.ref_name }}
-          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install build prerequisites
         run: |
@@ -56,7 +77,7 @@ jobs:
           # libclang is required by bindgen to build wasmedge-sys; the rest are
           # standard native-build deps for the RocksDB / WasmEdge crates.
           sudo apt-get install -y --no-install-recommends \
-            clang libclang-dev cmake build-essential pkg-config curl
+            clang libclang-dev cmake build-essential pkg-config curl file
 
       - name: Set up Rust toolchain
         run: |
@@ -70,31 +91,100 @@ jobs:
           workspaces: |
             node
             cmd/casparctl
-          # Bump if a clean rebuild is ever needed.
-          key: caspar-node-dist-v1
+          # Per-arch cache. Bump if a clean rebuild is ever needed.
+          key: caspar-dist-${{ matrix.arch }}-v1
 
       - name: Pre-seed QuestDB jar (skip the download)
         run: |
           # build-dist.sh looks for /opt/questdb/questdb.jar and downloads it
-          # when absent. The repo already ships the jar under dist/, so reuse it
-          # and avoid a network fetch.
+          # when absent. The repo already ships the jar under dist/ (it is
+          # arch-independent), so reuse it and avoid a network fetch.
           sudo mkdir -p /opt/questdb
           if [ -f dist/questdb/questdb.jar ]; then
             sudo cp dist/questdb/questdb.jar /opt/questdb/questdb.jar
           fi
           sudo chown -R "$USER" /opt/questdb
 
-      - name: Build dist/ (caspar-node binary + libraries)
+      - name: Build dist/ for ${{ matrix.arch }} (node + keygen + casparctl)
         run: |
           ./build-dist.sh --wasmedge-ver "${{ inputs.wasmedge_version || '0.14.0' }}"
 
-      - name: Publish refreshed binary to dist/
+      - name: Verify all three binaries are ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          for b in caspar-node caspar-keygen casparctl; do
+            echo "== dist/bin/$b =="
+            file "dist/bin/$b"
+          done
+
+      - name: Package arch artifacts (tar preserves symlinks + exec bits)
+        run: |
+          # bin + lib are arch-specific; questdb is shared and carried once.
+          tar -czf "caspar-dist-${{ matrix.arch }}.tgz" -C dist bin lib questdb
+
+      - name: Upload arch artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: caspar-dist-${{ matrix.arch }}
+          path: caspar-dist-${{ matrix.arch }}.tgz
+          retention-days: 1
+          if-no-files-found: error
+
+  # ── Assemble the multi-arch dist/ and commit it once ────────────────────────
+  publish:
+    name: Publish multi-arch binaries to dist/
+    needs: build
+    # Run even if one arch build failed, so amd64 can still publish; the layout
+    # step hard-fails only if amd64 (the canonical arch) is missing.
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (triggering branch, so we can push back)
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download built artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: _artifacts
+
+      - name: Assemble multi-arch dist/
+        run: |
+          set -euo pipefail
+
+          amd64_tgz="_artifacts/caspar-dist-amd64/caspar-dist-amd64.tgz"
+          [ -f "$amd64_tgz" ] || { echo "::error::amd64 artifact missing — cannot publish"; exit 1; }
+
+          # amd64 → canonical dist/{bin,lib,questdb} (backward compatible).
+          rm -rf dist/bin dist/lib
+          mkdir -p dist
+          tar -xzf "$amd64_tgz" -C dist
+
+          # Every other architecture → dist/<arch>/{bin,lib}. questdb is
+          # arch-independent, so it stays only at the canonical dist/questdb.
+          for arch in arm64; do
+            tgz="_artifacts/caspar-dist-${arch}/caspar-dist-${arch}.tgz"
+            if [ ! -f "$tgz" ]; then
+              echo "::warning::${arch} artifact missing — skipping dist/${arch} (its build likely failed)"
+              continue
+            fi
+            rm -rf "dist/${arch}"
+            mkdir -p "dist/${arch}"
+            tar -xzf "$tgz" -C "dist/${arch}"
+            rm -rf "dist/${arch}/questdb"
+          done
+
+          echo "dist/ layout:"
+          find dist \( -type f -o -type l \) | sort
+
+      - name: Commit & push refreshed dist/
         run: |
           set -euo pipefail
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          # Only the built artifacts; dist/ is where the node binary lives.
           git add dist/
 
           if git diff --cached --quiet; then
@@ -105,14 +195,14 @@ jobs:
           echo "Changed dist/ files:"
           git diff --cached --name-only
 
-          git commit -m "ci: rebuild caspar-node binary into dist/ [skip ci]"
+          git commit -m "ci: rebuild caspar binaries (amd64 + arm64) into dist/ [skip ci]"
 
           # Rebase onto any commits that landed during the (long) build, then
-          # push. Retry once on a racing update.
+          # push. Retry on a racing update.
           branch="${{ github.ref_name }}"
           for attempt in 1 2 3; do
             if git pull --rebase --autostash origin "$branch" && git push origin "HEAD:$branch"; then
-              echo "Published rebuilt caspar-node to dist/ on $branch."
+              echo "Published rebuilt caspar binaries to dist/ on $branch."
               exit 0
             fi
             echo "push attempt $attempt failed; retrying…"
