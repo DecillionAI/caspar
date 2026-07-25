@@ -129,6 +129,11 @@ impl IStorage for Storage {
     }
 
     fn gen_id(&self, t: &dyn ITrx, origin: &str) -> String {
+        // This mutex exists ONLY to make the id-counter read-modify-write below
+        // atomic across concurrent callers. It must NOT be taken by the QuestDB
+        // (tsdb) log/read helpers: holding it across a blocking QuestDB round
+        // trip serialises every id mint behind log I/O, so a log-flooding VM
+        // could starve createMachine/createProgram into a request timeout.
         let _guard = self.lock.lock().unwrap();
         if origin == "global" {
             let bytes = t.get_bytes("globalIdCounter");
@@ -167,7 +172,8 @@ impl IStorage for Storage {
         data: &str,
         time_val: i64,
     ) -> LogPacket {
-        let _guard = self.lock.lock().unwrap();
+        // No storage.lock here: the tsdb pool is thread-safe and QuestDB handles
+        // concurrent inserts; the lock is reserved for gen_id's counter (see there).
         let id = Uuid::new_v4().to_string();
         if let Ok(mut client) = self.tsdb.get() {
             let _ = client.execute(
@@ -193,7 +199,7 @@ impl IStorage for Storage {
         data: &str,
         time_val: i64,
     ) -> LogPacket {
-        let _guard = self.lock.lock().unwrap();
+        // No storage.lock (tsdb pool is thread-safe; lock is gen_id-only).
         if let Ok(mut client) = self.tsdb.get() {
             let _ = client.execute(
                 "update storage set data = $1 where store_id = $2 and id = $3 and edited = $4",
@@ -211,7 +217,7 @@ impl IStorage for Storage {
     }
 
     fn read_store_logs(&self, store_id: &str, before_time: i64, count: i64) -> Vec<LogPacket> {
-        let _guard = self.lock.lock().unwrap();
+        // No storage.lock (tsdb pool is thread-safe; lock is gen_id-only).
         let mut client = match self.tsdb.get() {
             Ok(c) => c,
             Err(_) => return Vec::new(),
@@ -279,7 +285,10 @@ impl IStorage for Storage {
     }
 
     fn log_vm(&self, vm_id: &str, log_type: &str, data: &str, time_val: i64) -> BuildPacket {
-        let _guard = self.lock.lock().unwrap();
+        // No storage.lock: a running VM streams many log lines through here, and
+        // holding the gen_id counter mutex across each blocking QuestDB insert
+        // would stall creature/program creation for other callers (the tsdb pool
+        // is thread-safe and QuestDB handles concurrent inserts).
         let id = Uuid::new_v4().to_string();
         let log_type = if log_type.is_empty() { "runtime" } else { log_type };
         let time_val = if time_val == 0 {
@@ -311,7 +320,7 @@ impl IStorage for Storage {
         offset: i64,
         count: i64,
     ) -> Vec<BuildPacket> {
-        let _guard = self.lock.lock().unwrap();
+        // No storage.lock (tsdb pool is thread-safe; lock is gen_id-only).
         let count = if count <= 0 { 100 } else { count };
         let offset = offset.max(0);
         let mut client = match self.tsdb.get() {
