@@ -17,11 +17,20 @@
 //! proxy entity's identity as the response sender, so the requester only
 //! ever observes the proxy.
 //!
+//! **Streaming.** A correlation is not necessarily one message. A target may
+//! send many responses on the same correlation id: every response marked as a
+//! non-terminal *stream chunk* (`stream: true`, `final: false`, or a `kind`
+//! ending in `/step`) is relayed to the original sender and the correlation is
+//! *kept alive* (its expiry window refreshed) so more can follow; the record
+//! is consumed only when a terminal message arrives. Responders that send a
+//! single terminal message keep the original one-shot behavior unchanged.
+//!
 //! This is the substrate for "agent" deployments: an AI-agent skill file is
 //! deployed as a proxy entity targeting a davinci docker-VM creature; every
 //! request through the proxy reaches davinci with the skill attached (used
-//! as the session's system instruction) and davinci's final result flows
-//! back through the proxy to the requester.
+//! as the session's system instruction) and davinci streams its trajectory
+//! (thoughts, tool steps) plus the final result back through the proxy to the
+//! requester on one correlation.
 
 use std::fs;
 use std::sync::{Arc, Mutex};
@@ -44,8 +53,10 @@ pub const DEFAULT_ATTACH_FIELD: &str = "attachment";
 /// Default lifetime of a correlation record (ms). A target that never
 /// responds must not leak its correlation record forever: after this window
 /// the record is consumed by the reaper (or by a late response, which is
-/// then dropped).
-pub const DEFAULT_CORRELATION_TTL_MS: i64 = 10 * 60 * 1000;
+/// then dropped). Sized to comfortably outlast a long streaming run (e.g. a
+/// davinci agent's wall-clock budget); each streamed chunk also refreshes the
+/// window, so an actively-streaming correlation never expires mid-run.
+pub const DEFAULT_CORRELATION_TTL_MS: i64 = 20 * 60 * 1000;
 
 /// Floor for a per-entity configured TTL, so a typo cannot make records
 /// expire before the target has any chance to answer.
@@ -132,6 +143,42 @@ fn value_as_ms(v: &Value) -> Option<i64> {
         Value::String(s) => s.trim().parse::<i64>().ok(),
         _ => None,
     }
+}
+
+/// Whether a proxied response is a non-terminal *stream chunk*. The proxy keeps
+/// the correlation alive for these and only consumes it on the terminal
+/// message, so a target can stream many responses on one correlation.
+///
+/// A responder opts into streaming by marking a chunk with any of: `stream:
+/// true`, `final: false`, or a `kind` ending in `/step` (or `/stream`). The
+/// marker is read from the packet top-level or from its `data` JSON string (a
+/// docker creature's raw result travels whole under `data`). Anything else is
+/// terminal, preserving the original one-shot behavior for non-streaming
+/// responders.
+fn is_streaming_chunk(value: &Value) -> bool {
+    fn from_obj(v: &Value) -> Option<bool> {
+        if v.get("stream").and_then(Value::as_bool) == Some(true) {
+            return Some(true);
+        }
+        if let Some(f) = v.get("final").and_then(Value::as_bool) {
+            return Some(!f);
+        }
+        if let Some(kind) = v.get("kind").and_then(Value::as_str) {
+            return Some(kind.ends_with("/step") || kind.ends_with("/stream"));
+        }
+        None
+    }
+    if let Some(b) = from_obj(value) {
+        return b;
+    }
+    if let Some(data) = value.get("data").and_then(Value::as_str) {
+        if let Ok(parsed) = serde_json::from_str::<Value>(data) {
+            if let Some(b) = from_obj(&parsed) {
+                return b;
+            }
+        }
+    }
+    false
 }
 
 /// Extract the proxy configuration from a deploy request's metadata. Accepts
@@ -375,15 +422,47 @@ pub fn try_route_proxy_response(
         correlation_id: correlation_id.clone(),
         ..Default::default()
     };
-    // The correlation is one round trip: consume it before delivery.
-    let corr_owned = correlation_id.clone();
-    app.modify_state(
-        false,
-        Box::new(move |trx: &dyn ITrx| {
-            delete_correlation(trx, &corr_owned);
-            Ok(())
-        }),
-    );
+    // A non-terminal stream chunk keeps the correlation alive (and refreshes its
+    // expiry window so a long run cannot lapse mid-stream); only a terminal
+    // message consumes the record. Non-streaming responders send a single
+    // terminal message, so this preserves the original one-shot behavior.
+    if is_streaming_chunk(value) {
+        let ttl = record
+            .get("ttlMs")
+            .and_then(value_as_ms)
+            .filter(|v| *v > 0)
+            .unwrap_or(DEFAULT_CORRELATION_TTL_MS);
+        let new_expires_at = now_ms() + ttl;
+        let mut refreshed = record.clone();
+        refreshed.insert("expiresAt".to_string(), json!(new_expires_at));
+        let corr_owned = correlation_id.clone();
+        app.modify_state(
+            false,
+            Box::new(move |trx: &dyn ITrx| {
+                let _ = trx.put_json(
+                    &correlation_key(&corr_owned),
+                    "record",
+                    &Value::Object(refreshed.clone()),
+                    true,
+                );
+                trx.put_link(
+                    &correlation_expiry_link(&corr_owned),
+                    &new_expires_at.to_string(),
+                );
+                Ok(())
+            }),
+        );
+    } else {
+        // Terminal: the round trip is complete — consume the record.
+        let corr_owned = correlation_id.clone();
+        app.modify_state(
+            false,
+            Box::new(move |trx: &dyn ITrx| {
+                delete_correlation(trx, &corr_owned);
+                Ok(())
+            }),
+        );
+    }
     app.tools().signaler().signal_user(
         "creatures/signal",
         &sender_id,
@@ -480,6 +559,9 @@ pub fn try_forward_through_proxy(
         "targetEntityId": config.target_entity_id,
         "createdAt": created_at,
         "expiresAt": expires_at,
+        // Retained so a streamed chunk can refresh the expiry window by the
+        // same lifetime the entity was configured with.
+        "ttlMs": config.effective_correlation_ttl_ms(),
     });
     let corr_key = correlation_key(&correlation_id);
     let expiry_link = correlation_expiry_link(&correlation_id);
