@@ -1352,12 +1352,19 @@ fn install_program_bootstrap(app: Arc<dyn ICore>) {
         Box::new(move |trx: &dyn ITrx| {
             let programs = Program::all(trx, -1, -1)?;
             for program in programs {
-                if app_for_closure
+                let is_proxy = normalize_entity_type(&program.runtime)
+                    == crate::drivers::vmm::proxy::PROXY_RUNTIME_KEY;
+                let is_vm = app_for_closure
                     .tools()
                     .vmm()
-                    .is_supported_runtime(&program.runtime)
-                {
+                    .is_supported_runtime(&program.runtime);
+                // Proxy programs are non-runnable, but their signal listener must
+                // still be re-registered on restart so forwarded prompts reach
+                // them; only real VM runtimes additionally replay a pending alarm.
+                if is_proxy || is_vm {
                     app_for_closure.tools().vmm().assign(&program.id);
+                }
+                if is_vm {
                     let store_id = trx.get_link(&format!("vmAlarmStoreId::{}", program.id));
                     if !store_id.is_empty() {
                         let app_async = app_for_closure.clone();
