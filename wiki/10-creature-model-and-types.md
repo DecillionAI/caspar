@@ -65,3 +65,53 @@ namespace's install and to add further host-defined types the same way.
 # POST /creatures/types
 # -> { "types": [ { "name": "human", ... }, { "name": "machine", ... } ] }
 ```
+
+## Minting: the only way tokens come into existence
+
+`transfer`, `lockToken` and `consumeLock` redistribute balance that already
+exists. `/creatures/mint` is the one action that *creates* it, so it is the most
+restricted:
+
+- **Only `1@global` may call it** — the first creature registered on the
+  network, bootstrapped by `casparctl` on the first `run` after an install.
+  Every other creature gets `access denied`.
+- The target is resolved by `UserEmailToId::{toUserEmail}`, i.e. the email the
+  creature was *registered* with at `/creatures/login`. That link is written
+  once and never moves, so an address a caller keeps on its own side can drift
+  out of date; `/creatures/checkSign` returns the authoritative one.
+- `amount` must be positive, and the credit is checked for overflow.
+
+```json
+POST /creatures/mint
+{ "toUserEmail": "payer@example.com", "amount": 10000000, "idempotencyKey": "topup_9f3c…" }
+-> { "applied": true, "balance": 1000010000000 }
+```
+
+### `idempotencyKey` — applied at most once
+
+Minted tokens cannot be clawed back, which leaves a caller that is interrupted
+*between* a successful mint and recording that fact with no safe move: retrying
+credits the payer twice, giving up credits them not at all.
+
+Naming the payment closes the window. The node records `MintApplied::{key}` in
+the same write batch as the balance, so the marker and the credit land together
+or not at all. A later call with a key that has already been applied leaves the
+balance untouched and answers:
+
+```json
+{ "applied": false, "alreadyApplied": true, "previous": "7@global:10000000" }
+```
+
+That is a **success**, not a failure — it means "this payment is already
+minted", which is exactly what a retrying caller needs to hear before marking
+its own record settled. The key is global and opaque to the node; use whatever
+identifies the payment on the caller's side (Decillion's Nest backend sends its
+top-up record id — see `decillionai-server/AGENTS.md`).
+
+The field is optional for backwards compatibility, and a mint without one
+behaves as before: applied unconditionally, every time it is called. Any caller
+crediting real money should always send one.
+
+Markers are kept forever — that is the point, since a retry can arrive
+arbitrarily late — so the keyspace grows by one small link per payment minted.
+Do not prune it: a dropped marker turns a late retry back into a double credit.

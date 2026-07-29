@@ -426,7 +426,37 @@ fn mint(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
             if state.info().user_id() != "1@global" {
                 return Err(anyhow!("access denied"));
             }
+            if input.amount <= 0 {
+                return Err(anyhow!("amount must be greater than zero"));
+            }
             let trx = state.trx();
+
+            // Exactly-once, when the caller names the payment it is minting.
+            //
+            // Minting is the only way tokens come into existence and nothing
+            // can claw them back, so a caller interrupted *between* a
+            // successful mint and recording that fact has no safe move: retry
+            // and the payer is credited twice, don't and they are not credited
+            // at all. The marker closes that window — the caller retries with
+            // the same key and this handler reports the mint it already
+            // applied. Handler writes commit as a single batch (see
+            // `TrxWrapper::commit`), so the marker and the balance land
+            // together or not at all.
+            let marker = match input.idempotency_key.trim() {
+                "" => None,
+                key => Some(format!("MintApplied::{}", key)),
+            };
+            if let Some(marker) = &marker {
+                let applied = trx.get_link(marker);
+                if !applied.is_empty() {
+                    return Ok(json!({
+                        "applied": false,
+                        "alreadyApplied": true,
+                        "previous": applied,
+                    }));
+                }
+            }
+
             // The email→id link resolves the creature directly; credit the
             // single authoritative Creature balance.
             let to_user_id = trx.get_link(&format!("UserEmailToId::{}", input.to_user_email));
@@ -441,9 +471,18 @@ fn mint(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
             if creature.id.is_empty() || creature.type_name.is_empty() {
                 return Err(anyhow!("target user not found"));
             }
-            creature.balance += input.amount;
+            creature.balance = creature
+                .balance
+                .checked_add(input.amount)
+                .ok_or_else(|| anyhow!("balance overflow"))?;
             creature.push(&*trx);
-            Ok(json!({}))
+            if let Some(marker) = &marker {
+                trx.put_link(marker, &format!("{}:{}", creature.id, input.amount));
+            }
+            Ok(json!({
+                "applied": true,
+                "balance": creature.balance,
+            }))
         },
     )
 }
