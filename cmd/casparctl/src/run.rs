@@ -459,6 +459,68 @@ pub fn install_local(args: &[String]) -> Result<()> {
     Ok(())
 }
 
+/// Turn the placeholder node owner into a real Caspar creature, then restart the
+/// node so it boots as that account.
+///
+/// `install --local` writes `OWNER_ID=owner-node1` plus a standalone RSA key —
+/// an identity the node signs with, but not an account anyone can use (e.g. to
+/// mint tokens). Here we register the FIRST creature on the freshly-started node
+/// (so it takes creature id `1@<node>`), persist it, and relaunch. Every later
+/// start just inherits `OWNER_ID`/`OWNER_PRIVATE_KEY` from `.env`.
+///
+/// Non-fatal: if registration fails the node keeps running on its placeholder
+/// owner and the next `casparctl run` retries.
+fn bootstrap_node_owner(repo: &Path, dir: &Path, detach: bool) -> Result<()> {
+    let username = std::env::var("CASPAR_OWNER_USERNAME")
+        .ok()
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| crate::owner::DEFAULT_OWNER_USERNAME.to_string());
+    let email = std::env::var("CASPAR_OWNER_EMAIL")
+        .ok()
+        .filter(|s| s.contains('@'))
+        .unwrap_or_else(|| format!("{username}@dev.local"));
+
+    println!("→ Bootstrapping the node owner as a real creature (\"{username}\")…");
+    let (owner_id, owner_key) = match crate::owner::login_creature("127.0.0.1", TCP_PORT, &username, &email)
+    {
+        Ok(v) => v,
+        Err(e) => {
+            eprintln!("! could not create the node-owner creature: {e:#}");
+            eprintln!("  the node keeps its placeholder owner; re-run `casparctl run` to retry");
+            return Ok(());
+        }
+    };
+    println!("✓ node owner creature: {owner_id}");
+
+    crate::owner::save_owner(dir, &username, &owner_id, &owner_key)
+        .context("persisting the node owner (node-owner.json + .env)")?;
+    println!(
+        "✓ owner id + private key saved to {} and {}",
+        dir.join("node-owner.json").display(),
+        dir.join(".env").display()
+    );
+
+    // The running node still has the placeholder owner in its environment, so
+    // restart it to pick up the real one. QuestDB stays up.
+    println!("→ Restarting the node so it runs as {owner_id}…");
+    if let Some(pid) = read_pid(dir, "caspar.pid") {
+        let _ = Command::new("kill").arg(pid.to_string()).status();
+        for _ in 0..60 {
+            if !pid_alive(pid) {
+                break;
+            }
+            thread::sleep(Duration::from_millis(500));
+        }
+        if pid_alive(pid) {
+            let _ = Command::new("kill").args(["-9", &pid.to_string()]).status();
+            thread::sleep(Duration::from_secs(2));
+        }
+    }
+    launch_node(repo, dir, detach)?;
+    println!("✓ node restarted as owner {owner_id}");
+    Ok(())
+}
+
 /// `casparctl run` — the run phase: start QuestDB and the node from an
 /// already-installed config. Does no installation; run `casparctl install
 /// --local` first if the node has not been configured yet.
@@ -488,6 +550,19 @@ pub fn run_run(args: &[String]) -> Result<()> {
         start_questdb(&repo, &dir)?;
     }
     launch_node(&repo, &dir, detach)?;
+
+    // First run after an install: turn the placeholder node owner into a REAL
+    // Caspar creature (see src/owner.rs). Needs the node serving, hence here.
+    if crate::owner::needs_bootstrap(&dir) {
+        bootstrap_node_owner(&repo, &dir, detach)?;
+    } else if let Ok(env) = fs::read_to_string(dir.join(".env")) {
+        if let Some(id) = env
+            .lines()
+            .find_map(|l| l.trim().strip_prefix("OWNER_ID=").map(|v| v.trim().to_string()))
+        {
+            println!("  node owner: {id}");
+        }
+    }
 
     println!();
     println!("Caspar node is up. Connect the client CLI (plaintext transport):");

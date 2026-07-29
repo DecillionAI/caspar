@@ -36,6 +36,7 @@ use std::time::{Duration, Instant};
 use anyhow::{anyhow, bail, Context, Result};
 
 mod cluster;
+mod owner;
 mod run;
 mod vms;
 use chrono::{DateTime, Local};
