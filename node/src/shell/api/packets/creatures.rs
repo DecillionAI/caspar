@@ -168,6 +168,11 @@ pub struct MintInput {
     pub to_user_email: String,
     #[serde(default)]
     pub amount: i64,
+    /// Caller's name for the payment being minted. Optional, but a caller that
+    /// can be interrupted between a successful mint and recording it should
+    /// always send one — it is what makes a retry safe. See the `mint` handler.
+    #[serde(rename = "idempotencyKey", default)]
+    pub idempotency_key: String,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
