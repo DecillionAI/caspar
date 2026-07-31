@@ -576,6 +576,10 @@ pub fn try_forward_through_proxy(
     let forwarded = StoresSend {
         user: proxy_identity(app, machine_id),
         action: "single".to_string(),
+        // Carry the originating store through to the backbone untouched: the
+        // requester scoped this signal to a space (store), and the agent behind
+        // the proxy must see the same space the signal came from.
+        store: send.store.clone(),
         data: Value::Object(payload).to_string(),
         is_temp: send.is_temp,
         entity_id: config.target_entity_id.clone(),

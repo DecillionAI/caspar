@@ -356,6 +356,19 @@ fn signal(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
             let packet = StoresSend {
                 action: "single".to_string(),
                 user: sender,
+                // Stamp the store this signal was sent within onto the envelope
+                // so the target learns which space (store) it came from — carried
+                // as signal context, not buried in the payload. A proxy entity
+                // relays this through to its backbone, where an agent scopes
+                // in-space tool/sub-agent discovery to it. Sourced from the
+                // signal's declared `storeId` (the guard is not store-scoped, so
+                // `state.info().store_id()` is not populated here). Empty when the
+                // signal is not scoped to a store, in which case `store_is_empty`
+                // skips the field entirely.
+                store: Store {
+                    id: input.store_id.clone(),
+                    ..Default::default()
+                },
                 data: input.data.clone(),
                 is_temp: input.temp,
                 entity_id: input.entity_id.clone(),
