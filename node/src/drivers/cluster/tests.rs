@@ -211,16 +211,19 @@ impl crate::models::ports::vmm::IVmm for StubVmm {
     }
     fn start_docker_gateway(&self, _: i64) {}
     fn start_http_ingress(&self, _: i64) {}
-    fn register_vm_container(&self, _: &str, _: &str, _: &str, _: &str, _: &str) {}
+    fn register_vm_container(&self, _: &str, _: &str, _: &str, _: &str, _: &str, _: &str) {}
     fn unregister_vm_container(&self, _: &str) {}
-    fn identify_container_by_ip(&self, _: &str) -> Option<(String, String, String, String)> {
+    fn identify_container_by_ip(&self, _: &str) -> Option<(String, String, String, String, String)> {
         None
     }
     fn push_signal_to_machine(&self, _: &str, _: &str, _: &Value) -> usize {
         0
     }
-    fn queue_pending_signal(&self, _: &str, _: &str, _: &Value) {}
-    fn begin_cold_spawn(&self, _: &str) -> bool {
+    fn push_signal_to_entity(&self, _: &str, _: &str, _: &str, _: &Value) -> usize {
+        0
+    }
+    fn queue_pending_signal(&self, _: &str, _: &str, _: &str, _: &Value) {}
+    fn begin_cold_spawn(&self, _: &str, _: &str) -> bool {
         true
     }
     fn register_vm_context(&self, _: &str, _: &str, _: &str) {}

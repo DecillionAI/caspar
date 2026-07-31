@@ -318,17 +318,20 @@ impl IVmm for Vmm {
                 ) {
                     return;
                 }
-                // If a docker creature of this machine is connected to the
-                // bridge gateway, deliver the signal straight to its container
-                // over the live TCP connection instead of cold-spawning a VM.
-                // Reached through the canonical tools().vmm() object graph.
-                if trans
-                    .app
-                    .tools()
-                    .vmm()
-                    .push_signal_to_machine(&machine_id_owned, &key, &value)
-                    > 0
-                {
+                // If the *entity* this signal targets is connected to the bridge
+                // gateway, deliver straight to its container over the live TCP
+                // connection instead of cold-spawning a VM. A machine can serve
+                // several entities, each its own container, so delivery is keyed by
+                // entity; a packet that names no entity falls back to any container
+                // of the machine (e.g. a bare reply). Reached through the canonical
+                // tools().vmm() object graph.
+                let vmm = trans.app.tools().vmm();
+                let delivered = if entity_id.is_empty() {
+                    vmm.push_signal_to_machine(&machine_id_owned, &key, &value)
+                } else {
+                    vmm.push_signal_to_entity(&machine_id_owned, &entity_id, &key, &value)
+                };
+                if delivered > 0 {
                     return;
                 }
                 let (ast_path, vm_type) =
@@ -347,28 +350,25 @@ impl IVmm for Vmm {
                     "astPath": ast_path,
                     "vmType": vm_type,
                 });
-                if is_docker {
-                    // A docker *serving* creature (e.g. a tool) that has gone cold
-                    // has no gateway connection, so `push_signal_to_machine` above
-                    // reached nobody. Booting the container alone would drop the very
-                    // signal that triggered the spawn — the serve loop only reads
-                    // gateway pushes — hanging the caller. Instead queue the packet;
-                    // the node flushes it (in order, with any others that pile up)
-                    // the moment the container connects to the gateway. The spawn is
-                    // debounced so a burst of concurrent signals boots the singleton
-                    // container once, not once each — the rest simply wait in the
-                    // queue for the same connect.
-                    trans
-                        .app
-                        .tools()
-                        .vmm()
-                        .queue_pending_signal(&machine_id_owned, &key, &value);
-                    if trans.app.tools().vmm().begin_cold_spawn(&machine_id_owned) {
+                if is_docker && !entity_id.is_empty() {
+                    // A docker *serving* entity (e.g. a tool) that has gone cold has
+                    // no gateway connection, so the push above reached nobody. Booting
+                    // the container alone would drop the very signal that triggered
+                    // the spawn — the serve loop only reads gateway pushes — hanging
+                    // the caller. Instead queue the packet against THIS entity; the
+                    // node flushes it (in order, with any others that pile up) the
+                    // moment that entity's container connects. The spawn is debounced
+                    // per entity, so a burst of concurrent signals boots the entity's
+                    // container once — and a sibling entity of the same machine is
+                    // still spawned independently.
+                    vmm.queue_pending_signal(&machine_id_owned, &entity_id, &key, &value);
+                    if vmm.begin_cold_spawn(&machine_id_owned, &entity_id) {
                         let _ = dispatch_packet(&payload);
                     }
                 } else {
-                    // WASM (and other one-shot runtimes): executed with the signal as
-                    // its input directly — no gateway connection, nothing to queue.
+                    // WASM / one-shot runtimes, or a packet that names no entity:
+                    // executed with the signal as its input directly — no gateway
+                    // connection to wait on, nothing to queue.
                     let _ = dispatch_packet(&payload);
                 }
             }),
@@ -447,6 +447,7 @@ impl IVmm for Vmm {
         creature_id: &str,
         program_id: &str,
         machine_id: &str,
+        entity_id: &str,
     ) {
         self.vm_containers.insert(
             container_name.to_string(),
@@ -455,6 +456,7 @@ impl IVmm for Vmm {
                 creature_id: creature_id.to_string(),
                 program_id: program_id.to_string(),
                 machine_id: machine_id.to_string(),
+                entity_id: entity_id.to_string(),
             },
         );
     }
@@ -463,7 +465,7 @@ impl IVmm for Vmm {
         self.vm_containers.remove(container_name);
     }
 
-    fn identify_container_by_ip(&self, ip: &str) -> Option<(String, String, String, String)> {
+    fn identify_container_by_ip(&self, ip: &str) -> Option<(String, String, String, String, String)> {
         // Ask each registered VM runtime whether it owns a live instance on
         // this source IP (container-style runtimes resolve it through their
         // supervisor), then map the instance name to the identity we recorded
@@ -478,6 +480,7 @@ impl IVmm for Vmm {
                 id.creature_id.clone(),
                 id.program_id.clone(),
                 id.machine_id.clone(),
+                id.entity_id.clone(),
             )
         })
     }
@@ -486,12 +489,16 @@ impl IVmm for Vmm {
         self.gateway.push_signal_to_machine(machine_id, key, data)
     }
 
-    fn queue_pending_signal(&self, machine_id: &str, key: &str, data: &Value) {
-        self.gateway.queue_pending_signal(machine_id, key, data);
+    fn push_signal_to_entity(&self, machine_id: &str, entity_id: &str, key: &str, data: &Value) -> usize {
+        self.gateway.push_signal_to_entity(machine_id, entity_id, key, data)
     }
 
-    fn begin_cold_spawn(&self, machine_id: &str) -> bool {
-        self.gateway.begin_cold_spawn(machine_id)
+    fn queue_pending_signal(&self, machine_id: &str, entity_id: &str, key: &str, data: &Value) {
+        self.gateway.queue_pending_signal(machine_id, entity_id, key, data);
+    }
+
+    fn begin_cold_spawn(&self, machine_id: &str, entity_id: &str) -> bool {
+        self.gateway.begin_cold_spawn(machine_id, entity_id)
     }
 
     // ── VM execution context registry ────────────────────────────────────────

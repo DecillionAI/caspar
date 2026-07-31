@@ -160,7 +160,7 @@ impl DockerVmController {
                     // connection (the create path does the same) — this is what lets
                     // the node flush the queued signals to the resumed tool.
                     // program_id == machine_id for docker.
-                    h.register_vm_container(&container_id, &vm_cache_key, &creature_id, machine_id, machine_id);
+                    h.register_vm_container(&container_id, &vm_cache_key, &creature_id, machine_id, machine_id, &entity_id);
                 }
                 return Ok(json!({
                     "ok": true,
@@ -353,7 +353,7 @@ impl DockerVmController {
             // Bind the docker container name to this VM's authoritative
             // identity so the gateway can resolve a connection's identity from
             // its source IP. program_id == machine_id for docker.
-            h.register_vm_container(&container_id, &vm_cache_key, &creature_id, machine_id, machine_id);
+            h.register_vm_container(&container_id, &vm_cache_key, &creature_id, machine_id, machine_id, &entity_id);
             // Begin a lifecycle transaction buffer for this VM execution so all
             // dbOp writes are batched and committed atomically at VM end.
             h.begin_vm_buffer(&vm_cache_key);

@@ -48,26 +48,31 @@ pub trait IVmm: Send + Sync {
         creature_id: &str,
         program_id: &str,
         machine_id: &str,
+        entity_id: &str,
     );
     /// Drop a container→identity binding at VM teardown.
     fn unregister_vm_container(&self, container_name: &str);
     /// Identify the creature/VM a connection belongs to from its docker-network
     /// source `ip`: the node asks docker which container owns that IP, then maps
     /// the container name to its registered identity. Returns
-    /// `(vm_id, creature_id, program_id, machine_id)`. Spoof-resistant — the
-    /// container cannot forge its bridge IP or docker's view of it.
-    fn identify_container_by_ip(&self, ip: &str) -> Option<(String, String, String, String)>;
-    /// Push a signal to every live docker container of `machine_id`, delivered
-    /// over its gateway connection. Returns the number of containers reached.
+    /// `(vm_id, creature_id, program_id, machine_id, entity_id)`. Spoof-resistant —
+    /// the container cannot forge its bridge IP or docker's view of it.
+    fn identify_container_by_ip(&self, ip: &str) -> Option<(String, String, String, String, String)>;
+    /// Push a signal to every live docker container of `machine_id`, regardless of
+    /// entity. For packets that name no entity only. Returns the number reached.
     fn push_signal_to_machine(&self, machine_id: &str, key: &str, data: &JsonValue) -> usize;
-    /// Queue a signal for a docker machine that has no live container yet, to be
+    /// Push a signal to the container serving `entity_id` on `machine_id`. Returns
+    /// the number reached (`0` ⇒ that entity is cold, so the caller queues/spawns).
+    fn push_signal_to_entity(&self, machine_id: &str, entity_id: &str, key: &str, data: &JsonValue) -> usize;
+    /// Queue a signal for a docker entity that has no live container yet, to be
     /// delivered when it (re)connects to the gateway. Used on the cold-spawn path
     /// so the signal that woke the creature is not lost while it boots.
-    fn queue_pending_signal(&self, machine_id: &str, key: &str, data: &JsonValue);
-    /// Claim the cold-spawn slot for `machine_id` (debounce). Returns `true` for
-    /// the caller that should boot the container and `false` while a spawn started
-    /// recently is still in flight — concurrent signals then only queue.
-    fn begin_cold_spawn(&self, machine_id: &str) -> bool;
+    fn queue_pending_signal(&self, machine_id: &str, entity_id: &str, key: &str, data: &JsonValue);
+    /// Claim the cold-spawn slot for `(machine_id, entity_id)` (debounce). Returns
+    /// `true` for the caller that should boot the container and `false` while a
+    /// spawn started recently is still in flight — concurrent signals then only
+    /// queue. Per entity, so entities of one machine boot independently.
+    fn begin_cold_spawn(&self, machine_id: &str, entity_id: &str) -> bool;
 
     // ── VM execution context registry ────────────────────────────────────
     /// Register an active VM execution context (vm_id → creature/machine).
