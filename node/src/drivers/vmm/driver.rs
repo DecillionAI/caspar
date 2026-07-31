@@ -333,13 +333,32 @@ impl IVmm for Vmm {
                 }
                 let (ast_path, vm_type) =
                     trans.resolve_vm_execution_target(&machine_id_owned, &entity_id);
-                let payload = json!({
+                let raw_str = String::from_utf8_lossy(&raw).into_owned();
+                let mut payload = json!({
                     "type": "runVm",
                     "machineId": machine_id_owned,
-                    "input": String::from_utf8_lossy(&raw),
+                    // Carry the resolved entity so a docker creature cold-spawns the
+                    // SAME entity image + container id the listener resolved above
+                    // (and that its deploy started), not the program default: the
+                    // controller otherwise falls back to entity "main", boots the
+                    // wrong/absent image and never serves the signalled tool.
+                    "entityId": entity_id,
+                    "input": raw_str.clone(),
                     "astPath": ast_path,
                     "vmType": vm_type,
                 });
+                // A docker *serving* creature (e.g. a tool) that has gone cold has
+                // no live gateway connection, so `push_signal_to_machine` above
+                // reached nobody and we are cold-spawning it. Booting the container
+                // alone would drop the very signal that triggered the spawn — the
+                // serve loop only reads gateway pushes — leaving the caller to hang
+                // until timeout. Hand that signal to the fresh container as an input
+                // file; its runtime drains `/app/input/task.json` on serve start and
+                // answers it. WASM creatures receive the signal through `input`
+                // directly and need no file.
+                if payload["vmType"] == "docker" {
+                    payload["inputFiles"] = json!({ "task.json": raw_str });
+                }
                 let _ = dispatch_packet(&payload);
             }),
         });
