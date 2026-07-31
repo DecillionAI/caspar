@@ -52,6 +52,7 @@ pub trait VmHost: Send + Sync {
         creature_id: &str,
         program_id: &str,
         machine_id: &str,
+        entity_id: &str,
     );
     fn unregister_vm_container(&self, container_name: &str);
 

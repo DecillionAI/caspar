@@ -70,6 +70,7 @@ impl VmHost for VmmHostBridge {
         creature_id: &str,
         program_id: &str,
         machine_id: &str,
+        entity_id: &str,
     ) {
         let _ = with_global_app(|app| {
             app.tools().vmm().register_vm_container(
@@ -78,6 +79,7 @@ impl VmHost for VmmHostBridge {
                 creature_id,
                 program_id,
                 machine_id,
+                entity_id,
             )
         });
     }

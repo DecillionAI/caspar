@@ -179,7 +179,7 @@ fn handle_message(
             // IP → (docker) container name → registered identity. A container
             // cannot forge its bridge IP, making this spoof-resistant.
             let resolved = gateway.app.tools().vmm().identify_container_by_ip(peer_ip);
-            let Some((vm_id, creature_id, program_id, machine_id)) = resolved else {
+            let Some((vm_id, creature_id, program_id, machine_id, entity_id)) = resolved else {
                 send_local(
                     tx,
                     Opcode::Error,
@@ -196,11 +196,16 @@ fn handle_message(
                 machine_id: machine_id.clone(),
                 creature_id: creature_id.clone(),
                 program_id: program_id.clone(),
+                entity_id: entity_id.clone(),
             };
             let conn_id = gateway.registry.alloc_conn_id();
             let conn = GatewayConnection::new(conn_id, peer.to_string(), identity, tx.clone());
             gateway.registry.insert(conn.clone());
             *session = Some(conn);
+            // Kept for the post-WELCOME flush below, since the WELCOME payload
+            // consumes the `machine_id` binding.
+            let flush_machine = machine_id.clone();
+            let flush_entity = entity_id.clone();
             eprintln!(
                 "[docker-host-gateway] {} authenticated vm={} machine={} (conns={})",
                 peer,
@@ -223,6 +228,20 @@ fn handle_message(
                     "programId": program_id,
                 }),
             );
+            // The container is registered and reachable now: release the cold-spawn
+            // slot and hand it every signal that queued while it was cold, in FIFO
+            // order, over this fresh connection. Delivering after WELCOME keeps the
+            // queued packets ahead of any signal that arrives live from here on.
+            gateway.registry.clear_cold_spawn(&flush_machine, &flush_entity);
+            let flushed = gateway
+                .registry
+                .flush_pending_signals(&flush_machine, &flush_entity);
+            if flushed > 0 {
+                eprintln!(
+                    "[docker-host-gateway] delivered {} queued signal(s) to machine={} entity={}",
+                    flushed, flush_machine, flush_entity
+                );
+            }
             true
         }
         Opcode::Request => {

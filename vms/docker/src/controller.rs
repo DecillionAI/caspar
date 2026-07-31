@@ -145,14 +145,22 @@ impl DockerVmController {
                         "vmDir": mount_dir.as_ref().map(|p| p.display().to_string()).unwrap_or_default(),
                     }));
                 }
-                // Container exists but is stopped (suspended). Start it again
-                // — its writable layer and any persistent bind mount survive.
+                // Container exists but is stopped (suspended). A serving creature
+                // (e.g. a tool) that idled out takes exactly this path when it is
+                // next signalled. Start it again — its writable layer and any
+                // persistent bind mount survive.
                 self.with_async(self.docker.start_container::<String>(
                     &container_id,
                     None::<StartContainerOptions<String>>,
                 ))?;
                 if let Some(h) = host() {
                     h.register_vm_context(&vm_cache_key, &creature_id, machine_id);
+                    // Re-bind the container name to its identity so the gateway can
+                    // resolve the restarted container from its source IP on the new
+                    // connection (the create path does the same) — this is what lets
+                    // the node flush the queued signals to the resumed tool.
+                    // program_id == machine_id for docker.
+                    h.register_vm_container(&container_id, &vm_cache_key, &creature_id, machine_id, machine_id, &entity_id);
                 }
                 return Ok(json!({
                     "ok": true,
@@ -345,7 +353,7 @@ impl DockerVmController {
             // Bind the docker container name to this VM's authoritative
             // identity so the gateway can resolve a connection's identity from
             // its source IP. program_id == machine_id for docker.
-            h.register_vm_container(&container_id, &vm_cache_key, &creature_id, machine_id, machine_id);
+            h.register_vm_container(&container_id, &vm_cache_key, &creature_id, machine_id, machine_id, &entity_id);
             // Begin a lifecycle transaction buffer for this VM execution so all
             // dbOp writes are batched and committed atomically at VM end.
             h.begin_vm_buffer(&vm_cache_key);
