@@ -201,6 +201,9 @@ fn handle_message(
             let conn = GatewayConnection::new(conn_id, peer.to_string(), identity, tx.clone());
             gateway.registry.insert(conn.clone());
             *session = Some(conn);
+            // Kept for the post-WELCOME flush below, since the WELCOME payload
+            // consumes the `machine_id` binding.
+            let flush_machine = machine_id.clone();
             eprintln!(
                 "[docker-host-gateway] {} authenticated vm={} machine={} (conns={})",
                 peer,
@@ -223,6 +226,18 @@ fn handle_message(
                     "programId": program_id,
                 }),
             );
+            // The container is registered and reachable now: release the cold-spawn
+            // slot and hand it every signal that queued while it was cold, in FIFO
+            // order, over this fresh connection. Delivering after WELCOME keeps the
+            // queued packets ahead of any signal that arrives live from here on.
+            gateway.registry.clear_cold_spawn(&flush_machine);
+            let flushed = gateway.registry.flush_pending_signals(&flush_machine);
+            if flushed > 0 {
+                eprintln!(
+                    "[docker-host-gateway] delivered {} queued signal(s) to machine={}",
+                    flushed, flush_machine
+                );
+            }
             true
         }
         Opcode::Request => {

@@ -333,8 +333,8 @@ impl IVmm for Vmm {
                 }
                 let (ast_path, vm_type) =
                     trans.resolve_vm_execution_target(&machine_id_owned, &entity_id);
-                let raw_str = String::from_utf8_lossy(&raw).into_owned();
-                let mut payload = json!({
+                let is_docker = vm_type == "docker";
+                let payload = json!({
                     "type": "runVm",
                     "machineId": machine_id_owned,
                     // Carry the resolved entity so a docker creature cold-spawns the
@@ -343,23 +343,34 @@ impl IVmm for Vmm {
                     // controller otherwise falls back to entity "main", boots the
                     // wrong/absent image and never serves the signalled tool.
                     "entityId": entity_id,
-                    "input": raw_str.clone(),
+                    "input": String::from_utf8_lossy(&raw),
                     "astPath": ast_path,
                     "vmType": vm_type,
                 });
-                // A docker *serving* creature (e.g. a tool) that has gone cold has
-                // no live gateway connection, so `push_signal_to_machine` above
-                // reached nobody and we are cold-spawning it. Booting the container
-                // alone would drop the very signal that triggered the spawn — the
-                // serve loop only reads gateway pushes — leaving the caller to hang
-                // until timeout. Hand that signal to the fresh container as an input
-                // file; its runtime drains `/app/input/task.json` on serve start and
-                // answers it. WASM creatures receive the signal through `input`
-                // directly and need no file.
-                if payload["vmType"] == "docker" {
-                    payload["inputFiles"] = json!({ "task.json": raw_str });
+                if is_docker {
+                    // A docker *serving* creature (e.g. a tool) that has gone cold
+                    // has no gateway connection, so `push_signal_to_machine` above
+                    // reached nobody. Booting the container alone would drop the very
+                    // signal that triggered the spawn — the serve loop only reads
+                    // gateway pushes — hanging the caller. Instead queue the packet;
+                    // the node flushes it (in order, with any others that pile up)
+                    // the moment the container connects to the gateway. The spawn is
+                    // debounced so a burst of concurrent signals boots the singleton
+                    // container once, not once each — the rest simply wait in the
+                    // queue for the same connect.
+                    trans
+                        .app
+                        .tools()
+                        .vmm()
+                        .queue_pending_signal(&machine_id_owned, &key, &value);
+                    if trans.app.tools().vmm().begin_cold_spawn(&machine_id_owned) {
+                        let _ = dispatch_packet(&payload);
+                    }
+                } else {
+                    // WASM (and other one-shot runtimes): executed with the signal as
+                    // its input directly — no gateway connection, nothing to queue.
+                    let _ = dispatch_packet(&payload);
                 }
-                let _ = dispatch_packet(&payload);
             }),
         });
         self.app.tools().signaler().listen_to_single(listener);
@@ -473,6 +484,14 @@ impl IVmm for Vmm {
 
     fn push_signal_to_machine(&self, machine_id: &str, key: &str, data: &Value) -> usize {
         self.gateway.push_signal_to_machine(machine_id, key, data)
+    }
+
+    fn queue_pending_signal(&self, machine_id: &str, key: &str, data: &Value) {
+        self.gateway.queue_pending_signal(machine_id, key, data);
+    }
+
+    fn begin_cold_spawn(&self, machine_id: &str) -> bool {
+        self.gateway.begin_cold_spawn(machine_id)
     }
 
     // ── VM execution context registry ────────────────────────────────────────

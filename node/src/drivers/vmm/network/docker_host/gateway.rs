@@ -59,6 +59,14 @@ impl DockerHostGateway {
                 }
             };
             eprintln!("[docker-host-gateway] listening on {}", addr);
+            // Reaper: keep the cold-spawn signal queue bounded even when a
+            // creature never reconnects, so undeliverable packets cannot pin node
+            // memory forever.
+            let reaper = Arc::clone(&gateway);
+            thread::spawn(move || loop {
+                thread::sleep(std::time::Duration::from_secs(30));
+                reaper.registry.sweep_expired();
+            });
             for incoming in listener.incoming() {
                 match incoming {
                     Ok(stream) => {
@@ -79,6 +87,18 @@ impl DockerHostGateway {
     /// the number of containers reached (`0` ⇒ none connected).
     pub(crate) fn push_signal_to_machine(&self, machine_id: &str, key: &str, data: &JsonValue) -> usize {
         self.registry.push_signal_to_machine(machine_id, key, data)
+    }
+
+    /// Queue a signal for a machine that has no live connection yet, to be
+    /// flushed when its container (re)connects. See [`GatewayRegistry::queue_pending_signal`].
+    pub(crate) fn queue_pending_signal(&self, machine_id: &str, key: &str, data: &JsonValue) {
+        self.registry.queue_pending_signal(machine_id, key, data);
+    }
+
+    /// Claim the cold-spawn slot for a machine (debounce). `true` ⇒ this caller
+    /// should boot the container; `false` ⇒ a spawn is already in flight.
+    pub(crate) fn begin_cold_spawn(&self, machine_id: &str) -> bool {
+        self.registry.begin_cold_spawn(machine_id)
     }
 
     /// Push a signal to the specific container identified by `vm_id`.

@@ -219,6 +219,10 @@ impl crate::models::ports::vmm::IVmm for StubVmm {
     fn push_signal_to_machine(&self, _: &str, _: &str, _: &Value) -> usize {
         0
     }
+    fn queue_pending_signal(&self, _: &str, _: &str, _: &Value) {}
+    fn begin_cold_spawn(&self, _: &str) -> bool {
+        true
+    }
     fn register_vm_context(&self, _: &str, _: &str, _: &str) {}
     fn unregister_vm_context(&self, _: &str) {}
     fn get_vm_context(&self, _: &str) -> Option<(String, String)> {

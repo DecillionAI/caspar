@@ -60,6 +60,14 @@ pub trait IVmm: Send + Sync {
     /// Push a signal to every live docker container of `machine_id`, delivered
     /// over its gateway connection. Returns the number of containers reached.
     fn push_signal_to_machine(&self, machine_id: &str, key: &str, data: &JsonValue) -> usize;
+    /// Queue a signal for a docker machine that has no live container yet, to be
+    /// delivered when it (re)connects to the gateway. Used on the cold-spawn path
+    /// so the signal that woke the creature is not lost while it boots.
+    fn queue_pending_signal(&self, machine_id: &str, key: &str, data: &JsonValue);
+    /// Claim the cold-spawn slot for `machine_id` (debounce). Returns `true` for
+    /// the caller that should boot the container and `false` while a spawn started
+    /// recently is still in flight — concurrent signals then only queue.
+    fn begin_cold_spawn(&self, machine_id: &str) -> bool;
 
     // ── VM execution context registry ────────────────────────────────────
     /// Register an active VM execution context (vm_id → creature/machine).

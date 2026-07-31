@@ -147,18 +147,8 @@ impl DockerVmController {
                 }
                 // Container exists but is stopped (suspended). A serving creature
                 // (e.g. a tool) that idled out takes exactly this path when it is
-                // next signalled, so the signal that woke it must reach it: write
-                // any input files (the triggering `task.json`) onto the stopped
-                // container before it restarts — `upload_to_container` works on a
-                // stopped container, and the runtime drains the file on serve
-                // start. Without this the resumed tool would boot but never see the
-                // invoke, hanging the caller.
-                if !packet["inputFiles"].is_null() {
-                    let files = parse_input_files(&packet["inputFiles"])?;
-                    self.upload_files(&container_id, "/app/input", &files)?;
-                }
-                // Start it again — its writable layer and any persistent bind
-                // mount survive.
+                // next signalled. Start it again — its writable layer and any
+                // persistent bind mount survive.
                 self.with_async(self.docker.start_container::<String>(
                     &container_id,
                     None::<StartContainerOptions<String>>,
@@ -167,8 +157,9 @@ impl DockerVmController {
                     h.register_vm_context(&vm_cache_key, &creature_id, machine_id);
                     // Re-bind the container name to its identity so the gateway can
                     // resolve the restarted container from its source IP on the new
-                    // connection (the create path does the same). program_id ==
-                    // machine_id for docker.
+                    // connection (the create path does the same) — this is what lets
+                    // the node flush the queued signals to the resumed tool.
+                    // program_id == machine_id for docker.
                     h.register_vm_container(&container_id, &vm_cache_key, &creature_id, machine_id, machine_id);
                 }
                 return Ok(json!({
