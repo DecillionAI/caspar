@@ -7,4 +7,5 @@
 
 pub mod api;
 pub mod kasper;
+pub mod storage_http;
 pub mod utils;

@@ -198,6 +198,20 @@ fn main() {
         .unwrap_or(8090);
     app.tools().vmm().start_http_ingress(vm_http_ingress_port);
 
+    // ── Public file storage HTTP server ───────────────────────────────────────
+    // Serves public binary blobs (avatars/images) over plain HTTP so the Nest
+    // backend can proxy authenticated uploads and re-serve downloads to clients
+    // without pushing binaries through the signed action/consensus path.
+    // Internal port (like the docker gateway); disabled when unset/zero.
+    let storage_http_port: i64 = env::var("CASPAR_STORAGE_PORT")
+        .ok()
+        .and_then(|p| p.parse().ok())
+        .unwrap_or(8091);
+    {
+        let app_for_storage: Arc<dyn crate::models::core::ICore> = app.clone();
+        crate::shell::storage_http::start(app_for_storage, storage_http_port);
+    }
+
     let port_tcp: i64 = env::var("CLIENT_TCP_API_PORT")
         .ok()
         .and_then(|p| p.parse().ok())
