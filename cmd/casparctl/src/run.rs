@@ -119,6 +119,7 @@ const ENTITY_PORT: u16 = 8079;
 const VM_PORT: u16 = 8080;
 const TELEMETRY_PORT: u16 = 9099;
 const PPROF_PORT: u16 = 9999;
+const STORAGE_HTTP_PORT: u16 = 8091;
 const QDB_PG: u16 = 8812;
 const QDB_HTTP: u16 = 9000;
 const QDB_MIN: u16 = 9003;
@@ -216,6 +217,7 @@ fn write_env(dir: &Path, owner_key: &str) -> Result<()> {
          ENTITY_API_PORT={ENTITY_PORT}\n\
          VM_API_PORT={VM_PORT}\n\
          PPROF_PORT={PPROF_PORT}\n\
+         CASPAR_STORAGE_PORT={STORAGE_HTTP_PORT}\n\
          ORIGIN=http://localhost:{TCP_PORT}\n\
          IPADDR=127.0.0.1\n\
          ROOT_NODE=localhost:{TCP_PORT}\n\
