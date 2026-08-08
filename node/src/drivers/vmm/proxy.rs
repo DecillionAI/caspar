@@ -98,16 +98,32 @@ pub struct ProxyConfig {
     pub attach_field: String,
     /// Correlation-record lifetime in ms; `0` means the node default.
     pub correlation_ttl_ms: i64,
+    /// Static fields the proxy deep-merges into every forwarded payload,
+    /// stored in the entity's (private) config — never in public metadata.
+    ///
+    /// This is where an agent's own configuration lives: e.g. its LLM provider
+    /// override `{ "config": { "llm": { "provider", "model", "apiKey" } } }`.
+    /// The merge wins over anything the caller sent, so the agent always runs
+    /// with its stored key and a client cannot forge another provider. Because
+    /// it is held in the internal proxy config (not the `public.decillion`
+    /// descriptor), the API key is never exposed by a metadata read.
+    pub inject: Value,
 }
 
 impl ProxyConfig {
     pub fn to_value(&self) -> Value {
-        json!({
+        let mut v = json!({
             "targetProgramId": self.target_program_id,
             "targetEntityId": self.target_entity_id,
             "attachField": self.attach_field,
             "correlationTtlMs": self.correlation_ttl_ms,
-        })
+        });
+        if self.inject.is_object() {
+            v.as_object_mut()
+                .unwrap()
+                .insert("inject".to_string(), self.inject.clone());
+        }
+        v
     }
 
     pub fn from_value(v: &Value) -> ProxyConfig {
@@ -120,6 +136,11 @@ impl ProxyConfig {
                 .get("correlationTtlMs")
                 .and_then(value_as_ms)
                 .unwrap_or(0),
+            inject: v
+                .get("inject")
+                .filter(|x| x.is_object())
+                .cloned()
+                .unwrap_or(Value::Null),
         };
         if cfg.attach_field.is_empty() {
             cfg.attach_field = DEFAULT_ATTACH_FIELD.to_string();
@@ -224,12 +245,39 @@ where
         .and_then(value_as_ms)
         .or_else(|| get("proxyCorrelationTtlMs").as_ref().and_then(value_as_ms))
         .unwrap_or(0);
+    // Static payload injection (e.g. the agent's own `config.llm`). Accept it
+    // nested under `proxy.inject` or as a flat `proxyInject` key; keep only an
+    // object so a stray scalar cannot corrupt the forwarded payload.
+    let inject = nested
+        .get("inject")
+        .cloned()
+        .or_else(|| get("proxyInject"))
+        .filter(|x| x.is_object())
+        .unwrap_or(Value::Null);
     Ok(ProxyConfig {
         target_program_id,
         target_entity_id,
         attach_field,
         correlation_ttl_ms,
+        inject,
     })
+}
+
+/// Deep-merge `src` into `dst`: nested objects merge recursively, and any
+/// non-object value in `src` overwrites `dst`. Used to overlay the proxy's
+/// injected config onto a forwarded payload so the agent's stored fields (its
+/// LLM key) win over anything the caller supplied.
+fn deep_merge(dst: &mut Value, src: &Value) {
+    match (dst, src) {
+        (Value::Object(d), Value::Object(s)) => {
+            for (k, v) in s {
+                deep_merge(d.entry(k.clone()).or_insert(Value::Null), v);
+            }
+        }
+        (d, s) => {
+            *d = s.clone();
+        }
+    }
 }
 
 /// Record a deployed proxy entity inside an open state transaction: the
@@ -545,6 +593,18 @@ pub fn try_forward_through_proxy(
         }
     };
     payload.insert(config.attach_field.clone(), json!(attachment));
+    // Overlay the proxy's stored config (e.g. the agent's own `config.llm`) so
+    // it reaches the backbone and wins over any caller-supplied value — a
+    // client prompting a marketplace agent can neither read nor override the
+    // agent's stored key.
+    if config.inject.is_object() {
+        let mut merged = Value::Object(payload);
+        deep_merge(&mut merged, &config.inject);
+        payload = match merged {
+            Value::Object(o) => o,
+            _ => Map::new(),
+        };
+    }
     payload.insert("correlationId".to_string(), json!(correlation_id));
     payload.insert("replyTo".to_string(), json!(machine_id));
     payload.insert("proxyProgramId".to_string(), json!(machine_id));
@@ -647,4 +707,63 @@ pub fn start_correlation_reaper(app: Arc<dyn ICore>) {
         std::thread::sleep(std::time::Duration::from_secs(60));
         sweep_expired_correlations(&app);
     });
+}
+
+#[cfg(test)]
+mod inject_tests {
+    // Exercises the REAL config parsing + deep-merge used by
+    // try_forward_through_proxy, proving an agent's stored config.llm (with its
+    // API key) is read from entity metadata, survives the stored-config
+    // round-trip, and overrides a caller-supplied value while preserving the
+    // caller's other fields.
+    use super::{config_from_metadata, deep_merge, ProxyConfig};
+    use serde_json::{json, Map, Value};
+
+    fn getter(meta: Value) -> impl Fn(&str) -> Option<Value> {
+        let m: Map<String, Value> = match meta {
+            Value::Object(o) => o,
+            _ => Map::new(),
+        };
+        move |k: &str| m.get(k).cloned()
+    }
+
+    #[test]
+    fn inject_parsed_roundtripped_and_overrides() {
+        let get = getter(json!({
+            "proxy": {
+                "targetProgramId": "prog_backbone",
+                "inject": { "config": { "llm": { "provider": "openai", "model": "gpt-5", "apiKey": "sk-SECRET" } } }
+            }
+        }));
+        let cfg = config_from_metadata(get).expect("config");
+        assert_eq!(cfg.inject.pointer("/config/llm/apiKey"), Some(&json!("sk-SECRET")));
+
+        // Stored-config round-trip (record_proxy_entity persists to_value()).
+        let restored = ProxyConfig::from_value(&cfg.to_value());
+        assert_eq!(restored.inject.pointer("/config/llm/model"), Some(&json!("gpt-5")));
+
+        // Merge onto a payload with caller tools + a forged llm.
+        let mut payload = json!({
+            "prompt": "hi",
+            "config": { "tools": ["caspar__sandbox"], "llm": { "provider": "attacker", "apiKey": "sk-FORGED" } }
+        });
+        deep_merge(&mut payload, &restored.inject);
+        assert_eq!(payload.pointer("/config/llm/apiKey"), Some(&json!("sk-SECRET")), "agent key wins");
+        assert_eq!(payload.pointer("/config/llm/provider"), Some(&json!("openai")), "agent provider wins");
+        assert_eq!(payload.pointer("/config/tools/0"), Some(&json!("caspar__sandbox")), "caller tools kept");
+        assert_eq!(payload.pointer("/prompt"), Some(&json!("hi")), "caller prompt kept");
+    }
+
+    #[test]
+    fn no_inject_leaves_payload_unchanged() {
+        let get = getter(json!({ "proxy": { "targetProgramId": "p" } }));
+        let cfg = config_from_metadata(get).expect("config");
+        assert!(!cfg.inject.is_object(), "absent inject is not an object");
+        let before = json!({ "prompt": "x", "config": { "llm": { "apiKey": "own" } } });
+        let mut after = before.clone();
+        if cfg.inject.is_object() {
+            deep_merge(&mut after, &cfg.inject);
+        }
+        assert_eq!(after, before);
+    }
 }
