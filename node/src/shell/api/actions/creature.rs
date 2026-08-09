@@ -29,8 +29,10 @@ use crate::shell::api::packets::creatures::{
     AuthenticateInput, AuthenticateOutput, CheckSignInput, ConsumeLockInput,
     CreateInput as CreatureCreateInput, DeleteInput, FindInput, GetByUsernameInput, GetInput,
     GetOutput, ListInput, LockTokenInput, LoginInput, LoginOutput, MetaInput, MintInput,
+    SecretGetInput, SecretGrantInput, SecretListInput, SecretPutInput, SecretRevokeInput,
     SignalInput as CreatureSignalInput, TransferInput, UpdateInput,
 };
+use crate::shell::utils::secret_crypto;
 use crate::shell::api::model::{Creature, Session, Store};
 use crate::shell::api::packets::stores::Send as StoresSend;
 use crate::shell::utils::crypto::{secure_key_pairs, secure_unique_string};
@@ -529,6 +531,167 @@ fn check_sign(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
                 return Ok(json!({"valid": true, "email": email}));
             }
             Ok(json!({"valid": false}))
+        },
+    )
+}
+
+// ── creature-owned secrets ──────────────────────────────────────────────────
+// A creature stores a secret so its value lives on-chain only as ciphertext
+// (encrypted under the node master key, off-chain). The owner can always read it
+// back; it may grant another creature time-boxed, revocable read access. Access
+// control is enforced HERE against the authenticated caller (`user_id()`), which
+// a creature cannot forge — the encryption alone is not the boundary.
+
+const SECRET_PREFIX: &str = "Secret::";
+const SECRET_GRANT_PREFIX: &str = "SecretGrant::";
+
+fn secret_key(owner: &str, name: &str) -> String {
+    format!("{SECRET_PREFIX}{owner}::{name}")
+}
+fn secret_grant_key(owner: &str, name: &str, grantee: &str) -> String {
+    format!("{SECRET_GRANT_PREFIX}{owner}::{name}::{grantee}")
+}
+/// Names/ids are path components of the storage key, so a ':' would let a caller
+/// escape its own namespace. Reject it rather than sanitize silently.
+fn valid_component(s: &str) -> bool {
+    !s.is_empty() && !s.contains(':')
+}
+
+fn secret_put(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
+    let app_h = app.clone();
+    build_secure_action::<SecretPutInput, _>(
+        app,
+        "/creatures/secretPut",
+        user_guard(),
+        move |state: Arc<dyn IState>, input: SecretPutInput| -> Result<Value> {
+            let owner = state.info().user_id();
+            if owner.is_empty() {
+                return Err(anyhow!("not authenticated"));
+            }
+            if !valid_component(&input.name) {
+                return Err(anyhow!("secret name is required and must not contain ':'"));
+            }
+            if input.value.is_empty() {
+                return Err(anyhow!("secret value is required"));
+            }
+            let root = app_h.tools().storage().storage_root().to_string();
+            let key = secret_crypto::master_key(&root)?;
+            let blob = secret_crypto::encrypt(input.value.as_bytes(), &key)?;
+            let trx = state.trx();
+            trx.put_link(&secret_key(&owner, &input.name), &blob);
+            Ok(json!({ "ok": true, "name": input.name }))
+        },
+    )
+}
+
+fn secret_get(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
+    let app_h = app.clone();
+    build_secure_action::<SecretGetInput, _>(
+        app,
+        "/creatures/secretGet",
+        user_guard(),
+        move |state: Arc<dyn IState>, input: SecretGetInput| -> Result<Value> {
+            let caller = state.info().user_id();
+            if caller.is_empty() {
+                return Err(anyhow!("not authenticated"));
+            }
+            if !valid_component(&input.name) {
+                return Err(anyhow!("secret name is required"));
+            }
+            let owner = if input.owner.is_empty() { caller.clone() } else { input.owner.clone() };
+            let trx = state.trx();
+            // A non-owner caller needs an unexpired grant.
+            if owner != caller {
+                let raw = trx.get_link(&secret_grant_key(&owner, &input.name, &caller));
+                let expires_at: i64 = raw.trim().parse().unwrap_or(0);
+                if expires_at <= 0 || Utc::now().timestamp_millis() >= expires_at {
+                    return Err(anyhow!("access denied: no valid grant for this secret"));
+                }
+            }
+            let blob = trx.get_link(&secret_key(&owner, &input.name));
+            if blob.is_empty() {
+                return Err(anyhow!("secret not found"));
+            }
+            let root = app_h.tools().storage().storage_root().to_string();
+            let key = secret_crypto::master_key(&root)?;
+            let plaintext = secret_crypto::decrypt(&blob, &key)?;
+            let value = String::from_utf8(plaintext)
+                .map_err(|_| anyhow!("stored secret is not valid UTF-8"))?;
+            Ok(json!({ "ok": true, "owner": owner, "name": input.name, "value": value }))
+        },
+    )
+}
+
+fn secret_grant(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
+    build_secure_action::<SecretGrantInput, _>(
+        app,
+        "/creatures/secretGrant",
+        user_guard(),
+        move |state: Arc<dyn IState>, input: SecretGrantInput| -> Result<Value> {
+            let owner = state.info().user_id();
+            if owner.is_empty() {
+                return Err(anyhow!("not authenticated"));
+            }
+            if !valid_component(&input.name) || !valid_component(&input.grantee) {
+                return Err(anyhow!("name and grantee are required and must not contain ':'"));
+            }
+            if input.ttl_seconds <= 0 {
+                return Err(anyhow!("ttlSeconds must be positive"));
+            }
+            let trx = state.trx();
+            // Only the owner of an existing secret may grant access to it.
+            if trx.get_link(&secret_key(&owner, &input.name)).is_empty() {
+                return Err(anyhow!("secret not found"));
+            }
+            let expires_at = Utc::now().timestamp_millis() + input.ttl_seconds * 1000;
+            trx.put_link(
+                &secret_grant_key(&owner, &input.name, &input.grantee),
+                &expires_at.to_string(),
+            );
+            Ok(json!({ "ok": true, "grantee": input.grantee, "expiresAt": expires_at }))
+        },
+    )
+}
+
+fn secret_revoke(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
+    build_secure_action::<SecretRevokeInput, _>(
+        app,
+        "/creatures/secretRevoke",
+        user_guard(),
+        move |state: Arc<dyn IState>, input: SecretRevokeInput| -> Result<Value> {
+            let owner = state.info().user_id();
+            if owner.is_empty() {
+                return Err(anyhow!("not authenticated"));
+            }
+            if !valid_component(&input.name) || !valid_component(&input.grantee) {
+                return Err(anyhow!("name and grantee are required"));
+            }
+            state
+                .trx()
+                .del_key(&secret_grant_key(&owner, &input.name, &input.grantee));
+            Ok(json!({ "ok": true }))
+        },
+    )
+}
+
+fn secret_list(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
+    build_secure_action::<SecretListInput, _>(
+        app,
+        "/creatures/secretList",
+        user_guard(),
+        move |state: Arc<dyn IState>, _input: SecretListInput| -> Result<Value> {
+            let owner = state.info().user_id();
+            if owner.is_empty() {
+                return Err(anyhow!("not authenticated"));
+            }
+            let prefix = format!("{SECRET_PREFIX}{owner}::");
+            let names: Vec<String> = state
+                .trx()
+                .get_by_prefix(&prefix)
+                .into_iter()
+                .filter_map(|k| k.strip_prefix(&prefix).map(|s| s.to_string()))
+                .collect();
+            Ok(json!({ "ok": true, "names": names }))
         },
     )
 }
@@ -1110,6 +1273,11 @@ pub fn install(
         authenticate(app.clone()),
         mint(app.clone()),
         check_sign(app.clone()),
+        secret_put(app.clone()),
+        secret_get(app.clone()),
+        secret_grant(app.clone()),
+        secret_revoke(app.clone()),
+        secret_list(app.clone()),
         lock_token(app.clone()),
         consume_lock(app.clone()),
         login(app.clone()),

@@ -9,4 +9,5 @@
 pub mod crypto;
 pub mod future;
 pub mod origin;
+pub mod secret_crypto;
 pub mod timer;

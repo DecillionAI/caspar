@@ -488,6 +488,7 @@ dependencies = [
  "base64 0.22.1",
  "caspar-vm-plugins",
  "caspar-vm-sdk",
+ "chacha20poly1305",
  "chrono",
  "crossbeam-channel",
  "dashmap",
