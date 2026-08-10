@@ -273,8 +273,15 @@ pub(crate) fn handle_unified_host_call(packet: &JsonValue) -> String {
         "elpifyProof" | "verifyProgramExecution" => host_fn_verify_program(&input),
         "protocolApi" | "callProtocolApi" => host_fn_protocol_api(&input),
         "signal" => host_fn_signal(&input),
-        // Read a granted secret, authenticated as the calling docker creature.
-        "secretGet" => host_fn_secret_get(&ctx.creature_id, &input),
+        // Read a granted secret. The caller identity MUST be the node-authoritative
+        // creature bound to this VM (from get_vm_context on the runtime-stamped /
+        // gateway-verified vmId), NOT the `creatureId` a guest may put in the
+        // request — so `resolve_cached_vm_hierarchy`, never `ctx.creature_id` (which
+        // falls back to the claimed field). An unresolvable context denies access.
+        "secretGet" => {
+            let caller = resolve_cached_vm_hierarchy(packet, &input).creature_id;
+            host_fn_secret_get(&caller, &input)
+        }
         "createAccess" | "createOwnedAccess" => host_fn_create_access(&input),
         "deleteAccess" | "removeAccess" | "deleteOwnedAccess" | "removeOwnedAccess" => {
             host_fn_delete_access(&input)
