@@ -711,6 +711,12 @@ fn run_program_entity(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
             let ctx = json!({
                 "machineId": input.machine_id,
                 "programId": program.id,
+                // The program's node-authoritative owner (the machine creature).
+                // A docker entity must run as this so its host calls (secretGet,
+                // dbOp namespacing) resolve to the creature that owns it — e.g. the
+                // agent backbone reads its granted platform keys. Carried through
+                // the runtime's plan_run_entity into the runVm packet.
+                "creatureId": owner_machine.id,
                 "entityId": input.entity_id,
                 "vmId": vm_id,
                 "resources": resources,

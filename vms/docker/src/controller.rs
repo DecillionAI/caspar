@@ -894,6 +894,10 @@ impl VmPlugin for DockerVmPlugin {
             "input": {
                 "runtime": "docker",
                 "machineId": machine_id,
+                // Node-authoritative owner (from the runEntity ctx); run_vm records
+                // it as the container's creature identity so its host calls resolve
+                // to the owning creature (e.g. the backbone reads its granted keys).
+                "creatureId": ctx["creatureId"],
                 "entityId": entity_id,
                 "containerName": container_name,
                 "standalone": true,
