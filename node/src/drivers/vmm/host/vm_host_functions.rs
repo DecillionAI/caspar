@@ -271,14 +271,17 @@ pub(crate) fn handle_unified_host_call(packet: &JsonValue) -> String {
         "elpifyProof" | "verifyProgramExecution" => host_fn_verify_program(&input),
         "protocolApi" | "callProtocolApi" => host_fn_protocol_api(&input),
         "signal" => host_fn_signal(&input),
-        // Read a granted secret. The caller identity MUST be the node-authoritative
-        // creature bound to this VM (from get_vm_context on the runtime-stamped /
-        // gateway-verified vmId), NOT the `creatureId` a guest may put in the
-        // request — so `resolve_cached_vm_hierarchy`, never `ctx.creature_id` (which
-        // falls back to the claimed field). An unresolvable context denies access.
+        // Secret reads, authenticated as the node-authoritative creature bound to
+        // this VM (get_vm_context on the runtime-stamped / gateway-verified vmId),
+        // never a `creatureId` the guest may put in the request — so
+        // resolve_cached_vm_hierarchy, never ctx.creature_id. Unresolvable → deny.
         "secretGet" => {
             let caller = resolve_cached_vm_hierarchy(packet, &input).creature_id;
             host_fn_secret_get(&caller, &input)
+        }
+        "secretListGranted" => {
+            let caller = resolve_cached_vm_hierarchy(packet, &input).creature_id;
+            host_fn_secret_list_granted(&caller)
         }
         "createAccess" | "createOwnedAccess" => host_fn_create_access(&input),
         "deleteAccess" | "removeAccess" | "deleteOwnedAccess" | "removeOwnedAccess" => {
@@ -428,6 +431,38 @@ pub(crate) fn host_fn_secret_get(caller: &str, input: &JsonValue) -> String {
             Err(_) => json!({"ok": false, "error": "stored secret is not valid UTF-8"}).to_string(),
         },
         Err(e) => json!({"ok": false, "error": e.to_string()}).to_string(),
+    }
+}
+
+/// List the `{owner, name}` secret grants held by the calling docker creature, so
+/// the agent backbone can discover the platform keys granted to it without a
+/// hardcoded owner. Same node-authoritative caller resolution as `secretGet`.
+pub(crate) fn host_fn_secret_list_granted(caller: &str) -> String {
+    use crate::models::transaction::ITrx;
+    use std::sync::{Arc, Mutex};
+
+    let caller = caller.trim().to_string();
+    if caller.is_empty() {
+        return json!({"ok": false, "error": "caller identity unavailable"}).to_string();
+    }
+    let grants = with_global_app(|app| {
+        let slot = Arc::new(Mutex::new(Vec::<JsonValue>::new()));
+        let slot_c = slot.clone();
+        let caller_c = caller.clone();
+        app.modify_state(
+            true,
+            Box::new(move |trx: &dyn ITrx| {
+                *slot_c.lock().unwrap() =
+                    crate::shell::api::actions::creature::list_granted_secrets(trx, &caller_c);
+                Ok(())
+            }),
+        );
+        let v = slot.lock().unwrap().clone();
+        v
+    });
+    match grants {
+        Some(g) => json!({"ok": true, "grants": g}).to_string(),
+        None => json!({"ok": false, "error": "vmm not initialised"}).to_string(),
     }
 }
 

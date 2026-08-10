@@ -203,6 +203,9 @@ pub struct SecretRevokeInput {
 pub struct SecretListInput {}
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct SecretListGrantedInput {}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct GetByUsernameInput {
     #[serde(default)]
     pub username: String,
@@ -295,6 +298,7 @@ input_impls! {
     SecretGrantInput  => "global",
     SecretRevokeInput => "global",
     SecretListInput   => "global",
+    SecretListGrantedInput => "global",
 }
 
 // ---- Outputs ---------------------------------------------------------------

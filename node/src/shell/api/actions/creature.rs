@@ -29,7 +29,8 @@ use crate::shell::api::packets::creatures::{
     AuthenticateInput, AuthenticateOutput, CheckSignInput, ConsumeLockInput,
     CreateInput as CreatureCreateInput, DeleteInput, FindInput, GetByUsernameInput, GetInput,
     GetOutput, ListInput, LockTokenInput, LoginInput, LoginOutput, MetaInput, MintInput,
-    SecretGetInput, SecretGrantInput, SecretListInput, SecretPutInput, SecretRevokeInput,
+    SecretGetInput, SecretGrantInput, SecretListGrantedInput, SecretListInput, SecretPutInput,
+    SecretRevokeInput,
     SignalInput as CreatureSignalInput, TransferInput, UpdateInput,
 };
 use crate::shell::utils::secret_crypto;
@@ -544,6 +545,7 @@ fn check_sign(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
 
 const SECRET_PREFIX: &str = "Secret::";
 const SECRET_GRANT_PREFIX: &str = "SecretGrant::";
+const SECRET_GRANTEE_PREFIX: &str = "SecretGrantee::";
 
 fn secret_key(owner: &str, name: &str) -> String {
     format!("{SECRET_PREFIX}{owner}::{name}")
@@ -551,10 +553,33 @@ fn secret_key(owner: &str, name: &str) -> String {
 fn secret_grant_key(owner: &str, name: &str, grantee: &str) -> String {
     format!("{SECRET_GRANT_PREFIX}{owner}::{name}::{grantee}")
 }
+/// Reverse index keyed by grantee, so a grantee can enumerate its grants.
+fn secret_grantee_key(grantee: &str, owner: &str, name: &str) -> String {
+    format!("{SECRET_GRANTEE_PREFIX}{grantee}::{owner}::{name}")
+}
 /// Names/ids are path components of the storage key, so a ':' would let a caller
 /// escape its own namespace. Reject it rather than sanitize silently.
 fn valid_component(s: &str) -> bool {
     !s.is_empty() && !s.contains(':')
+}
+
+/// The unexpired `{owner, name}` grants held by `grantee`, from the reverse index.
+/// Shared by the signed route and the docker host-call so both return the same set.
+pub(crate) fn list_granted_secrets(trx: &dyn ITrx, grantee: &str) -> Vec<Value> {
+    let prefix = format!("{SECRET_GRANTEE_PREFIX}{grantee}::");
+    let now = Utc::now().timestamp_millis();
+    let mut out = Vec::new();
+    for key in trx.get_by_prefix(&prefix) {
+        let Some(rest) = key.strip_prefix(&prefix) else { continue };
+        // rest = "<owner>::<name>"; owner has no "::" and name has no ':'.
+        let Some((owner, name)) = rest.split_once("::") else { continue };
+        let expires_at: i64 = trx.get_link(&key).trim().parse().unwrap_or(0);
+        if expires_at <= 0 || now >= expires_at {
+            continue;
+        }
+        out.push(json!({ "owner": owner, "name": name, "expiresAt": expires_at }));
+    }
+    out
 }
 
 fn secret_put(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
@@ -648,6 +673,12 @@ fn secret_grant(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
                 &secret_grant_key(&owner, &input.name, &input.grantee),
                 &expires_at.to_string(),
             );
+            // Reverse index so a grantee can discover what it was granted without
+            // knowing the owner up front (secretListGranted). Same expiry value.
+            trx.put_link(
+                &secret_grantee_key(&input.grantee, &owner, &input.name),
+                &expires_at.to_string(),
+            );
             Ok(json!({ "ok": true, "grantee": input.grantee, "expiresAt": expires_at }))
         },
     )
@@ -666,10 +697,30 @@ fn secret_revoke(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
             if !valid_component(&input.name) || !valid_component(&input.grantee) {
                 return Err(anyhow!("name and grantee are required"));
             }
-            state
-                .trx()
-                .del_key(&secret_grant_key(&owner, &input.name, &input.grantee));
+            let trx = state.trx();
+            trx.del_key(&secret_grant_key(&owner, &input.name, &input.grantee));
+            trx.del_key(&secret_grantee_key(&input.grantee, &owner, &input.name));
             Ok(json!({ "ok": true }))
+        },
+    )
+}
+
+/// List the secrets granted TO the caller (as `{owner, name}` pairs), skipping
+/// expired grants. Lets a grantee — e.g. the agent backbone — discover the
+/// platform secrets it may read without a hardcoded owner. Names/values are not
+/// returned; the caller reads each with `secretGet`.
+fn secret_list_granted(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
+    build_secure_action::<SecretListGrantedInput, _>(
+        app,
+        "/creatures/secretListGranted",
+        user_guard(),
+        move |state: Arc<dyn IState>, _input: SecretListGrantedInput| -> Result<Value> {
+            let caller = state.info().user_id();
+            if caller.is_empty() {
+                return Err(anyhow!("not authenticated"));
+            }
+            let grants = list_granted_secrets(&*state.trx(), &caller);
+            Ok(json!({ "ok": true, "grants": grants }))
         },
     )
 }
@@ -1278,6 +1329,7 @@ pub fn install(
         secret_grant(app.clone()),
         secret_revoke(app.clone()),
         secret_list(app.clone()),
+        secret_list_granted(app.clone()),
         lock_token(app.clone()),
         consume_lock(app.clone()),
         login(app.clone()),
