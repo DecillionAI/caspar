@@ -543,7 +543,7 @@ name = "caspar-vm-elpian"
 version = "0.1.0"
 dependencies = [
  "caspar-vm-sdk",
- "elpian_vm",
+ "elpian-vm",
  "serde_json",
 ]
 
@@ -1076,7 +1076,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "elpian_vm"
+name = "elpian-vm"
 version = "0.1.0"
 dependencies = [
  "once_cell",

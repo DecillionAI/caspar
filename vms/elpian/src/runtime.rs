@@ -45,7 +45,7 @@ pub(crate) fn execute_elpian_task(
         payload.to_string(),
         0,
     );
-    if let Some(bytes) = elpian_api::vm_memory_usage_bytes(machine_id.to_string()) {
+    if let Some(bytes) = elpian_api::usage(machine_id).map(|u| u.memory_bytes) {
         if bytes > (limits.ram_mb * 1024 * 1024) {
             let _ = elpian_api::destroy_vm(machine_id.to_string());
             return Err(format!(
@@ -68,7 +68,7 @@ pub(crate) fn execute_elpian_task(
             .map_err(|e| format!("invalid elpian host call payload: {}", e))?;
         let host_res = json!({"value": dispatch(&call_data)}).to_string();
         result = elpian_api::continue_execution(machine_id.to_string(), host_res);
-        if let Some(bytes) = elpian_api::vm_memory_usage_bytes(machine_id.to_string()) {
+        if let Some(bytes) = elpian_api::usage(machine_id).map(|u| u.memory_bytes) {
             if bytes > (limits.ram_mb * 1024 * 1024) {
                 let _ = elpian_api::destroy_vm(machine_id.to_string());
                 return Err(format!(
