@@ -66,15 +66,42 @@ pub(crate) fn resolve_host_hierarchy(packet: &JsonValue, input: &JsonValue) -> H
         .to_string();
     let cached = resolve_cached_vm_hierarchy(packet, input);
 
-    // Identity (creature + program) is derived ONLY from the node's VM registration
-    // (get_vm_context on the runtime-stamped / docker-gateway-verified vmId). A
-    // guest-supplied `creatureId`/`programId` is NEVER trusted — not even as a
-    // fallback: an unresolved context yields empty identity, and every
-    // identity-gated host op must deny rather than act on a claim. (The docker
-    // gateway resolves identity from the connection's source IP and refuses
-    // unidentified containers, so a legitimate caller always resolves here.)
-    let creature_id_owned = cached.creature_id;
-    let program_id_owned = cached.program_id;
+    // Identity (creature + program) comes ONLY from node-authoritative sources —
+    // NEVER from a guest-supplied claim. There are two such sources, in priority
+    // order:
+    //   1. `get_vm_context` on the runtime-stamped / docker-gateway-verified vmId
+    //      (docker containers + any VM that registers an execution context). The
+    //      gateway resolves a container's identity from its source IP and refuses
+    //      unidentified containers, so this is unforgeable.
+    //   2. The *packet* envelope fields. The in-process VM runtimes stamp these
+    //      from the node-assigned machine/vm ids when they forward a host call
+    //      (see `vms/wasm/src/host_calls.rs`: "we stamp it at the packet level,
+    //      which resolve_host_hierarchy trusts over input"). A wasm/elpian guest
+    //      controls only `input`, never the packet the runtime wraps around it,
+    //      so a packet-level id cannot be forged.
+    // The guest-controlled `input` is NEVER consulted for identity — a docker
+    // caller (whose input the gateway *does* stamp) always resolves via (1), and
+    // for the docker path the packet carries no top-level id, so (2) is a no-op
+    // there. This preserves per-creature storage isolation for every legitimate
+    // runtime while trusting nothing the guest can set.
+    let creature_id_owned = if !cached.creature_id.is_empty() {
+        cached.creature_id
+    } else {
+        packet["creatureId"]
+            .as_str()
+            .filter(|v| !v.is_empty())
+            .unwrap_or("")
+            .to_string()
+    };
+    let program_id_owned = if !cached.program_id.is_empty() {
+        cached.program_id
+    } else {
+        packet["programId"]
+            .as_str()
+            .filter(|v| !v.is_empty())
+            .unwrap_or("")
+            .to_string()
+    };
 
     // entity_name / entity_path only subdivide storage *within* the already-
     // authenticated creature+program namespace, so they carry through as given.
