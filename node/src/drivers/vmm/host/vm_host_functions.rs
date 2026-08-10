@@ -66,20 +66,18 @@ pub(crate) fn resolve_host_hierarchy(packet: &JsonValue, input: &JsonValue) -> H
         .to_string();
     let cached = resolve_cached_vm_hierarchy(packet, input);
 
-    let creature_from_req = value_from_packet_or_input(packet, input, "creatureId");
-    let creature_id_owned = if !cached.creature_id.is_empty() {
-        cached.creature_id
-    } else {
-        creature_from_req.to_string()
-    };
+    // Identity (creature + program) is derived ONLY from the node's VM registration
+    // (get_vm_context on the runtime-stamped / docker-gateway-verified vmId). A
+    // guest-supplied `creatureId`/`programId` is NEVER trusted — not even as a
+    // fallback: an unresolved context yields empty identity, and every
+    // identity-gated host op must deny rather than act on a claim. (The docker
+    // gateway resolves identity from the connection's source IP and refuses
+    // unidentified containers, so a legitimate caller always resolves here.)
+    let creature_id_owned = cached.creature_id;
+    let program_id_owned = cached.program_id;
 
-    let program_from_req = value_from_packet_or_input(packet, input, "programId");
-    let program_id_owned = if !cached.program_id.is_empty() {
-        cached.program_id
-    } else {
-        program_from_req.to_string()
-    };
-
+    // entity_name / entity_path only subdivide storage *within* the already-
+    // authenticated creature+program namespace, so they carry through as given.
     let entity_name = value_from_packet_or_input(packet, input, "entityName").to_string();
     let entity_path = packet["entityPath"]
         .as_str()
