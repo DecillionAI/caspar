@@ -273,6 +273,8 @@ pub(crate) fn handle_unified_host_call(packet: &JsonValue) -> String {
         "elpifyProof" | "verifyProgramExecution" => host_fn_verify_program(&input),
         "protocolApi" | "callProtocolApi" => host_fn_protocol_api(&input),
         "signal" => host_fn_signal(&input),
+        // Read a granted secret, authenticated as the calling docker creature.
+        "secretGet" => host_fn_secret_get(&ctx.creature_id, &input),
         "createAccess" | "createOwnedAccess" => host_fn_create_access(&input),
         "deleteAccess" | "removeAccess" | "deleteOwnedAccess" | "removeOwnedAccess" => {
             host_fn_delete_access(&input)
@@ -342,6 +344,85 @@ pub(crate) fn host_fn_micro(op: &str, input: &JsonValue) -> String {
     match with_global_app(|app| app.tools().vmm().host_action_micro(op, input, 0).0) {
         Some(out) => out,
         None => json!({"ok": false, "error": "vmm not initialised"}).to_string(),
+    }
+}
+
+/// Read a creature-owned secret on behalf of the calling docker creature.
+///
+/// The authenticated caller is the container's registered creature id (resolved
+/// out-of-band from the VM context — a guest cannot forge it), mirroring the
+/// signed `/creatures/secretGet` route for external clients. A caller reading its
+/// own secret always succeeds; reading another owner's secret requires an
+/// unexpired grant (`SecretGrant::<owner>::<name>::<caller>`). This is how the
+/// agent backbone fetches a platform LLM key the operator granted it, instead of
+/// the key being baked into the creature image. put/grant/revoke/list stay on the
+/// signed routes (the app/operator perform those); a creature only ever reads.
+pub(crate) fn host_fn_secret_get(caller: &str, input: &JsonValue) -> String {
+    use crate::models::transaction::ITrx;
+    use crate::shell::utils::secret_crypto;
+    use std::sync::{Arc, Mutex};
+
+    let caller = caller.trim();
+    if caller.is_empty() {
+        return json!({"ok": false, "error": "caller identity unavailable"}).to_string();
+    }
+    let name = input["name"].as_str().unwrap_or("").trim().to_string();
+    if name.is_empty() || name.contains(':') {
+        return json!({"ok": false, "error": "secret name is required"}).to_string();
+    }
+    let owner = {
+        let o = input["owner"].as_str().unwrap_or("").trim();
+        if o.is_empty() { caller.to_string() } else { o.to_string() }
+    };
+    let need_grant = owner != caller;
+    let secret_link = format!("Secret::{}::{}", owner, name);
+    let grant_link = format!("SecretGrant::{}::{}::{}", owner, name, caller);
+
+    let fetched = with_global_app(|app| {
+        let root = app.tools().storage().storage_root().to_string();
+        let blob = Arc::new(Mutex::new(String::new()));
+        let grant = Arc::new(Mutex::new(String::new()));
+        let (b, g) = (blob.clone(), grant.clone());
+        let (sl, gl) = (secret_link.clone(), grant_link.clone());
+        app.modify_state(
+            true,
+            Box::new(move |trx: &dyn ITrx| {
+                *b.lock().unwrap() = trx.get_link(&sl);
+                if need_grant {
+                    *g.lock().unwrap() = trx.get_link(&gl);
+                }
+                Ok(())
+            }),
+        );
+        let blob = blob.lock().unwrap().clone();
+        let grant = grant.lock().unwrap().clone();
+        (root, blob, grant)
+    });
+    let (root, blob, grant_raw) = match fetched {
+        Some(v) => v,
+        None => return json!({"ok": false, "error": "vmm not initialised"}).to_string(),
+    };
+
+    if need_grant {
+        let expires_at: i64 = grant_raw.trim().parse().unwrap_or(0);
+        if expires_at <= 0 || chrono::Utc::now().timestamp_millis() >= expires_at {
+            return json!({"ok": false, "error": "access denied: no valid grant for this secret"})
+                .to_string();
+        }
+    }
+    if blob.is_empty() {
+        return json!({"ok": false, "error": "secret not found"}).to_string();
+    }
+    let key = match secret_crypto::master_key(&root) {
+        Ok(k) => k,
+        Err(e) => return json!({"ok": false, "error": e.to_string()}).to_string(),
+    };
+    match secret_crypto::decrypt(&blob, &key) {
+        Ok(bytes) => match String::from_utf8(bytes) {
+            Ok(value) => json!({"ok": true, "owner": owner, "name": name, "value": value}).to_string(),
+            Err(_) => json!({"ok": false, "error": "stored secret is not valid UTF-8"}).to_string(),
+        },
+        Err(e) => json!({"ok": false, "error": e.to_string()}).to_string(),
     }
 }
 
