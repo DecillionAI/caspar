@@ -31,6 +31,7 @@ use crate::shell::api::packets::creatures::{
     GetOutput, ListInput, LockTokenInput, LoginInput, LoginOutput, MetaInput, MintInput,
     SecretGetInput, SecretGrantInput, SecretListGrantedInput, SecretListInput, SecretPutInput,
     SecretRevokeInput,
+    StorageUploadInput,
     SignalInput as CreatureSignalInput, TransferInput, UpdateInput,
 };
 use crate::shell::utils::secret_crypto;
@@ -747,6 +748,49 @@ fn secret_list(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
     )
 }
 
+/// Upload a file to the node's public blob storage, authenticated as the caller.
+/// The bytes live OFF-chain (under `<storage_root>/public-files`) and only the
+/// returned id is meant to go on-chain (e.g. an avatar id in a profile). Served
+/// back publicly by the storage HTTP endpoint `GET /storage/file/<id>`. An owner
+/// sidecar records who uploaded it, so a file is a user-owned entity.
+fn storage_upload(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
+    let app_h = app.clone();
+    build_secure_action::<StorageUploadInput, _>(
+        app,
+        "/storage/upload",
+        user_guard(),
+        move |state: Arc<dyn IState>, input: StorageUploadInput| -> Result<Value> {
+            let owner = state.info().user_id();
+            if owner.is_empty() {
+                return Err(anyhow!("not authenticated"));
+            }
+            let data = base64::engine::general_purpose::STANDARD
+                .decode(input.data_base64.trim())
+                .map_err(|_| anyhow!("dataBase64 is not valid base64"))?;
+            if data.is_empty() {
+                return Err(anyhow!("empty file"));
+            }
+            const MAX: usize = 10 * 1024 * 1024; // same bound as the storage HTTP endpoint
+            if data.len() > MAX {
+                return Err(anyhow!("file too large (max {MAX} bytes)"));
+            }
+            let ctype = {
+                let c = input.content_type.trim();
+                if c.is_empty() { "application/octet-stream".to_string() } else { c.to_string() }
+            };
+            let root = format!("{}/public-files", app_h.tools().storage().storage_root());
+            let id = uuid::Uuid::new_v4().to_string();
+            let file = app_h.tools().file();
+            file.save_data_to_global_storage(&root, &data, &id, true)
+                .map_err(|e| anyhow!("storage write failed: {e}"))?;
+            // Sidecars: content type (so the download round-trips it) + owner.
+            let _ = file.save_data_to_global_storage(&root, ctype.as_bytes(), &format!("{id}.type"), true);
+            let _ = file.save_data_to_global_storage(&root, owner.as_bytes(), &format!("{id}.owner"), true);
+            Ok(json!({ "ok": true, "id": id, "contentType": ctype }))
+        },
+    )
+}
+
 fn lock_token(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
     build_secure_action::<LockTokenInput, _>(
         app,
@@ -1330,6 +1374,7 @@ pub fn install(
         secret_revoke(app.clone()),
         secret_list(app.clone()),
         secret_list_granted(app.clone()),
+        storage_upload(app.clone()),
         lock_token(app.clone()),
         consume_lock(app.clone()),
         login(app.clone()),

@@ -206,6 +206,16 @@ pub struct SecretListInput {}
 pub struct SecretListGrantedInput {}
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct StorageUploadInput {
+    /// The file bytes, base64-encoded. Content lives off-chain in the node's
+    /// public-files storage; only the returned id is meant to go on-chain.
+    #[serde(rename = "dataBase64", default)]
+    pub data_base64: String,
+    #[serde(rename = "contentType", default)]
+    pub content_type: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct GetByUsernameInput {
     #[serde(default)]
     pub username: String,
@@ -299,6 +309,7 @@ input_impls! {
     SecretRevokeInput => "global",
     SecretListInput   => "global",
     SecretListGrantedInput => "global",
+    StorageUploadInput => "global",
 }
 
 // ---- Outputs ---------------------------------------------------------------
