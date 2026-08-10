@@ -156,6 +156,65 @@ pub struct CheckSignInput {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct AuthenticateInput {}
 
+// ---- creature-owned secrets ------------------------------------------------
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct SecretPutInput {
+    /// The secret's name within the owner's namespace (e.g. "LLM_KEY_OPENAI").
+    #[serde(default)]
+    pub name: String,
+    /// The plaintext to encrypt and store. Never persisted in the clear.
+    #[serde(default)]
+    pub value: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct SecretGetInput {
+    #[serde(default)]
+    pub name: String,
+    /// Whose secret to read. Defaults to the caller; a different owner requires
+    /// an unexpired grant to the caller.
+    #[serde(default)]
+    pub owner: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct SecretGrantInput {
+    #[serde(default)]
+    pub name: String,
+    /// The creature id being granted temporary read access.
+    #[serde(default)]
+    pub grantee: String,
+    /// How long the grant is valid, in seconds. Must be positive; the grant is
+    /// revocable before then via `secretRevoke`.
+    #[serde(rename = "ttlSeconds", default)]
+    pub ttl_seconds: i64,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct SecretRevokeInput {
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub grantee: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct SecretListInput {}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct SecretListGrantedInput {}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct StorageUploadInput {
+    /// The file bytes, base64-encoded. Content lives off-chain in the node's
+    /// public-files storage; only the returned id is meant to go on-chain.
+    #[serde(rename = "dataBase64", default)]
+    pub data_base64: String,
+    #[serde(rename = "contentType", default)]
+    pub content_type: String,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct GetByUsernameInput {
     #[serde(default)]
@@ -244,6 +303,13 @@ input_impls! {
     TransferInput    => "global",
     UpdateInput      => "global",
     LoginInput       => "",
+    SecretPutInput    => "global",
+    SecretGetInput    => "global",
+    SecretGrantInput  => "global",
+    SecretRevokeInput => "global",
+    SecretListInput   => "global",
+    SecretListGrantedInput => "global",
+    StorageUploadInput => "global",
 }
 
 // ---- Outputs ---------------------------------------------------------------
