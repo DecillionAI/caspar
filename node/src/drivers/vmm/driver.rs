@@ -337,9 +337,17 @@ impl IVmm for Vmm {
                 let (ast_path, vm_type) =
                     trans.resolve_vm_execution_target(&machine_id_owned, &entity_id);
                 let is_docker = vm_type == "docker";
+                // The node-authoritative owner of this program. Stamped onto the
+                // cold-spawn packet so a docker container registers its real
+                // creature identity (get_vm_context) and can read secrets granted
+                // to it — the agent backbone hydrates its platform LLM keys this
+                // way. Empty for a program with no record (harmless: docker keeps
+                // its prior empty-id behaviour).
+                let creature_id_owner = resolve_program_owner(&trans.app, &machine_id_owned);
                 let payload = json!({
                     "type": "runVm",
                     "machineId": machine_id_owned,
+                    "creatureId": creature_id_owner,
                     // Carry the resolved entity so a docker creature cold-spawns the
                     // SAME entity image + container id the listener resolved above
                     // (and that its deploy started), not the program default: the
@@ -934,6 +942,35 @@ fn resolve_vm_execution_target_inner(
     let path = path_slot.lock().unwrap().clone();
     let vm_type = type_slot.lock().unwrap().clone();
     (path, vm_type)
+}
+
+/// The owning machine-creature id of a program (`Program.machineId`), or empty
+/// when the program has no record. This is the node-authoritative identity a
+/// docker container must run as: it is what `register_vm_context` records and
+/// `get_vm_context` returns, so every identity-gated host call the container
+/// makes (secretGet / secretListGranted / dbOp namespacing) resolves to — and
+/// can read secrets granted to — the creature that actually owns the program.
+/// A guest can neither see nor influence it (it is read from chain state here,
+/// before the VM starts). Without this a cold-spawned docker creature (the agent
+/// backbone, a tool) would register an EMPTY creature id and could read nothing.
+fn resolve_program_owner(app: &Arc<dyn ICore>, program_id: &str) -> String {
+    let slot = Arc::new(Mutex::new(String::new()));
+    let slot_clone = slot.clone();
+    let id_owned = program_id.to_string();
+    app.modify_state(
+        true,
+        Box::new(move |trx: &dyn ITrx| {
+            let p = Program {
+                id: id_owned.clone(),
+                ..Default::default()
+            }
+            .pull(trx);
+            *slot_clone.lock().unwrap() = p.machine_id.clone();
+            Ok(())
+        }),
+    );
+    let owner = slot.lock().unwrap().clone();
+    owner
 }
 
 /// `isManagedRuntime` — runtimes whose VMs run inside the node process.
