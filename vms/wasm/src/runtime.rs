@@ -3,18 +3,15 @@
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
-use std::thread;
-use std::time::{Duration, Instant};
 
-use serde_json::{json, Value as JsonValue};
+use serde_json::Value as JsonValue;
 use wasmedge_sys::{
-    config::Config, AsInstance, Compiler, Executor, Function, ImportModule, Instance, Loader,
-    Statistics, Store, Validator, WasmValue,
+    config::Config, AsInstance, Compiler, Executor, Function, ImportModule, Loader, Statistics,
+    Store, Validator, WasmValue,
 };
 use wasmedge_types::ValType;
 
-use caspar_vm_sdk::host::{host, log, set_log_vm_context};
-use caspar_vm_sdk::util::{emit_vm_error, panic_message};
+use caspar_vm_sdk::host::{host, log};
 
 use crate::host_calls::host_call;
 use crate::models::Trx;
@@ -273,37 +270,22 @@ impl WasmMac {
         }
     }
 
-    /// Execute the deployed WASM module against `input` on a freshly-built
-    /// instance (cold path). Retained for the warm pool's fallback and any
-    /// one-shot caller; the warm pool reuses `prepare` + `run_in` directly.
-    pub fn execute_on_update(&mut self, input: String) -> Result<(), String> {
-        self.running_.store(true, Ordering::Relaxed);
-        struct RunningGuard(Arc<AtomicBool>);
-        impl Drop for RunningGuard {
-            fn drop(&mut self) {
-                self.0.store(false, Ordering::Relaxed);
-            }
-        }
-        let _running_guard = RunningGuard(Arc::clone(&self.running_));
-        let mut prepared = self.prepare()?;
-        self.run_in(&mut prepared, &input)
-    }
-
-    /// Build a ready-to-run instance: create the WasmEdge store/executor, wire
-    /// the `hostCall` import, load the module (a cached AOT artifact when
-    /// available), and run `_start` once. The returned [`Prepared`] owns every
-    /// handle so it can serve many `run_in` calls — `_start` (the TinyGo runtime
-    /// bring-up) is then paid once instead of per signal.
+    /// Execute the deployed WASM module against `input`.
     ///
-    /// SAFETY: `Prepared` holds raw pointers into `self` (`HostData.runtime`) and
-    /// into its own boxed `Executor`. The caller MUST keep `self` at a stable
-    /// address for the whole life of the `Prepared` — the warm actor boxes the
-    /// `WasmMac`, and the cold path drops both together at end of scope.
-    fn prepare(&mut self) -> Result<Prepared, String> {
+    /// Returns a structured error on any wasmedge failure instead of
+    /// panicking. The host-call data (`HostData`) is bound to a local so it
+    /// lives for the entire wasm execution — passing a `&mut` to a temporary
+    /// left wasmedge holding a dangling pointer once the statement ended and
+    /// caused intermittent segfaults during VM tear-down.
+    pub fn execute_on_update(&mut self, input: String) -> Result<(), String> {
         // Guard the FFI boundary: WasmEdge's `Loader::from_file` calls
         // `std::filesystem::absolute(path)` in C++, which THROWS on an empty
-        // path — a C++ throw cannot unwind across FFI and aborts the whole node
-        // (uncatchable by `catch_unwind`). Never hand WasmEdge an invalid path.
+        // path ("cannot make absolute path: Invalid argument"). A C++ throw
+        // cannot unwind across the FFI boundary, so it aborts the whole node
+        // process (`std::terminate`) — uncatchable by the controller's
+        // `catch_unwind`. We must therefore never hand WasmEdge an invalid
+        // module path: validate it here and surface a normal Result::Err (which
+        // the controller turns into a contained vmOutput error) instead.
         let mod_path = self.mod_path.trim().to_string();
         if mod_path.is_empty() {
             return Err(
@@ -316,12 +298,21 @@ impl WasmMac {
             return Err(format!("wasm module file not found: {}", mod_path));
         }
 
-        // Boxed so its address is stable while the instance's host function
-        // holds a raw pointer to it across reuse.
-        let mut host_data: Box<HostData> = Box::new(HostData {
+        self.running_.store(true, Ordering::Relaxed);
+        struct RunningGuard(Arc<AtomicBool>);
+        impl Drop for RunningGuard {
+            fn drop(&mut self) {
+                self.0.store(false, Ordering::Relaxed);
+            }
+        }
+        let _running_guard = RunningGuard(Arc::clone(&self.running_));
+
+        // Declare host_data BEFORE the executor / import module so it
+        // outlives every wasmedge handle that holds a raw pointer to it.
+        let mut host_data = HostData {
             exec: std::ptr::null_mut(),
             runtime: self as *mut WasmMac,
-        });
+        };
 
         let mut config = Config::create().map_err(|e| format!("wasm config: {}", e))?;
         config.measure_cost(true);
@@ -334,23 +325,20 @@ impl WasmMac {
         let wasi_mod = wasmedge_sys::WasiModule::create(None, None, None)
             .map_err(|e| format!("wasi module: {}", e))?;
 
-        // Boxed so `host_data.exec` (a raw pointer) stays valid across reuse.
-        let mut exec: Box<Executor> = Box::new(
-            Executor::create(Some(&config), Some(&stats))
-                .map_err(|e| format!("wasm executor: {}", e))?,
-        );
-        host_data.exec = &mut *exec as *mut Executor;
+        let mut exec = Executor::create(Some(&config), Some(&stats))
+            .map_err(|e| format!("wasm executor: {}", e))?;
+        // Now exec exists, finish wiring host_data.
+        host_data.exec = &mut exec as *mut Executor;
 
-        // The `env` import data is unused (a dummy) — the real host channel is
-        // `host_data`, passed to the hostCall function below.
-        let mut extern_mod = ImportModule::create("env", Box::new(0i32))
+        let mut dummy: i32 = 1;
+        let mut extern_mod = ImportModule::create("env", Box::new(&mut dummy))
             .map_err(|e| format!("env import module: {}", e))?;
 
         let host_func = unsafe {
             Function::create_sync_func(
                 &wasmedge_sys::FuncType::new(vec![ValType::I32, ValType::I32], vec![ValType::I64]),
                 host_call,
-                &mut *host_data,
+                &mut host_data,
                 1,
             )
             .map_err(|e| format!("hostCall create: {}", e))?
@@ -362,10 +350,11 @@ impl WasmMac {
         exec.register_import_module(&mut store, &extern_mod)
             .map_err(|e| format!("register env: {}", e))?;
 
-        // Prefer a cached AOT (native-code) artifact; fall back to the raw
-        // `.wasm` (validated) when AOT is unavailable. AOT artifacts were
-        // validated when compiled, so re-validating them is waste.
+        // Prefer a cached AOT (native-code) artifact for this module; fall back
+        // to the raw `.wasm` when AOT is unavailable. `is_aot` artifacts were
+        // validated when compiled, so re-validating them every signal is waste.
         let (load_path, is_aot) = resolve_module_artifact(&mod_path);
+
         let conf = Config::create().map_err(|e| format!("loader config: {}", e))?;
         let loader = Loader::create(Some(&conf)).map_err(|e| format!("loader: {}", e))?;
         let main_mod_raw = loader
@@ -378,439 +367,53 @@ impl WasmMac {
                 .map_err(|e| format!("validate {}: {}", load_path, e))?;
         }
 
-        let mut instance = exec
+        if self.stop_.load(Ordering::Relaxed) {
+            return Ok(());
+        }
+        let mut vm_instance = exec
             .register_active_module(&mut store, &main_mod_raw)
             .map_err(|e| format!("register active module: {}", e))?;
 
-        // One-time init: `_start` = TinyGo runtime bring-up (`main` is empty in
-        // the endpoint ABI). The AST module can be dropped right after
-        // instantiation — WasmEdge copies what it needs into the store.
-        {
-            let mut start = instance
-                .get_func_mut("_start")
-                .map_err(|e| format!("missing _start export: {}", e))?;
-            exec.call_func(&mut start, [])
-                .map_err(|e| format!("_start call: {}", e))?;
-        }
+        let mut binding = vm_instance
+            .get_func_mut("_start")
+            .map_err(|e| format!("missing _start export: {}", e))?;
+        exec.call_func(&mut binding, [])
+            .map_err(|e| format!("_start call: {}", e))?;
 
-        Ok(Prepared {
-            _config: config,
-            _stats: stats,
-            _store: store,
-            _wasi: wasi_mod,
-            _module: main_mod_raw,
-            _extern: extern_mod,
-            exec,
-            _host_data: host_data,
-            instance,
-        })
-    }
-
-    /// Run one request against an already-`prepare`d instance: copy `input` into
-    /// guest memory via `malloc` and invoke the exported `run`. Cheap relative to
-    /// `prepare` — no load/validate/instantiate/`_start`.
-    fn run_in(&mut self, p: &mut Prepared, input: &str) -> Result<(), String> {
-        if self.stop_.load(Ordering::Relaxed) {
-            return Ok(());
-        }
         let val_l = input.len() as i32;
-        let val_offset = {
-            let mut malloc_fn = p
-                .instance
-                .get_func_mut("malloc")
-                .map_err(|e| format!("missing malloc export: {}", e))?;
-            let res2 = p
-                .exec
-                .call_func(&mut malloc_fn, [WasmValue::from_i32(val_l)])
-                .map_err(|e| format!("malloc call: {}", e))?;
-            res2.get(0)
-                .map(|v| v.to_i32())
-                .ok_or_else(|| "malloc returned no value".to_string())?
-        };
+        let mut malloc_fn = vm_instance
+            .get_func_mut("malloc")
+            .map_err(|e| format!("missing malloc export: {}", e))?;
+        let res2 = exec
+            .call_func(&mut malloc_fn, [WasmValue::from_i32(val_l)])
+            .map_err(|e| format!("malloc call: {}", e))?;
+        let val_offset = res2
+            .get(0)
+            .map(|v| v.to_i32())
+            .ok_or_else(|| "malloc returned no value".to_string())?;
 
-        {
-            let arr: Vec<u8> = input.as_bytes().to_vec();
-            let mut mem = p
-                .instance
-                .get_memory_mut("memory")
-                .map_err(|e| format!("get memory: {}", e))?;
-            mem.set_data(arr, val_offset.cast_unsigned())
-                .map_err(|e| format!("set_data: {}", e))?;
-        }
+        let arr: Vec<u8> = input.as_bytes().to_vec();
+        let mut mem = vm_instance
+            .get_memory_mut("memory")
+            .map_err(|e| format!("get memory: {}", e))?;
+        mem.set_data(arr, val_offset.cast_unsigned())
+            .map_err(|e| format!("set_data: {}", e))?;
 
         let c = ((val_offset as i64) << 32) | (val_l as i64);
+
         if self.stop_.load(Ordering::Relaxed) {
             return Ok(());
         }
-        let mut run_fn = p
-            .instance
+
+        let mut run_fn = vm_instance
             .get_func_mut("run")
             .map_err(|e| format!("missing run export: {}", e))?;
-        p.exec
-            .call_func(&mut run_fn, [WasmValue::from_i64(c)])
+        exec.call_func(&mut run_fn, [WasmValue::from_i64(c)])
             .map_err(|e| format!("run call: {}", e))?;
         Ok(())
     }
 
-    /// Reset per-signal state so a warm instance serves the next request with no
-    /// bleed from the previous one.
-    fn reset_for_job(&mut self, store_id: String) {
-        self.trx = Box::new(Trx::new());
-        self.vm_trx_open = false;
-        self.store_id = store_id;
-        self.execution_result.clear();
-        self.has_output = false;
-        self.stop_.store(false, Ordering::Relaxed);
-    }
-
     pub fn stop(&mut self) {
         self.stop_.store(true, Ordering::Relaxed);
-    }
-}
-
-/// A ready-to-run WasmEdge instance whose one-time `_start` init already ran.
-/// Owns every handle for the instance's whole life; the boxed `Executor` and
-/// `HostData` keep the raw pointers inside the instance's host function valid
-/// across reuse. Fields prefixed `_` are kept alive but never read directly.
-///
-/// Field order is the teardown order (Rust drops fields top-to-bottom) and
-/// mirrors the original cold path's reverse-declaration drop sequence: the
-/// active `instance` is dropped before the `store` and imports it was built
-/// from, and `_host_data` drops last — after `_extern`, whose host function
-/// holds a raw pointer into it.
-#[allow(dead_code)] // most fields are held only to keep the instance's handles alive
-pub(crate) struct Prepared {
-    instance: Instance,
-    // `ImportModule::create("env", Box::new(0i32))` fixes the data type to i32.
-    _extern: ImportModule<i32>,
-    exec: Box<Executor>,
-    _wasi: wasmedge_sys::WasiModule,
-    // The loaded AST module (an `Arc<Module>`, WasmEdge's shared handle) is kept
-    // alive for the instance's whole life — the cold path did the same by keeping
-    // the local in scope — and dropped after the instance, before the store.
-    _module: std::sync::Arc<wasmedge_sys::Module>,
-    _store: Store,
-    _stats: Statistics,
-    _config: Config,
-    _host_data: Box<HostData>,
-}
-
-// ── Warm instance pool ───────────────────────────────────────────────────────
-//
-// Rather than build a fresh WasmEdge instance (and re-run the TinyGo `_start`
-// init) for every signal, keep one warm instance per machine on its own actor
-// thread and feed it signals over a channel. WasmEdge handles are !Send, so the
-// instance never leaves its owning thread; per-machine execution is therefore
-// serialized — which is exactly what the shared `vm_id="main"` JSON transaction
-// already assumes, so this is strictly safer than the old fan-out. An instance
-// is recycled after `WARM_MAX_RUNS` (bounds guest memory growth), on any run
-// error/panic, and after `WARM_IDLE_SECS` of inactivity. Any failure to build
-// falls back to the cold path, so behaviour can never be worse than before.
-
-const WARM_MAX_RUNS: u64 = 500;
-const WARM_IDLE_SECS: u64 = 120;
-const WARM_POLL_SECS: u64 = 15;
-
-struct WarmJob {
-    input: String,
-    vm_id: String,
-    ast_path: String,
-    ram_mb: u64,
-    max_exec_secs: u64,
-}
-
-struct WarmActor {
-    tx: std::sync::mpsc::Sender<WarmJob>,
-    stop: Arc<AtomicBool>,
-}
-
-fn warm_pool() -> &'static Mutex<HashMap<String, WarmActor>> {
-    static CELL: OnceLock<Mutex<HashMap<String, WarmActor>>> = OnceLock::new();
-    CELL.get_or_init(|| Mutex::new(HashMap::new()))
-}
-
-/// Route a signal to the machine's warm actor, spawning one on first use.
-/// Returns immediately; the VM's response is delivered by `finalize` (the
-/// vmOutput packet) exactly as the old per-signal thread did.
-pub fn warm_submit(
-    machine_id: &str,
-    vm_id: &str,
-    ast_path: &str,
-    input: String,
-    ram_mb: u64,
-    max_exec_secs: u64,
-) {
-    let mut job = WarmJob {
-        input,
-        vm_id: vm_id.to_string(),
-        ast_path: ast_path.to_string(),
-        ram_mb,
-        max_exec_secs,
-    };
-    let mut pool = warm_pool().lock().unwrap();
-    // Clone the handle so the borrow on `pool` ends before we may `remove`.
-    let existing = pool.get(machine_id).map(|a| (a.tx.clone(), a.stop.clone()));
-    if let Some((tx, stop)) = existing {
-        if !stop.load(Ordering::Relaxed) {
-            match tx.send(job) {
-                Ok(()) => return,
-                Err(e) => job = e.0, // actor gone — recover the job and respawn
-            }
-        }
-        pool.remove(machine_id);
-    }
-
-    // Spawn a fresh actor for this machine.
-    let (tx, rx) = std::sync::mpsc::channel::<WarmJob>();
-    let stop = Arc::new(AtomicBool::new(false));
-    let running = Arc::new(AtomicBool::new(false));
-    // Register in the shared VM table so terminate_managed_vm can stop us.
-    global_managed_vms().lock().unwrap().insert(
-        machine_id.to_string(),
-        ManagedVmHandle {
-            stop: stop.clone(),
-            running: running.clone(),
-        },
-    );
-    pool.insert(
-        machine_id.to_string(),
-        WarmActor {
-            tx: tx.clone(),
-            stop: stop.clone(),
-        },
-    );
-    let mid = machine_id.to_string();
-    thread::spawn(move || warm_actor_loop(mid, rx, stop, running));
-    let _ = tx.send(job);
-}
-
-fn warm_actor_loop(
-    machine_id: String,
-    rx: std::sync::mpsc::Receiver<WarmJob>,
-    stop: Arc<AtomicBool>,
-    running: Arc<AtomicBool>,
-) {
-    use std::sync::mpsc::RecvTimeoutError;
-    let mut warm: Option<(Box<WasmMac>, Prepared)> = None;
-    let mut current_ast = String::new();
-    let mut runs: u64 = 0;
-    let mut idle_since = Instant::now();
-
-    loop {
-        if stop.load(Ordering::Relaxed) {
-            break;
-        }
-        let job = match rx.recv_timeout(Duration::from_secs(WARM_POLL_SECS)) {
-            Ok(j) => j,
-            Err(RecvTimeoutError::Timeout) => {
-                // Free the warm instance after inactivity, but keep the actor
-                // alive and registered — self-removal here would race a
-                // concurrent submit and drop its job. The actor only exits on
-                // terminate (stop) or when its channel is fully disconnected.
-                if warm.is_some() && idle_since.elapsed() >= Duration::from_secs(WARM_IDLE_SECS) {
-                    warm = None;
-                }
-                continue;
-            }
-            Err(RecvTimeoutError::Disconnected) => break,
-        };
-        if stop.load(Ordering::Relaxed) {
-            break;
-        }
-        idle_since = Instant::now();
-        running.store(true, Ordering::Relaxed);
-        set_log_vm_context(&job.vm_id);
-
-        let store_id = serde_json::from_str::<JsonValue>(&job.input)
-            .ok()
-            .and_then(|v| {
-                v.get("store")
-                    .and_then(|s| s.get("id"))
-                    .and_then(|x| x.as_str())
-                    .map(|s| s.to_string())
-            })
-            .unwrap_or_default();
-
-        let need_build = match &warm {
-            None => true,
-            Some(_) => current_ast != job.ast_path || runs >= WARM_MAX_RUNS,
-        };
-        if need_build {
-            warm = None; // drop the previous instance first (frees its memory)
-            runs = 0;
-            let mut mac = Box::new(WasmMac::new_vm(
-                machine_id.clone(),
-                job.vm_id.clone(),
-                store_id.clone(),
-                job.ast_path.clone(),
-                job.ram_mb,
-                make_host_callback(),
-            ));
-            let built = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| mac.prepare()));
-            match built {
-                Ok(Ok(prepared)) => {
-                    current_ast = job.ast_path.clone();
-                    warm = Some((mac, prepared));
-                }
-                Ok(Err(e)) => {
-                    log(format!(
-                        "wasm warm build failed (machine={}, {}); falling back to cold run",
-                        machine_id, e
-                    ));
-                    run_cold(&machine_id, &job, &store_id);
-                    running.store(false, Ordering::Relaxed);
-                    continue;
-                }
-                Err(pay) => {
-                    log(format!(
-                        "wasm warm build panicked (machine={}, {}); falling back to cold run",
-                        machine_id,
-                        panic_message(&pay)
-                    ));
-                    run_cold(&machine_id, &job, &store_id);
-                    running.store(false, Ordering::Relaxed);
-                    continue;
-                }
-            }
-        }
-
-        // Run one job against the warm instance.
-        let ran = {
-            let entry = warm.as_mut().unwrap();
-            let mac = &mut entry.0;
-            let prepared = &mut entry.1;
-            mac.reset_for_job(store_id);
-
-            // Per-job watchdog: cooperatively abort THIS run on timeout or on a
-            // terminate request, without killing the instance for other jobs.
-            let done = Arc::new(AtomicBool::new(false));
-            {
-                let done = done.clone();
-                let mac_stop = mac.stop_flag();
-                let actor_stop = stop.clone();
-                let secs = job.max_exec_secs;
-                thread::spawn(move || {
-                    let deadline = Instant::now() + Duration::from_secs(secs);
-                    while !done.load(Ordering::Relaxed) {
-                        if actor_stop.load(Ordering::Relaxed) || Instant::now() >= deadline {
-                            mac_stop.store(true, Ordering::Relaxed);
-                            return;
-                        }
-                        thread::sleep(Duration::from_millis(50));
-                    }
-                });
-            }
-
-            let out = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                let r = mac.run_in(prepared, &job.input);
-                mac.finalize();
-                r
-            }));
-            done.store(true, Ordering::Relaxed);
-            out
-        };
-        running.store(false, Ordering::Relaxed);
-
-        match ran {
-            Ok(Ok(())) => runs += 1,
-            Ok(Err(e)) => {
-                log(format!("wasm warm vm error (machine={}): {}", machine_id, e));
-                emit_vm_error(&machine_id, &job.vm_id, "wasm", &e);
-                warm = None; // recycle after an error
-            }
-            Err(pay) => {
-                let msg = panic_message(&pay);
-                log(format!(
-                    "wasm warm vm panicked (machine={}): {}",
-                    machine_id, msg
-                ));
-                emit_vm_error(&machine_id, &job.vm_id, "wasm", &format!("panic: {}", msg));
-                warm = None; // recycle after a panic
-            }
-        }
-    }
-
-    warm = None; // drop the instance before we deregister
-    let _ = warm;
-    // Deregister only if the registries still point at THIS actor. A terminate
-    // followed by a new signal can replace our entry with a fresh actor's before
-    // we get here; identity via `Arc::ptr_eq` on our own `stop` prevents us from
-    // clobbering that successor (which would leave a duplicate, unregistered VM).
-    {
-        let mut pool = warm_pool().lock().unwrap();
-        if pool
-            .get(&machine_id)
-            .map(|a| Arc::ptr_eq(&a.stop, &stop))
-            .unwrap_or(false)
-        {
-            pool.remove(&machine_id);
-        }
-    }
-    {
-        let mut managed = global_managed_vms().lock().unwrap();
-        if managed
-            .get(&machine_id)
-            .map(|h| Arc::ptr_eq(&h.stop, &stop))
-            .unwrap_or(false)
-        {
-            managed.remove(&machine_id);
-        }
-    }
-}
-
-/// The stateless host dispatch callback every wasm VM uses (reads the global
-/// `host()` each call, so it carries no per-VM state and is safe to reuse).
-fn make_host_callback() -> Box<dyn (Fn(JsonValue) -> String) + Send + Sync> {
-    Box::new(|packet: JsonValue| match host() {
-        Some(h) => h.dispatch(&packet),
-        None => json!({"ok": false, "error": "caspar vm host is not initialised"}).to_string(),
-    })
-}
-
-/// One-shot cold execution — the previous per-signal behaviour, used only as the
-/// warm pool's fallback when an instance cannot be built. Runs synchronously on
-/// the actor thread (the fallback is rare).
-fn run_cold(machine_id: &str, job: &WarmJob, store_id: &str) {
-    let mut rt = WasmMac::new_vm(
-        machine_id.to_string(),
-        job.vm_id.clone(),
-        store_id.to_string(),
-        job.ast_path.clone(),
-        job.ram_mb,
-        make_host_callback(),
-    );
-    let stop_flag = rt.stop_flag();
-    let secs = job.max_exec_secs;
-    let tm = machine_id.to_string();
-    let tv = job.vm_id.clone();
-    thread::spawn(move || {
-        thread::sleep(Duration::from_secs(secs));
-        if !stop_flag.load(Ordering::Relaxed) {
-            stop_flag.store(true, Ordering::Relaxed);
-            log(format!(
-                "wasm vm timeout reached: machine={} vm={} limit={}s",
-                tm, tv, secs
-            ));
-        }
-    });
-    let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let r = rt.execute_on_update(job.input.clone());
-        rt.finalize();
-        r
-    }));
-    match ran {
-        Ok(Ok(())) => {}
-        Ok(Err(e)) => {
-            log(format!("wasm vm error: machine={} err={}", machine_id, e));
-            emit_vm_error(machine_id, &job.vm_id, "wasm", &e);
-        }
-        Err(pay) => {
-            let msg = panic_message(&pay);
-            log(format!(
-                "wasm vm panicked: machine={} panic={}",
-                machine_id, msg
-            ));
-            emit_vm_error(machine_id, &job.vm_id, "wasm", &format!("panic: {}", msg));
-        }
     }
 }
