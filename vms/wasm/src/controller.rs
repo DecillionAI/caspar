@@ -3,17 +3,15 @@
 
 use std::path::Path;
 use std::process::Command;
-use std::sync::atomic::Ordering;
 use std::thread;
-use std::time::Duration;
 
 use serde_json::{json, Value as JsonValue};
 
-use caspar_vm_sdk::host::{host, log, set_log_vm_context};
-use caspar_vm_sdk::util::{emit_vm_error, panic_message, parse_vm_resource_limits};
+use caspar_vm_sdk::host::host;
+use caspar_vm_sdk::util::parse_vm_resource_limits;
 use caspar_vm_sdk::{VmPlugin, VmPluginMeta};
 
-use crate::runtime::{global_managed_vms, terminate_managed_vm, ManagedVmHandle, WasmMac};
+use crate::runtime::terminate_managed_vm;
 
 pub struct WasmVmController {
     meta: VmPluginMeta,
@@ -51,88 +49,21 @@ impl VmPlugin for WasmVmController {
         let vm_id = packet["vmId"].as_str().unwrap_or("main").to_string();
         let limits = parse_vm_resource_limits(packet);
 
-        let spawn_machine = machine_id.clone();
-        let spawn_vm = vm_id.clone();
-        thread::spawn(move || {
-            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                set_log_vm_context(&vm_id);
-                let inp1 = input.clone();
-                let input_json: JsonValue =
-                    serde_json::from_str(&inp1).unwrap_or_else(|_| json!({}));
-                let store_id = input_json
-                    .get("store")
-                    .and_then(|x| x.get("id"))
-                    .and_then(|x| x.as_str())
-                    .unwrap_or("")
-                    .to_string();
-
-                let mut rt = WasmMac::new_vm(
-                    machine_id.clone(),
-                    vm_id.clone(),
-                    store_id,
-                    ast_path.clone(),
-                    limits.ram_mb,
-                    Box::new(|packet: JsonValue| match host() {
-                        Some(h) => h.dispatch(&packet),
-                        None => json!({"ok": false, "error": "caspar vm host is not initialised"})
-                            .to_string(),
-                    }),
-                );
-                {
-                    let mut map = global_managed_vms().lock().unwrap();
-                    map.insert(
-                        machine_id.clone(),
-                        ManagedVmHandle {
-                            stop: rt.stop_flag(),
-                            running: rt.running_flag(),
-                        },
-                    );
-                }
-                let stop_flag = rt.stop_flag();
-                let timeout_machine = machine_id.clone();
-                let timeout_vm = vm_id.clone();
-                thread::spawn(move || {
-                    thread::sleep(Duration::from_secs(limits.max_exec_time_secs));
-                    if !stop_flag.load(Ordering::Relaxed) {
-                        stop_flag.store(true, Ordering::Relaxed);
-                        log(format!(
-                            "wasm vm timeout reached: machine={} vm={} limit={}s",
-                            timeout_machine, timeout_vm, limits.max_exec_time_secs
-                        ));
-                    }
-                });
-                let exec_res = rt.execute_on_update(inp1);
-                rt.finalize();
-                exec_res
-            }));
-
-            match result {
-                Ok(Ok(())) => {}
-                Ok(Err(err)) => {
-                    log(format!(
-                        "wasm vm error: machine={} vm={} err={}",
-                        spawn_machine, spawn_vm, err
-                    ));
-                    emit_vm_error(&spawn_machine, &spawn_vm, "wasm", &err);
-                }
-                Err(panic_payload) => {
-                    let msg = panic_message(&panic_payload);
-                    log(format!(
-                        "wasm vm panicked: machine={} vm={} panic={}",
-                        spawn_machine, spawn_vm, msg
-                    ));
-                    emit_vm_error(
-                        &spawn_machine,
-                        &spawn_vm,
-                        "wasm",
-                        &format!("panic: {}", msg),
-                    );
-                }
-            }
-
-            let mut map = global_managed_vms().lock().unwrap();
-            map.remove(&spawn_machine);
-        });
+        // Route the signal to this machine's warm VM (one persistent, reused
+        // instance per machine, on its own actor thread). The call returns
+        // immediately; the VM's response is delivered by its `finalize` vmOutput
+        // packet, exactly as the previous per-signal thread did. The warm actor
+        // parses `store_id` from the input, applies the per-job timeout, contains
+        // panics/errors, honours terminate, and falls back to a cold one-shot run
+        // if a warm instance cannot be built.
+        crate::runtime::warm_submit(
+            &machine_id,
+            &vm_id,
+            &ast_path,
+            input,
+            limits.ram_mb,
+            limits.max_exec_time_secs,
+        );
 
         Ok(json!({
             "ok": true,
