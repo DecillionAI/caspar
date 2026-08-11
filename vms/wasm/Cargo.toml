@@ -26,5 +26,10 @@ wat = "1.0"
 [dependencies]
 caspar-vm-sdk = { path = "../../vm-sdk" }
 serde_json = "1"
-wasmedge-sys = { workspace = true }
+# `aot` pulls in WasmEdge's ahead-of-time compiler bindings so the runtime can
+# compile each deployed module to native code once and cache it (see
+# runtime.rs). The bindings link against the same libwasmedge already used, and
+# every AOT failure falls back to the interpreter, so a WasmEdge built without
+# LLVM keeps working unchanged.
+wasmedge-sys = { workspace = true, features = ["aot"] }
 wasmedge-types = { workspace = true }

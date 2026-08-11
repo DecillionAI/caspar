@@ -6,8 +6,8 @@ use std::sync::{Arc, Mutex, OnceLock};
 
 use serde_json::Value as JsonValue;
 use wasmedge_sys::{
-    config::Config, AsInstance, Executor, Function, ImportModule, Loader, Statistics, Store,
-    Validator, WasmValue,
+    config::Config, AsInstance, Compiler, Executor, Function, ImportModule, Loader, Statistics,
+    Store, Validator, WasmValue,
 };
 use wasmedge_types::ValType;
 
@@ -44,6 +44,138 @@ pub fn terminate_managed_vm(machine_id: &str) {
                 "terminate requested for running vm: {} (cooperative stop signaled)",
                 machine_id
             ));
+        }
+    }
+}
+
+// ── AOT module cache ─────────────────────────────────────────────────────────
+//
+// Every signal used to load the raw `.wasm` off disk, re-validate the whole
+// module, and run it in the interpreter — paid in full on each call. Instead we
+// compile each deployed module to a WasmEdge *universal wasm* (native code in a
+// custom section) exactly once, cache it on disk next to the source keyed by the
+// source's mtime, and load that afterwards. The universal wasm loads through the
+// ordinary `Loader::from_file` path and exposes the identical exports, so nothing
+// else in `execute_on_update` changes; it just runs as native code and skips
+// re-validation. Any failure (a WasmEdge built without LLVM, a read-only cache
+// dir, a compiler panic) latches AOT off and falls back to the interpreter, so
+// behaviour degrades to exactly what it was before.
+
+/// Latched once an AOT compile fails, so a host that cannot compile never pays a
+/// doomed compile again and quietly stays on the interpreter path.
+fn aot_unavailable() -> &'static AtomicBool {
+    static CELL: OnceLock<AtomicBool> = OnceLock::new();
+    CELL.get_or_init(|| AtomicBool::new(false))
+}
+
+/// Per-module compile lock so concurrent signals to a cold module compile it
+/// once instead of racing to write the same cache file.
+fn aot_locks() -> &'static Mutex<HashMap<String, Arc<Mutex<()>>>> {
+    static CELL: OnceLock<Mutex<HashMap<String, Arc<Mutex<()>>>>> = OnceLock::new();
+    CELL.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// AOT is on unless `CASPAR_WASM_AOT` is explicitly a falsey value.
+fn aot_enabled() -> bool {
+    match std::env::var("CASPAR_WASM_AOT") {
+        Ok(v) => {
+            let v = v.trim().to_ascii_lowercase();
+            !(v == "0" || v == "false" || v == "off" || v == "no")
+        }
+        Err(_) => true,
+    }
+}
+
+fn file_mtime(path: &str) -> Option<std::time::SystemTime> {
+    std::fs::metadata(path).and_then(|m| m.modified()).ok()
+}
+
+/// Resolve the module file to actually load: a fresh cached AOT artifact when one
+/// is available (`(path, true)`), otherwise the original `.wasm` (`(path, false)`,
+/// which the caller still validates).
+fn resolve_module_artifact(mod_path: &str) -> (String, bool) {
+    if !aot_enabled() || aot_unavailable().load(Ordering::Relaxed) {
+        return (mod_path.to_string(), false);
+    }
+    let src_mtime = match file_mtime(mod_path) {
+        Some(t) => t,
+        None => return (mod_path.to_string(), false),
+    };
+    let cache_path = format!("{}.aot", mod_path);
+    // Fast path: a cache at least as new as the source already exists.
+    if let Some(cache_mtime) = file_mtime(&cache_path) {
+        if cache_mtime >= src_mtime {
+            return (cache_path, true);
+        }
+    }
+    // Serialize compilation of this specific module across concurrent signals.
+    let lock = {
+        let mut map = aot_locks().lock().unwrap();
+        map.entry(mod_path.to_string())
+            .or_insert_with(|| Arc::new(Mutex::new(())))
+            .clone()
+    };
+    let _guard = lock.lock().unwrap();
+    // Re-check under the lock — another thread may have just built it, or another
+    // module may have latched AOT off while we waited.
+    if let Some(cache_mtime) = file_mtime(&cache_path) {
+        if cache_mtime >= src_mtime {
+            return (cache_path, true);
+        }
+    }
+    if aot_unavailable().load(Ordering::Relaxed) {
+        return (mod_path.to_string(), false);
+    }
+    match compile_aot(mod_path, &cache_path) {
+        Ok(()) => {
+            log(format!("wasm AOT compiled: {} -> {}", mod_path, cache_path));
+            (cache_path, true)
+        }
+        Err(e) => {
+            aot_unavailable().store(true, Ordering::Relaxed);
+            log(format!(
+                "wasm AOT unavailable ({}); using interpreter for {} and later modules",
+                e, mod_path
+            ));
+            (mod_path.to_string(), false)
+        }
+    }
+}
+
+/// Compile `src` (`.wasm`) to a cached universal-wasm at `dst`, atomically. The
+/// WasmEdge FFI is wrapped in `catch_unwind` so a host without an AOT-capable
+/// WasmEdge reports a normal error (→ interpreter fallback) instead of aborting.
+fn compile_aot(src: &str, dst: &str) -> Result<(), String> {
+    // Compile to a temp file then rename, so a crash mid-compile never leaves a
+    // half-written artifact a later signal would try to load.
+    let tmp = format!("{}.tmp.{}", dst, std::process::id());
+    let src_owned = src.to_string();
+    let tmp_for_compile = tmp.clone();
+    let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| -> Result<(), String> {
+        // `Wasm` output format = universal wasm (native code in a custom section),
+        // so the artifact loads through the normal Loader path and stays portable
+        // to a plain interpreter if ever copied to a non-AOT host.
+        let mut config = Config::create().map_err(|e| format!("aot config: {}", e))?;
+        config.set_aot_compiler_output_format(wasmedge_types::CompilerOutputFormat::Wasm);
+        let compiler =
+            Compiler::create(Some(&config)).map_err(|e| format!("aot create: {}", e))?;
+        compiler
+            .compile_from_file(&src_owned, &tmp_for_compile)
+            .map_err(|e| format!("aot compile: {}", e))?;
+        Ok(())
+    }));
+    let compiled = match res {
+        Ok(inner) => inner,
+        Err(_) => Err("aot compiler panicked".to_string()),
+    };
+    match compiled {
+        Ok(()) => std::fs::rename(&tmp, dst).map_err(|e| {
+            let _ = std::fs::remove_file(&tmp);
+            format!("aot cache rename: {}", e)
+        }),
+        Err(e) => {
+            let _ = std::fs::remove_file(&tmp);
+            Err(e)
         }
     }
 }
@@ -218,15 +350,22 @@ impl WasmMac {
         exec.register_import_module(&mut store, &extern_mod)
             .map_err(|e| format!("register env: {}", e))?;
 
+        // Prefer a cached AOT (native-code) artifact for this module; fall back
+        // to the raw `.wasm` when AOT is unavailable. `is_aot` artifacts were
+        // validated when compiled, so re-validating them every signal is waste.
+        let (load_path, is_aot) = resolve_module_artifact(&mod_path);
+
         let conf = Config::create().map_err(|e| format!("loader config: {}", e))?;
         let loader = Loader::create(Some(&conf)).map_err(|e| format!("loader: {}", e))?;
         let main_mod_raw = loader
-            .from_file(mod_path.clone())
-            .map_err(|e| format!("load {}: {}", mod_path, e))?;
-        let conf2 = Config::create().map_err(|e| format!("validator config: {}", e))?;
-        let v = Validator::create(Some(&conf2)).map_err(|e| format!("validator: {}", e))?;
-        v.validate(&main_mod_raw)
-            .map_err(|e| format!("validate {}: {}", mod_path, e))?;
+            .from_file(&load_path)
+            .map_err(|e| format!("load {}: {}", load_path, e))?;
+        if !is_aot {
+            let conf2 = Config::create().map_err(|e| format!("validator config: {}", e))?;
+            let v = Validator::create(Some(&conf2)).map_err(|e| format!("validator: {}", e))?;
+            v.validate(&main_mod_raw)
+                .map_err(|e| format!("validate {}: {}", load_path, e))?;
+        }
 
         if self.stop_.load(Ordering::Relaxed) {
             return Ok(());
