@@ -481,13 +481,14 @@ impl WasmMac {
 #[allow(dead_code)] // most fields are held only to keep the instance's handles alive
 pub(crate) struct Prepared {
     instance: Instance,
-    _extern: ImportModule,
+    // `ImportModule::create("env", Box::new(0i32))` fixes the data type to i32.
+    _extern: ImportModule<i32>,
     exec: Box<Executor>,
     _wasi: wasmedge_sys::WasiModule,
-    // The loaded AST module is kept alive for the instance's whole life (the
-    // cold path did the same by keeping the local in scope), and dropped after
-    // the instance, before the store.
-    _module: wasmedge_sys::Module,
+    // The loaded AST module (an `Arc<Module>`, WasmEdge's shared handle) is kept
+    // alive for the instance's whole life — the cold path did the same by keeping
+    // the local in scope — and dropped after the instance, before the store.
+    _module: std::sync::Arc<wasmedge_sys::Module>,
     _store: Store,
     _stats: Statistics,
     _config: Config,

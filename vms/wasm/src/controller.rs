@@ -3,7 +3,6 @@
 
 use std::path::Path;
 use std::process::Command;
-use std::thread;
 
 use serde_json::{json, Value as JsonValue};
 
