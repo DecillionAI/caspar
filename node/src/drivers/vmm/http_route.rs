@@ -27,6 +27,13 @@ pub const ROUTE_LINK_NS: &str = "vmHttpRoute";
 /// that changes (or clears) the path can drop the stale route first.
 pub const ROUTE_REV_LINK_NS: &str = "vmHttpRouteFor";
 
+/// Alias prefix: `vmHttpRouteUser::<usernameLocalPart>` → `<creatureId>`. Lets a
+/// request address the creature by the bare local part of its username (the part
+/// before `@<source>`), e.g. `/m-tool-github/…` instead of the full
+/// `/name@http://host:port/…` (which cannot go in a URL path) or the numeric id.
+/// Written when a route is registered, so resolution stays a single link read.
+pub const ROUTE_ALIAS_LINK_NS: &str = "vmHttpRouteUser";
+
 /// Maximum number of path segments a custom route prefix may span. Requests are
 /// matched longest-prefix-first over at most this many leading segments, so the
 /// per-request work is bounded regardless of the request path length.
@@ -51,6 +58,17 @@ pub fn route_link_key(creature_id: &str, path: &str) -> String {
 /// The reverse pointer link key for an entity's currently registered route.
 pub fn route_rev_link_key(program_id: &str, entity_id: &str) -> String {
     format!("{}::{}::{}", ROUTE_REV_LINK_NS, program_id, entity_id)
+}
+
+/// The alias link key mapping a username's bare local part to a creature id.
+pub fn route_alias_link_key(local_part: &str) -> String {
+    format!("{}::{}", ROUTE_ALIAS_LINK_NS, local_part)
+}
+
+/// The local part of a creature username (`name@source` → `name`). Returns the
+/// whole string when there is no `@`.
+pub fn username_local_part(username: &str) -> &str {
+    username.split('@').next().unwrap_or(username)
 }
 
 /// Encode a route target as the value stored under [`route_link_key`].
