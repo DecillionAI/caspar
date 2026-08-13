@@ -28,7 +28,7 @@ use crate::models::ports::vmm::IVmm;
 use crate::models::core::ICore;
 use crate::models::transaction::ITrx;
 use crate::models::worker::Trx as WorkerTrx;
-use crate::shell::api::model::{Creature, Program, Store};
+use crate::shell::api::model::{Creature, Entity, Program, Store};
 use crate::shell::api::packets::stores;
 
 /// Default appengine REP socket exposed *by* the node (the engine connects
@@ -202,6 +202,23 @@ impl Vmm {
                     *type_clone.lock().unwrap() = vm.runtime.trim().to_lowercase();
                 }
                 if !entity_id_owned.is_empty() {
+                    // Runtimes that record no `vmEntityType` link on deploy
+                    // (docker: setEntityLinksOnDeploy=false) carry their type only
+                    // on the Entity record. When the program itself names no
+                    // runtime, fall back to it so callers that resolve by
+                    // (program, entity) — forward_http, cold spawn — pick the
+                    // right plugin instead of the default.
+                    if vm.runtime.is_empty() {
+                        let ent = Entity {
+                            program_id: machine_id_owned.clone(),
+                            entity_id: entity_id_owned.clone(),
+                            ..Default::default()
+                        }
+                        .pull(trx);
+                        if !ent.entity_type.is_empty() {
+                            *type_clone.lock().unwrap() = ent.entity_type.trim().to_lowercase();
+                        }
+                    }
                     let runtime_link = trx.get_link(&format!(
                         "vmEntityType::{}::{}",
                         machine_id_owned, entity_id_owned
@@ -1002,6 +1019,20 @@ fn resolve_vm_execution_target_inner(
                 *type_clone.lock().unwrap() = vm.runtime.trim().to_lowercase();
             }
             if !entity_id_owned.is_empty() {
+                // Fall back to the Entity record's type for runtimes that record
+                // no vmEntityType link on deploy (docker), so resolution by
+                // (program, entity) picks the right plugin — see the Vmm method.
+                if vm.runtime.is_empty() {
+                    let ent = Entity {
+                        program_id: machine_id_owned.clone(),
+                        entity_id: entity_id_owned.clone(),
+                        ..Default::default()
+                    }
+                    .pull(trx);
+                    if !ent.entity_type.is_empty() {
+                        *type_clone.lock().unwrap() = ent.entity_type.trim().to_lowercase();
+                    }
+                }
                 let runtime_link = trx.get_link(&format!(
                     "vmEntityType::{}::{}",
                     machine_id_owned, entity_id_owned
