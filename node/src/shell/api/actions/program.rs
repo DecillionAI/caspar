@@ -666,6 +666,7 @@ fn run_program_entity(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
                     &input.entity_id,
                     &gateway_path,
                     &vm_id,
+                    &entity_type,
                 );
             }
             // Tag VMs of cluster-distributed programs so their state commits
@@ -1005,6 +1006,7 @@ pub(crate) fn register_gateway_route(
     entity_id: &str,
     gateway_path: &str,
     gateway_vm_id: &str,
+    runtime: &str,
 ) {
     use crate::drivers::vmm::http_route;
 
@@ -1029,7 +1031,7 @@ pub(crate) fn register_gateway_route(
     }
     trx.put_link(
         &http_route::route_link_key(creature_id, gateway_path),
-        &http_route::encode_target(program_id, entity_id, gateway_vm_id),
+        &http_route::encode_target(program_id, entity_id, gateway_vm_id, runtime),
     );
     trx.put_link(&rev_key, &format!("{}::{}", creature_id, gateway_path));
     // Alias the bare local part of the owning creature's username → its id, so a
@@ -1237,6 +1239,7 @@ fn deploy(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
                 &input.entity_id,
                 &gateway_path,
                 &gateway_vm_id,
+                &entity_type,
             );
             if input.downloadable {
                 // Downloadable entities (front-end scripts executed on the

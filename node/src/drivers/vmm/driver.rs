@@ -810,7 +810,17 @@ impl IVmm for Vmm {
         // resolver (the same one the signal listener and runVm use), then hand
         // the packet router a `forwardHttp` packet shaped exactly like a runVm
         // packet so it resolves the responsible plugin identically.
-        let (ast_path, vm_type) = self.resolve_vm_execution_target(program_id, entity_id);
+        let (ast_path, resolved_type) = self.resolve_vm_execution_target(program_id, entity_id);
+        // A custom-route request carries the target entity's runtime captured at
+        // deploy (request["runtime"]); trust it over the state-derived type,
+        // which is unreliable for docker (no vmEntityType link, and the program
+        // record may name no runtime) and would otherwise fall back to the
+        // default plugin and take the generic signal path instead of the
+        // container HTTP proxy.
+        let vm_type = match request["runtime"].as_str() {
+            Some(r) if !r.trim().is_empty() => r.trim().to_lowercase(),
+            _ => resolved_type,
+        };
         let mut packet = request.clone();
         if let Some(obj) = packet.as_object_mut() {
             obj.insert("type".to_string(), json!("forwardHttp"));
@@ -892,6 +902,7 @@ impl IVmm for Vmm {
                                 "programId": route.program_id,
                                 "entityId": route.entity_id,
                                 "vmId": route.vm_id,
+                                "runtime": route.runtime,
                                 "path": route.rest_path,
                             }));
                             break 'outer;
