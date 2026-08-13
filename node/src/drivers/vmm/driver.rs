@@ -806,6 +806,65 @@ impl IVmm for Vmm {
         let raw = dispatch_packet(&packet);
         serde_json::from_str(&raw).unwrap_or(Value::Null)
     }
+
+    fn resolve_http_route(&self, username: &str, path: &str) -> Option<Value> {
+        use crate::drivers::vmm::http_route;
+
+        let username = username.trim();
+        if username.is_empty() {
+            return None;
+        }
+        // Longest-prefix candidates over the leading request segments, capped so
+        // the per-request work is bounded regardless of path length.
+        let segments: Vec<String> = path
+            .split('/')
+            .filter(|s| !s.is_empty())
+            .map(|s| s.to_string())
+            .collect();
+        if segments.is_empty() {
+            return None;
+        }
+
+        // Resolve username → creature id and match a registered route inside a
+        // single state read.
+        let result_slot = Arc::new(Mutex::new(None::<Value>));
+        let result_clone = result_slot.clone();
+        let username_owned = username.to_string();
+        let segments_owned = segments.clone();
+        self.app.modify_state(
+            true,
+            Box::new(move |trx: &dyn ITrx| {
+                let creature_id =
+                    trx.get_index("Creature", "username", "id", &username_owned);
+                if creature_id.is_empty() {
+                    return Ok(());
+                }
+                let max = segments_owned.len().min(http_route::MAX_ROUTE_SEGMENTS);
+                for take in (1..=max).rev() {
+                    let prefix = segments_owned[..take].join("/");
+                    let stored = trx.get_link(&http_route::route_link_key(&creature_id, &prefix));
+                    if stored.is_empty() {
+                        continue;
+                    }
+                    let rest: Vec<&str> =
+                        segments_owned[take..].iter().map(|s| s.as_str()).collect();
+                    if let Some(route) = http_route::decode_target(&stored, &rest) {
+                        *result_clone.lock().unwrap() = Some(json!({
+                            "creatureId": creature_id,
+                            "programId": route.program_id,
+                            "entityId": route.entity_id,
+                            "vmId": route.vm_id,
+                            "path": route.rest_path,
+                        }));
+                        break;
+                    }
+                }
+                Ok(())
+            }),
+        );
+        let out = result_slot.lock().unwrap().take();
+        out
+    }
 }
 
 /// Small shim that owns the same handles as `Vmm` and can be cloned/wrapped

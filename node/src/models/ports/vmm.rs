@@ -33,10 +33,11 @@ pub trait IVmm: Send + Sync {
     fn start_docker_gateway(&self, port: i64);
 
     /// Start the VMM HTTP ingress listener. It accepts requests shaped as
-    /// `/{creatureId}/{programId}/{entityId}/{vmId}/{path…}` and forwards them
-    /// to the HTTP server of the named VM instance (docker proxies to the
-    /// container; other runtimes fall back to signalling). No-op when
-    /// `port <= 0` or already running.
+    /// `/{creatureId}/{programId}/{entityId}/{vmId}/{path…}` (fully-qualified
+    /// identity) or `/{creatureUsername}/{customPath…}` (a deployer-defined
+    /// custom route) and forwards them to the HTTP server of the named VM
+    /// instance (docker proxies to the container; other runtimes fall back to
+    /// signalling). No-op when `port <= 0` or already running.
     fn start_http_ingress(&self, port: i64);
     /// Bind a docker container *name* to its VM's authoritative identity. Done
     /// when the node launches the container, so a gateway connection can be
@@ -170,4 +171,18 @@ pub trait IVmm: Send + Sync {
     /// forwarding a capability of the VMM instance rather than free-standing
     /// logic reaching into the packet router directly.
     fn forward_http(&self, request: &JsonValue) -> JsonValue;
+
+    /// Resolve a friendly gateway request `/{creatureUsername}/{path…}` to the
+    /// VM entity a deployer bound to that custom path.
+    ///
+    /// `username` is the leading path segment (a creature username, e.g.
+    /// `alice@global`); `path` is everything after it. The VMM looks the
+    /// username up in the creature index, then matches the longest custom-path
+    /// prefix registered for that creature at deploy time (metadata
+    /// `gatewayPath`). On a hit it returns `{ creatureId, programId, entityId,
+    /// vmId, path }` — the identity fields `forward_http` expects, with `path`
+    /// rewritten to the sub-path after the matched prefix. Returns `None` when
+    /// the username is unknown or no route matches, so the ingress can fall
+    /// back to the fully-qualified identity form.
+    fn resolve_http_route(&self, username: &str, path: &str) -> Option<JsonValue>;
 }

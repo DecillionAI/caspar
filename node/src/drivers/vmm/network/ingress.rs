@@ -1,15 +1,22 @@
 //! The VMM HTTP ingress server.
 //!
-//! A long-lived HTTP listener that accepts requests shaped as
+//! A long-lived HTTP listener that accepts requests in either of two shapes:
 //!
 //! ```text
 //! {caspar node instance url}/{creatureId}/{programId}/{entityId}/{vmId}/{path…}
+//! {caspar node instance url}/{creatureUsername}/{customPath…}
 //! ```
 //!
-//! and forwards them to the HTTP server of the VM instance named by `vmId`.
+//! and forwards them to the HTTP server of the targeted VM instance. The first
+//! form names the instance directly by `vmId`; the second is a friendlier route
+//! a deployer bound to a VM entity at deploy time (metadata `gatewayPath`) —
+//! the leading segment is resolved as a creature username and the custom path
+//! prefix is matched against the routes registered for that creature (see
+//! [`crate::drivers::vmm::http_route`]).
 //!
-//! The ingress is a *pure HTTP adapter*: it parses the request, strips the four
-//! identity segments, and hands the packaged request to its owning node
+//! The ingress is a *pure HTTP adapter*: it parses the request, resolves the
+//! identity segments (through the VMM for the custom-route form), and hands the
+//! packaged request to its owning node
 //! instance's VMM via `self.app.tools().vmm().forward_http(..)`. It never
 //! reaches into the packet router or plugin registry itself, so it carries no
 //! process-wide state and is scoped entirely to the `ICore` instance it was
@@ -139,7 +146,7 @@ impl VmHttpIngress {
             );
         }
 
-        let seg = match split_identity(&req.path) {
+        let seg = match self.resolve_identity(&req.path) {
             Some(s) => s,
             None => {
                 return (
@@ -149,7 +156,7 @@ impl VmHttpIngress {
                     None,
                     json!({
                         "ok": false,
-                        "error": "path must be /{creatureId}/{programId}/{entityId}/{vmId}/{path…}"
+                        "error": "path must be /{creatureId}/{programId}/{entityId}/{vmId}/{path…} or /{creatureUsername}/{customPath…}"
                     })
                     .to_string()
                     .into_bytes(),
@@ -199,6 +206,49 @@ impl VmHttpIngress {
         let body = decode_body(&value);
         (status, status_reason(status), content_type, extra_headers, body)
     }
+
+    /// Resolve a request path to the VM identity it targets. A deployer-defined
+    /// custom route (`/{creatureUsername}/{customPath…}`) is tried first: the
+    /// leading segment is looked up as a creature username and matched against
+    /// the routes registered for that creature at deploy time. When no custom
+    /// route matches, the fully-qualified identity form
+    /// (`/{creatureId}/{programId}/{entityId}/{vmId}/{path…}`) is parsed
+    /// directly, so the two forms coexist without ambiguity — a legacy request's
+    /// leading segment is a creature *id*, which is never a username.
+    fn resolve_identity(&self, path: &str) -> Option<IdentitySegments> {
+        if let Some((first, rest)) = split_first_segment(path) {
+            if let Some(route) = self
+                .app
+                .tools()
+                .vmm()
+                .resolve_http_route(first, rest)
+            {
+                let program_id = route["programId"].as_str().unwrap_or("").to_string();
+                let entity_id = route["entityId"].as_str().unwrap_or("").to_string();
+                if !program_id.is_empty() && !entity_id.is_empty() {
+                    return Some(IdentitySegments {
+                        creature_id: route["creatureId"].as_str().unwrap_or("").to_string(),
+                        program_id,
+                        entity_id,
+                        vm_id: route["vmId"].as_str().unwrap_or("").to_string(),
+                        rest_path: route["path"].as_str().unwrap_or("/").to_string(),
+                    });
+                }
+            }
+        }
+        split_identity(path)
+    }
+}
+
+/// Split a request path into its leading segment and the remainder
+/// (`"/alice@global/api/x"` → `("alice@global", "api/x")`). Used to attempt
+/// custom-path routing before the fully-qualified identity form.
+fn split_first_segment(path: &str) -> Option<(&str, &str)> {
+    let trimmed = path.trim_start_matches('/');
+    let mut it = trimmed.splitn(2, '/');
+    let first = it.next().filter(|s| !s.is_empty())?;
+    let rest = it.next().unwrap_or("");
+    Some((first, rest))
 }
 
 struct HttpRequest {

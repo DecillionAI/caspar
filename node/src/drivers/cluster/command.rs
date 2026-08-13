@@ -75,6 +75,14 @@ pub struct DeployArtifact {
     pub files: Vec<(String, String)>,
     pub set_entity_links: bool,
     pub build_on_deploy: bool,
+    /// Normalized custom VM gateway route prefix bound to this entity, or empty
+    /// when it exposes no custom route. Reached at `/{creatureUsername}/{path…}`
+    /// where the username belongs to `machine_id` (the owning creature).
+    #[serde(default)]
+    pub gateway_route: String,
+    /// Optional specific VM instance the custom route targets (empty ⇒ default).
+    #[serde(default)]
+    pub gateway_vm_id: String,
 }
 
 /// The application data payload of a raft log entry.

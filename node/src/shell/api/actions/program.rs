@@ -652,6 +652,22 @@ fn run_program_entity(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
             }
             let vm_id = Uuid::new_v4().to_string();
             trx.put_link(&format!("VmStatus::{}", vm_id), "running");
+            // Bind a deterministic custom VM gateway route to this specific
+            // instance when requested. The external URL stays fixed across
+            // redeploys (keyed by the owning creature's username + path); only
+            // the route's target vm id is refreshed here to the fresh instance.
+            let gateway_path =
+                crate::drivers::vmm::http_route::normalize_path(&input.gateway_path);
+            if !gateway_path.is_empty() {
+                register_gateway_route(
+                    &*trx,
+                    &owner_machine.id,
+                    &program.id,
+                    &input.entity_id,
+                    &gateway_path,
+                    &vm_id,
+                );
+            }
             // Tag VMs of cluster-distributed programs so their state commits
             // are propagated through the raft consensus (local-mode VMs are
             // deliberately left untagged and never enter the log).
@@ -977,6 +993,47 @@ fn read_machine_builds(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
     )
 }
 
+/// Record (or clear) an entity's custom VM gateway route, reconciling any route
+/// a previous deploy of the same entity left behind. `creature_id` is the
+/// program's owning creature (whose username the route is reached by),
+/// `gateway_path` the normalized prefix (empty ⇒ the entity exposes no custom
+/// route) and `gateway_vm_id` an optional specific instance to target.
+pub(crate) fn register_gateway_route(
+    trx: &dyn ITrx,
+    creature_id: &str,
+    program_id: &str,
+    entity_id: &str,
+    gateway_path: &str,
+    gateway_vm_id: &str,
+) {
+    use crate::drivers::vmm::http_route;
+
+    let rev_key = http_route::route_rev_link_key(program_id, entity_id);
+    // Drop a stale route from a prior deploy whose path changed or was removed.
+    let previous = trx.get_link(&rev_key);
+    if let Some((prev_creature, prev_path)) = previous.split_once("::") {
+        let unchanged =
+            !gateway_path.is_empty() && prev_creature == creature_id && prev_path == gateway_path;
+        if !unchanged {
+            trx.del_key(&format!(
+                "link::{}",
+                http_route::route_link_key(prev_creature, prev_path)
+            ));
+            if gateway_path.is_empty() {
+                trx.del_key(&format!("link::{}", rev_key));
+            }
+        }
+    }
+    if gateway_path.is_empty() || creature_id.is_empty() {
+        return;
+    }
+    trx.put_link(
+        &http_route::route_link_key(creature_id, gateway_path),
+        &http_route::encode_target(program_id, entity_id, gateway_vm_id),
+    );
+    trx.put_link(&rev_key, &format!("{}::{}", creature_id, gateway_path));
+}
+
 fn deploy(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
     let app_for_handler = app.clone();
     build_secure_action::<DeployInput, _>(
@@ -1141,6 +1198,32 @@ fn deploy(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
                     &entity_type,
                 );
             }
+            // Custom VM gateway route: the deployer may bind this entity's HTTP
+            // server to a friendly `/{creatureUsername}/{gatewayPath…}` path.
+            // Stored on chain keyed by the owning creature + normalized prefix
+            // so it replicates with the deploy and the ingress can resolve it.
+            let gateway_path = crate::drivers::vmm::http_route::normalize_path(
+                input
+                    .metadata
+                    .get("gatewayPath")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or(""),
+            );
+            let gateway_vm_id = input
+                .metadata
+                .get("gatewayVmId")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .trim()
+                .to_string();
+            register_gateway_route(
+                &*trx,
+                &program.machine_id,
+                &program.id,
+                &input.entity_id,
+                &gateway_path,
+                &gateway_vm_id,
+            );
             if input.downloadable {
                 // Downloadable entities (front-end scripts executed on the
                 // client) are served at any time via /programs/downloadEntity.
@@ -1199,6 +1282,8 @@ fn deploy(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
                         files: artifact_files,
                         set_entity_links,
                         build_on_deploy,
+                        gateway_route: gateway_path.clone(),
+                        gateway_vm_id: gateway_vm_id.clone(),
                     },
                 );
             }

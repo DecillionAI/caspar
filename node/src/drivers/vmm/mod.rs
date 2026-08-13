@@ -21,6 +21,7 @@ pub mod host_bridge;
 pub mod hostcall_entities;
 pub mod hostcall_global;
 pub mod hostcall_logs;
+pub mod http_route;
 pub mod network;
 pub mod proxy;
 
