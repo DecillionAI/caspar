@@ -819,8 +819,19 @@ impl IVmm for Vmm {
         // container HTTP proxy.
         let vm_type = match request["runtime"].as_str() {
             Some(r) if !r.trim().is_empty() => r.trim().to_lowercase(),
-            _ => resolved_type,
+            _ => resolved_type.clone(),
         };
+        // Diagnostic: make runtime resolution observable in the node log, so a
+        // forwarded request that takes the signal fallback instead of the docker
+        // HTTP proxy can be told apart from a routing miss at a glance.
+        eprintln!(
+            "[vm-http-ingress] forward_http program={} entity={} route_runtime={:?} resolved_type={} -> vm_type={}",
+            program_id,
+            entity_id,
+            request["runtime"].as_str().unwrap_or(""),
+            resolved_type,
+            vm_type
+        );
         let mut packet = request.clone();
         if let Some(obj) = packet.as_object_mut() {
             obj.insert("type".to_string(), json!("forwardHttp"));
