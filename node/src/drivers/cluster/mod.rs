@@ -459,6 +459,17 @@ fn apply_deploy_artifact(app: &Arc<dyn ICore>, artifact: &DeployArtifact) -> Res
                     &format!("vmDistribution::{}::{}", art.program_id, art.entity_id),
                     "cluster",
                 );
+                // Mirror the origin's custom VM gateway route (reconciling any
+                // stale prior route) so the friendly path resolves on every
+                // instance the creature was propagated to.
+                crate::shell::api::actions::program::register_gateway_route(
+                    trx,
+                    &art.machine_id,
+                    &art.program_id,
+                    &art.entity_id,
+                    &art.gateway_route,
+                    &art.gateway_vm_id,
+                );
                 crate::shell::api::model::Program {
                     id: art.program_id.clone(),
                     machine_id: art.machine_id.clone(),

@@ -290,6 +290,9 @@ impl crate::models::ports::vmm::IVmm for StubVmm {
     fn forward_http(&self, _: &Value) -> Value {
         Value::Null
     }
+    fn resolve_http_route(&self, _: &str, _: &str) -> Option<Value> {
+        None
+    }
 }
 
 struct StubTools {
@@ -721,6 +724,8 @@ fn three_instance_cluster_replication() {
         )],
         set_entity_links: true,
         build_on_deploy: true,
+        gateway_route: "".into(),
+        gateway_vm_id: "".into(),
     };
     super::propose_deploy(artifact);
 

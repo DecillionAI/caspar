@@ -144,13 +144,30 @@ input's `origin` field, **not** by the route name:
 `GET /telemetry/snapshot`.
 
 ### HTTP ingress to VMs
-The VMM exposes an HTTP ingress at
-`{node instance url}/{creatureId}/{programId}/{entityId}/{vmId}/{path…}`. It
-strips the four identity segments, packages the remaining request, and calls
-the entity's runtime plugin (`forward_http`). By default the request is wrapped
-into a `creatures/signal` and delivered asynchronously (a `202 Accepted`);
-runtimes with a long-lived HTTP server inside the VM (e.g. docker) override this
-to proxy directly.
+The VMM exposes an HTTP ingress that accepts requests in two shapes:
+
+- **Fully-qualified identity** —
+  `{node instance url}/{creatureId}/{programId}/{entityId}/{vmId}/{path…}`. It
+  strips the four identity segments, packages the remaining request, and calls
+  the entity's runtime plugin (`forward_http`).
+- **Custom route** —
+  `{node instance url}/{creatureUsername}/{customPath…}`. A deployer may bind a
+  VM entity's HTTP server to a friendly path at deploy time by passing
+  `metadata.gatewayPath` (a prefix, e.g. `api` or `api/v1`) — and optionally
+  `metadata.gatewayVmId` to pin a specific instance — to `/programs/deploy`. The
+  node records the route on chain keyed by the owning creature id and the
+  normalized prefix (`vmHttpRoute::<creatureId>::<prefix>`), so it replicates
+  with a cluster deploy and a redeploy reconciles a changed/removed path. At
+  request time the ingress resolves the leading segment as a creature username,
+  matches the longest registered prefix for that creature, and forwards the
+  remaining sub-path to the VM. One creature can expose several entities under
+  different paths. When no custom route matches, the fully-qualified form is
+  parsed instead — a legacy request's leading segment is a creature *id*, never
+  a username, so the two forms never collide.
+
+By default the request is wrapped into a `creatures/signal` and delivered
+asynchronously (a `202 Accepted`); runtimes with a long-lived HTTP server inside
+the VM (e.g. docker) override this to proxy directly.
 
 ---
 
