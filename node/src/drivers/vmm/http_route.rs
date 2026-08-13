@@ -71,12 +71,17 @@ pub fn username_local_part(username: &str) -> &str {
     username.split('@').next().unwrap_or(username)
 }
 
-/// Encode a route target as the value stored under [`route_link_key`].
-pub fn encode_target(program_id: &str, entity_id: &str, vm_id: &str) -> String {
+/// Encode a route target as the value stored under [`route_link_key`]. The
+/// entity's `runtime` is captured here (from the authoritative deploy input) so
+/// the ingress can dispatch to the right VM plugin without re-deriving it from
+/// program/entity state at request time — docker records no `vmEntityType` link,
+/// so that derivation is fragile.
+pub fn encode_target(program_id: &str, entity_id: &str, vm_id: &str, runtime: &str) -> String {
     json!({
         "programId": program_id,
         "entityId": entity_id,
         "vmId": vm_id,
+        "runtime": runtime,
     })
     .to_string()
 }
@@ -87,6 +92,9 @@ pub struct ResolvedRoute {
     pub program_id: String,
     pub entity_id: String,
     pub vm_id: String,
+    /// The target entity's runtime captured at deploy (may be empty for routes
+    /// written before this field existed — callers then fall back to deriving it).
+    pub runtime: String,
     /// Forwarded request path, always leading-slash prefixed (`"/"` when the
     /// request targeted the route root).
     pub rest_path: String,
@@ -102,11 +110,13 @@ pub fn decode_target(stored: &str, rest_segments: &[&str]) -> Option<ResolvedRou
         return None;
     }
     let vm_id = value["vmId"].as_str().unwrap_or("").to_string();
+    let runtime = value["runtime"].as_str().unwrap_or("").to_string();
     let rest_path = format!("/{}", rest_segments.join("/"));
     Some(ResolvedRoute {
         program_id,
         entity_id,
         vm_id,
+        runtime,
         rest_path,
     })
 }

@@ -469,6 +469,7 @@ fn apply_deploy_artifact(app: &Arc<dyn ICore>, artifact: &DeployArtifact) -> Res
                     &art.entity_id,
                     &art.gateway_route,
                     &art.gateway_vm_id,
+                    &art.entity_type,
                 );
                 crate::shell::api::model::Program {
                     id: art.program_id.clone(),

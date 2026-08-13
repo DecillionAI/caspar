@@ -177,6 +177,7 @@ impl VmHttpIngress {
             "programId": seg.program_id,
             "entityId": seg.entity_id,
             "vmId": seg.vm_id,
+            "runtime": seg.runtime,
             "method": req.method,
             "path": seg.rest_path,
             "query": req.query,
@@ -231,6 +232,7 @@ impl VmHttpIngress {
                         program_id,
                         entity_id,
                         vm_id: route["vmId"].as_str().unwrap_or("").to_string(),
+                        runtime: route["runtime"].as_str().unwrap_or("").to_string(),
                         rest_path: route["path"].as_str().unwrap_or("/").to_string(),
                     });
                 }
@@ -264,6 +266,9 @@ struct IdentitySegments {
     program_id: String,
     entity_id: String,
     vm_id: String,
+    /// Target runtime captured on the custom route (empty for the identity form,
+    /// where the VMM derives it from program/entity state).
+    runtime: String,
     rest_path: String,
 }
 
@@ -285,6 +290,7 @@ fn split_identity(path: &str) -> Option<IdentitySegments> {
         program_id,
         entity_id,
         vm_id,
+        runtime: String::new(),
         rest_path,
     })
 }
