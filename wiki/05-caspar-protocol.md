@@ -160,10 +160,13 @@ The VMM exposes an HTTP ingress that accepts requests in two shapes:
   with a cluster deploy and a redeploy reconciles a changed/removed path. At
   request time the ingress resolves the leading segment as a creature username,
   matches the longest registered prefix for that creature, and forwards the
-  remaining sub-path to the VM. One creature can expose several entities under
-  different paths. When no custom route matches, the fully-qualified form is
-  parsed instead — a legacy request's leading segment is a creature *id*, never
-  a username, so the two forms never collide.
+  remaining sub-path to the VM. The leading segment may also be the creature
+  **id** (`7@global`) instead of the username — the node stores routes keyed by
+  id, so both forms resolve. Prefer the id when the node's `source` is
+  URL-shaped (`name@http://host:port`): such a username cannot be placed in a
+  URL path, but the id always can. One creature can expose several entities
+  under different paths. When no custom route matches, the fully-qualified form
+  is parsed instead.
 
   A standalone serving entity started with `/programs/runEntity` may also carry
   `gatewayPath`: the node then binds the same custom route to *that* launched

@@ -834,29 +834,44 @@ impl IVmm for Vmm {
         self.app.modify_state(
             true,
             Box::new(move |trx: &dyn ITrx| {
-                let creature_id =
+                // The leading segment addresses the owning creature either by its
+                // username (resolved through the index) or — because a username
+                // qualified with a URL-shaped node source (e.g.
+                // `name@http://host:port`) cannot be placed in a URL path — by its
+                // creature id directly (e.g. `7@global`, which is path-safe). Try
+                // the username index first, then fall back to treating the segment
+                // itself as the creature id. Routes are stored keyed by creature
+                // id, so both address forms converge on the same lookup.
+                let mut candidates: Vec<String> = Vec::new();
+                let via_username =
                     trx.get_index("Creature", "username", "id", &username_owned);
-                if creature_id.is_empty() {
-                    return Ok(());
+                if !via_username.is_empty() {
+                    candidates.push(via_username);
+                }
+                if !candidates.iter().any(|c| c == &username_owned) {
+                    candidates.push(username_owned.clone());
                 }
                 let max = segments_owned.len().min(http_route::MAX_ROUTE_SEGMENTS);
-                for take in (1..=max).rev() {
-                    let prefix = segments_owned[..take].join("/");
-                    let stored = trx.get_link(&http_route::route_link_key(&creature_id, &prefix));
-                    if stored.is_empty() {
-                        continue;
-                    }
-                    let rest: Vec<&str> =
-                        segments_owned[take..].iter().map(|s| s.as_str()).collect();
-                    if let Some(route) = http_route::decode_target(&stored, &rest) {
-                        *result_clone.lock().unwrap() = Some(json!({
-                            "creatureId": creature_id,
-                            "programId": route.program_id,
-                            "entityId": route.entity_id,
-                            "vmId": route.vm_id,
-                            "path": route.rest_path,
-                        }));
-                        break;
+                'outer: for creature_id in &candidates {
+                    for take in (1..=max).rev() {
+                        let prefix = segments_owned[..take].join("/");
+                        let stored =
+                            trx.get_link(&http_route::route_link_key(creature_id, &prefix));
+                        if stored.is_empty() {
+                            continue;
+                        }
+                        let rest: Vec<&str> =
+                            segments_owned[take..].iter().map(|s| s.as_str()).collect();
+                        if let Some(route) = http_route::decode_target(&stored, &rest) {
+                            *result_clone.lock().unwrap() = Some(json!({
+                                "creatureId": creature_id,
+                                "programId": route.program_id,
+                                "entityId": route.entity_id,
+                                "vmId": route.vm_id,
+                                "path": route.rest_path,
+                            }));
+                            break 'outer;
+                        }
                     }
                 }
                 Ok(())

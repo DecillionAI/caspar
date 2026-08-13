@@ -172,17 +172,20 @@ pub trait IVmm: Send + Sync {
     /// logic reaching into the packet router directly.
     fn forward_http(&self, request: &JsonValue) -> JsonValue;
 
-    /// Resolve a friendly gateway request `/{creatureUsername}/{path…}` to the
-    /// VM entity a deployer bound to that custom path.
+    /// Resolve a friendly gateway request `/{creature}/{path…}` to the VM entity
+    /// a deployer bound to that custom path.
     ///
-    /// `username` is the leading path segment (a creature username, e.g.
-    /// `alice@global`); `path` is everything after it. The VMM looks the
-    /// username up in the creature index, then matches the longest custom-path
-    /// prefix registered for that creature at deploy time (metadata
-    /// `gatewayPath`). On a hit it returns `{ creatureId, programId, entityId,
-    /// vmId, path }` — the identity fields `forward_http` expects, with `path`
-    /// rewritten to the sub-path after the matched prefix. Returns `None` when
-    /// the username is unknown or no route matches, so the ingress can fall
-    /// back to the fully-qualified identity form.
-    fn resolve_http_route(&self, username: &str, path: &str) -> Option<JsonValue>;
+    /// `creature` is the leading path segment: either a creature username (e.g.
+    /// `alice@global`, resolved through the creature index) or the creature id
+    /// itself (e.g. `7@global`). The id form exists because a username qualified
+    /// with a URL-shaped node source (`name@http://host:port`) cannot be placed
+    /// in a URL path, whereas the id always can. `path` is everything after the
+    /// leading segment. The VMM matches the longest custom-path prefix registered
+    /// for that creature at deploy time (metadata `gatewayPath`). On a hit it
+    /// returns `{ creatureId, programId, entityId, vmId, path }` — the identity
+    /// fields `forward_http` expects, with `path` rewritten to the sub-path after
+    /// the matched prefix. Returns `None` when the creature is unknown or no
+    /// route matches, so the ingress can fall back to the fully-qualified
+    /// identity form.
+    fn resolve_http_route(&self, creature: &str, path: &str) -> Option<JsonValue>;
 }
