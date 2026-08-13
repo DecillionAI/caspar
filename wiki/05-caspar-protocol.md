@@ -165,6 +165,13 @@ The VMM exposes an HTTP ingress that accepts requests in two shapes:
   parsed instead — a legacy request's leading segment is a creature *id*, never
   a username, so the two forms never collide.
 
+  A standalone serving entity started with `/programs/runEntity` may also carry
+  `gatewayPath`: the node then binds the same custom route to *that* launched
+  instance (its vm id), so the fixed URL points at the warm serving container and
+  is re-pointed at the fresh instance on every redeploy. This is how a docker
+  tool with an inbound HTTP callback (e.g. the github tool's OAuth callback) gets
+  one permanent URL to register with an external provider.
+
 By default the request is wrapped into a `creatures/signal` and delivered
 asynchronously (a `202 Accepted`); runtimes with a long-lived HTTP server inside
 the VM (e.g. docker) override this to proxy directly.

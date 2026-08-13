@@ -206,6 +206,14 @@ pub struct RunProgramEntityInput {
         skip_serializing_if = "Vec::is_empty"
     )]
     pub payment_signatures: Vec<String>,
+    /// Optional custom VM gateway route to bind to this launched instance. When
+    /// set, the entity's HTTP server becomes reachable at the deterministic
+    /// `/{creatureUsername}/{gatewayPath…}` ingress form, pointing at the exact
+    /// instance this call starts — so a standalone serving tool (e.g. the github
+    /// OAuth callback) has a fixed URL that survives redeploys (the route is
+    /// re-pointed at the fresh instance each run).
+    #[serde(rename = "gatewayPath", default)]
+    pub gateway_path: String,
 }
 
 /// `/programs/downloadEntity` — fetch a downloadable entity's script/file so

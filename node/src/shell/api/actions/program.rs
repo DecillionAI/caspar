@@ -652,6 +652,22 @@ fn run_program_entity(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
             }
             let vm_id = Uuid::new_v4().to_string();
             trx.put_link(&format!("VmStatus::{}", vm_id), "running");
+            // Bind a deterministic custom VM gateway route to this specific
+            // instance when requested. The external URL stays fixed across
+            // redeploys (keyed by the owning creature's username + path); only
+            // the route's target vm id is refreshed here to the fresh instance.
+            let gateway_path =
+                crate::drivers::vmm::http_route::normalize_path(&input.gateway_path);
+            if !gateway_path.is_empty() {
+                register_gateway_route(
+                    &*trx,
+                    &owner_machine.id,
+                    &program.id,
+                    &input.entity_id,
+                    &gateway_path,
+                    &vm_id,
+                );
+            }
             // Tag VMs of cluster-distributed programs so their state commits
             // are propagated through the raft consensus (local-mode VMs are
             // deliberately left untagged and never enter the log).
