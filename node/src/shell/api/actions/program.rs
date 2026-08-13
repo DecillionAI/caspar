@@ -1032,6 +1032,20 @@ pub(crate) fn register_gateway_route(
         &http_route::encode_target(program_id, entity_id, gateway_vm_id),
     );
     trx.put_link(&rev_key, &format!("{}::{}", creature_id, gateway_path));
+    // Alias the bare local part of the owning creature's username → its id, so a
+    // request may address the route by the short name (`/m-tool-github/…`) as
+    // well as by the full username or the numeric id. Best-effort: only when the
+    // creature record + username resolve on this node.
+    let username = Creature {
+        id: creature_id.to_string(),
+        ..Default::default()
+    }
+    .pull(trx)
+    .username;
+    let local_part = http_route::username_local_part(&username);
+    if !local_part.is_empty() && local_part != creature_id {
+        trx.put_link(&http_route::route_alias_link_key(local_part), creature_id);
+    }
 }
 
 fn deploy(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {

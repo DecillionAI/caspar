@@ -848,6 +848,13 @@ impl IVmm for Vmm {
                 if !via_username.is_empty() {
                     candidates.push(via_username);
                 }
+                // Bare username local part (e.g. `m-tool-github`) → creature id,
+                // via the alias link written when the route was registered.
+                let via_alias =
+                    trx.get_link(&http_route::route_alias_link_key(&username_owned));
+                if !via_alias.is_empty() && !candidates.iter().any(|c| c == &via_alias) {
+                    candidates.push(via_alias);
+                }
                 if !candidates.iter().any(|c| c == &username_owned) {
                     candidates.push(username_owned.clone());
                 }

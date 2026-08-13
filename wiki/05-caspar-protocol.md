@@ -158,15 +158,17 @@ The VMM exposes an HTTP ingress that accepts requests in two shapes:
   node records the route on chain keyed by the owning creature id and the
   normalized prefix (`vmHttpRoute::<creatureId>::<prefix>`), so it replicates
   with a cluster deploy and a redeploy reconciles a changed/removed path. At
-  request time the ingress resolves the leading segment as a creature username,
-  matches the longest registered prefix for that creature, and forwards the
-  remaining sub-path to the VM. The leading segment may also be the creature
-  **id** (`7@global`) instead of the username — the node stores routes keyed by
-  id, so both forms resolve. Prefer the id when the node's `source` is
-  URL-shaped (`name@http://host:port`): such a username cannot be placed in a
-  URL path, but the id always can. One creature can expose several entities
-  under different paths. When no custom route matches, the fully-qualified form
-  is parsed instead.
+  request time the ingress resolves the leading segment to the owning creature
+  and matches the longest registered prefix for it, forwarding the remaining
+  sub-path to the VM. The leading segment may be, in resolution order: the full
+  creature **username** (`name@source`, via the creature index); the bare
+  **local part** of that username (`name`, via a `vmHttpRouteUser::<name>` alias
+  written when the route is registered); or the creature **id** (`7@global`).
+  The short local-part form is the friendly default (`/m-tool-github/…`) — the
+  full username usually cannot go in a URL path because the node's `source` is
+  URL-shaped (`name@http://host:port`), and the id is opaque. One creature can
+  expose several entities under different paths. When no custom route matches,
+  the fully-qualified identity form is parsed instead.
 
   A standalone serving entity started with `/programs/runEntity` may also carry
   `gatewayPath`: the node then binds the same custom route to *that* launched
