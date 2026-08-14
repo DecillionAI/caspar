@@ -8,8 +8,7 @@
 //! [`hostcall_global`](super::hostcall_global).
 
 use crate::drivers::vmm::dispatch_packet;
-use crate::drivers::vmm::globals::{ResourceLockEntry, ResourceLockState, VmDbBuffer};
-use std::sync::Condvar;
+use crate::drivers::vmm::globals::{ResourceLockRegistry, VmDbBuffer};
 use std::collections::VecDeque;
 use dashmap::DashMap;
 use std::collections::HashMap;
@@ -54,7 +53,9 @@ pub struct Vmm {
     pub(crate) vm_trx: DashMap<String, Arc<Mutex<VmDbBuffer>>>,
 
     /// resource_id → per-resource lock state (used by lockResource host call).
-    pub(crate) resource_locks: DashMap<String, Arc<ResourceLockEntry>>,
+    /// The registry reaps idle entries so a guest cannot pin one lock per
+    /// distinct `resource_id` for the life of the node.
+    pub(crate) resource_locks: ResourceLockRegistry,
 
     /// The docker-host bridge gateway. Owned here so docker creatures reach it
     /// only through the canonical `ICore → tools() → vmm()` object graph — there
@@ -100,7 +101,7 @@ impl Vmm {
             file,
             vm_context: DashMap::new(),
             vm_trx: DashMap::new(),
-            resource_locks: DashMap::new(),
+            resource_locks: ResourceLockRegistry::new(),
             gateway,
             http_ingress,
             vm_containers: DashMap::new(),
@@ -240,23 +241,6 @@ impl Vmm {
         let path = path_slot.lock().unwrap().clone();
         let vm_type = type_slot.lock().unwrap().clone();
         (path, vm_type)
-    }
-
-    /// Get or atomically create the resource-lock entry for `resource_id`.
-    fn get_or_create_resource_lock(&self, resource_id: &str) -> Arc<ResourceLockEntry> {
-        self.resource_locks
-            .entry(resource_id.to_string())
-            .or_insert_with(|| {
-                Arc::new(ResourceLockEntry {
-                    state: Mutex::new(ResourceLockState {
-                        locked: false,
-                        owner: None,
-                        queue: std::collections::VecDeque::new(),
-                    }),
-                    cv: Condvar::new(),
-                })
-            })
-            .clone()
     }
 
     /// Whether the state mutations of `vm_id` may enter the cluster
@@ -689,54 +673,11 @@ impl IVmm for Vmm {
     // ── Resource lock management ──────────────────────────────────────────────
 
     fn acquire_resource_lock(&self, resource_id: &str, owner_id: &str) -> Result<(), String> {
-        if resource_id.is_empty() {
-            return Err("resourceId is required".to_string());
-        }
-        if owner_id.is_empty() {
-            return Err("ownerId is required".to_string());
-        }
-        let lock = self.get_or_create_resource_lock(resource_id);
-        let mut state = lock.state.lock().unwrap();
-        if state.owner.as_deref() == Some(owner_id) {
-            return Ok(());
-        }
-        if state.locked {
-            state.queue.push_back(owner_id.to_string());
-            loop {
-                state = lock.cv.wait(state).unwrap();
-                if state.owner.as_deref() == Some(owner_id) {
-                    return Ok(());
-                }
-            }
-        }
-        state.locked = true;
-        state.owner = Some(owner_id.to_string());
-        Ok(())
+        self.resource_locks.acquire(resource_id, owner_id)
     }
 
     fn release_resource_lock(&self, resource_id: &str, owner_id: &str) -> Result<(), String> {
-        if resource_id.is_empty() {
-            return Err("resourceId is required".to_string());
-        }
-        let lock = match self.resource_locks.get(resource_id) {
-            Some(l) => l.clone(),
-            None    => return Err(format!("lock '{}' not found", resource_id)),
-        };
-        let mut state = lock.state.lock().unwrap();
-        if state.owner.as_deref() != Some(owner_id) {
-            return Err(format!(
-                "lock '{}' not owned by '{}'",
-                resource_id, owner_id
-            ));
-        }
-        if let Some(next) = state.queue.pop_front() {
-            state.owner = Some(next);
-        } else {
-            state.locked = false;
-            state.owner  = None;
-        }
-        lock.cv.notify_all();
-        Ok(())
+        self.resource_locks.release(resource_id, owner_id)
     }
 
     // ── Host-call dispatch bridge ─────────────────────────────────────────────
