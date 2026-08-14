@@ -592,7 +592,14 @@ impl Tcp {
                         .user_sockets
                         .remove_if(&user_id, |_, current| current.is_empty());
                     if !trans.user_sockets.contains_key(&user_id) {
-                        trans.app.tools().signaler().listeners().remove(&user_id);
+                        let signaler = trans.app.tools().signaler();
+                        signaler.listeners().remove(&user_id);
+                        // Symmetric with the `join_group` calls in
+                        // `attach_user_listener`: once the user has no live
+                        // connection, drop its group memberships so the
+                        // signaler's group `stores` (and the empty groups left
+                        // behind) don't accumulate for the life of the node.
+                        signaler.leave_all_groups(&user_id);
                     }
                 }
             }

@@ -56,6 +56,22 @@ impl Signaler {
         (listener.signal)(key.to_string(), data);
     }
 
+    /// Drop a group from the registry once it has no members, no group
+    /// listener, and no override — i.e. nothing that could ever be delivered
+    /// to. `remove_if` evaluates the predicate under the shard write lock, so
+    /// the emptiness check and the removal are atomic with respect to the
+    /// `groups` map; a concurrent `join_group`/`listen_to_group` that
+    /// re-populates the group either commits before the predicate (group is
+    /// kept) or after the removal (re-inserts a fresh group), never losing a
+    /// live membership without it self-healing on the next join.
+    fn reap_group_if_empty(&self, group_id: &str) {
+        self.groups.remove_if(group_id, |_, g| {
+            g.stores.is_empty()
+                && g.listener.lock().unwrap().is_none()
+                && !*g.override_.lock().unwrap()
+        });
+    }
+
     /// Read `User.<id>.username` inside a read-only state modification.
     fn read_user_username(&self, user_id: &str) -> String {
         let slot = Arc::new(Mutex::new(String::new()));
@@ -154,19 +170,28 @@ impl ISignaler for Signaler {
         _pack: bool,
         exceptions: Vec<String>,
     ) {
-        let exc: std::collections::HashSet<String> = exceptions.into_iter().collect();
-        let group = match self.retrive_group(group_id) {
-            Some(g) => g,
-            None => return,
-        };
         let packet = data.clone();
 
+        // Global-bridge mode fans out through the bridge and never touches the
+        // group map, so check it first — before any group lookup.
         if *self.l_group_disabled.lock().unwrap() {
             if let Some(bridge) = self.global_bridge.lock().unwrap().clone() {
                 (bridge.signal)(group_id.to_string(), packet);
             }
             return;
         }
+
+        // Get-only lookup: signalling a group nobody has joined and nothing
+        // listens to must NOT materialise a permanent empty entry. The old
+        // `retrive_group` here created (and never removed) one dead `Group`
+        // per distinct `group_id` ever signalled — an unbounded leak on a node
+        // that routes signals for transient stores. A group that truly has no
+        // members and no listener has nothing to deliver to anyway.
+        let Some(group) = self.groups.get(group_id).map(|e| e.value().clone()) else {
+            return;
+        };
+
+        let exc: std::collections::HashSet<String> = exceptions.into_iter().collect();
         if *group.override_.lock().unwrap() {
             if let Some(listener) = group.listener.lock().unwrap().clone() {
                 (listener.signal)(key.to_string(), packet);
@@ -229,12 +254,29 @@ impl ISignaler for Signaler {
     }
 
     fn leave_group(&self, group_id: &str, user_id: &str) {
-        let Some(g) = self.retrive_group(group_id) else {
+        // Get-only: never create a group just to leave it.
+        let Some(g) = self.groups.get(group_id).map(|e| e.value().clone()) else {
             return;
         };
         g.stores.remove(user_id);
         if let Some(j) = self.j_listener.lock().unwrap().clone() {
             (j.leave)(group_id.to_string(), user_id.to_string());
+        }
+        self.reap_group_if_empty(group_id);
+    }
+
+    fn leave_all_groups(&self, user_id: &str) {
+        // Snapshot the groups this user belongs to, then leave each. Collect
+        // first so we never hold a `groups` shard read lock across the
+        // `leave_group` writes/reaps (which take the shard write lock).
+        let group_ids: Vec<String> = self
+            .groups
+            .iter()
+            .filter(|e| e.value().stores.contains_key(user_id))
+            .map(|e| e.key().clone())
+            .collect();
+        for group_id in group_ids {
+            self.leave_group(&group_id, user_id);
         }
     }
 
@@ -258,3 +300,129 @@ impl ISignaler for Signaler {
 
 // Suppress an unused-import warning.
 const _: fn() -> Result<()> = || Ok(());
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::ports::signaler::{ISignaler, Listener, SignalFn};
+
+    // --- Minimal stubs so a `Signaler` can be constructed in isolation. The
+    // group-registry paths under test (`join_group` / `leave_group` /
+    // `leave_all_groups` / `signal_group`'s get-only lookup) never call back
+    // into `ICore` or `IFederation`, so every method is `unimplemented!()`.
+    struct StubCore;
+    struct StubFed;
+
+    impl crate::models::ports::network::federation::IFederation for StubFed {
+        fn listen(&self, _port: i64, _tls: Option<crate::models::ports::network::TlsConfig>) {}
+        fn send_fed_request(&self, _: &str, _: &str, _: &str, _: &str, _: Vec<u8>, _: &str) {}
+        fn send_fed_response(&self, _: &str, _: &str, _: i64, _: Value) {}
+        fn send_fed_update(&self, _: &str, _: &str, _: Value, _: &str, _: &str, _: Vec<String>) {}
+        fn send_fed_request_by_callback(
+            &self,
+            _: &str,
+            _: &str,
+            _: &str,
+            _: &str,
+            _: Vec<u8>,
+            _: &str,
+            _: crate::models::ports::network::federation::FedRequestCallback,
+        ) {
+        }
+    }
+
+    #[allow(unused_variables)]
+    impl crate::models::core::ICore for StubCore {
+        fn owner_id(&self) -> String { unimplemented!() }
+        fn id(&self) -> String { "global".to_string() }
+        fn gods(&self) -> Vec<String> { unimplemented!() }
+        fn add_god(&self, username: &str) { unimplemented!() }
+        fn tools(&self) -> Arc<dyn crate::models::ports::tools::ITools> { unimplemented!() }
+        fn free_nodes(&self) -> std::collections::HashMap<String, bool> { unimplemented!() }
+        fn add_free_node(&self, node_id: &str) { unimplemented!() }
+        fn actor(&self) -> Arc<dyn crate::models::action::actor::IActor> { unimplemented!() }
+        fn load(&self, args: Vec<String>, config: std::collections::HashMap<String, Value>) { unimplemented!() }
+        fn close(&self) { unimplemented!() }
+        fn plant_chain_trigger(&self, count: i64, user_id: &str, tag: &str, machine_id: &str, store_id: &str, input: &str) { unimplemented!() }
+        fn app_pending_trxs(&self) { unimplemented!() }
+        fn ip_addr(&self) -> String { unimplemented!() }
+        fn modify_state(&self, readonly: bool, fn_: crate::models::action::TrxClosure) { unimplemented!() }
+        fn modify_state_securly_with_source(&self, readonly: bool, info: Arc<dyn crate::models::info::IInfo>, src: &str, fn_: crate::models::core::StateClosure) { unimplemented!() }
+        fn modify_state_securly(&self, readonly: bool, info: Arc<dyn crate::models::info::IInfo>, fn_: crate::models::core::StateClosure) { unimplemented!() }
+        fn sign_packet(&self, data: &[u8]) -> String { unimplemented!() }
+        fn sign_packet_as_owner(&self, data: &[u8]) -> String { unimplemented!() }
+        fn execution_cost_per_second(&self) -> i64 { unimplemented!() }
+        fn vm_ram_cost_per_mb_per_minute(&self) -> i64 { unimplemented!() }
+        fn vm_cpu_core_cost_per_minute(&self) -> i64 { unimplemented!() }
+        fn vm_disk_cost_per_gb_per_minute(&self) -> i64 { unimplemented!() }
+        fn globe(&self) -> Arc<dyn crate::models::globe::IGlobe> { unimplemented!() }
+        fn begin_vm_trx(&self, vm_id: &str) -> Arc<dyn crate::models::transaction::ITrx> { unimplemented!() }
+        fn end_vm_trx(&self, vm_id: &str) { unimplemented!() }
+    }
+
+    fn new_signaler() -> Arc<Signaler> {
+        Signaler::new(Arc::new(StubCore), Arc::new(StubFed))
+    }
+
+    fn noop_listener(id: &str) -> Arc<Listener> {
+        let signal: SignalFn = Arc::new(|_k, _v| {});
+        Arc::new(Listener { id: id.to_string(), paused: false, dis_time: 0, signal })
+    }
+
+    #[test]
+    fn leave_group_reaps_the_group_once_its_last_member_goes() {
+        let sig = new_signaler();
+        sig.join_group("space1", "userA");
+        sig.join_group("space1", "userB");
+        assert_eq!(sig.groups().len(), 1);
+        assert_eq!(sig.groups().get("space1").unwrap().stores.len(), 2);
+
+        // One member leaving keeps the group alive for the survivor.
+        sig.leave_group("space1", "userA");
+        assert_eq!(sig.groups().len(), 1);
+        assert_eq!(sig.groups().get("space1").unwrap().stores.len(), 1);
+
+        // The last member leaving reaps the now-empty group entirely.
+        sig.leave_group("space1", "userB");
+        assert_eq!(sig.groups().len(), 0, "empty group must not linger");
+    }
+
+    #[test]
+    fn leave_all_groups_clears_every_membership_and_reaps_empties() {
+        let sig = new_signaler();
+        sig.join_group("space1", "userA");
+        sig.join_group("space1", "userB");
+        sig.join_group("space2", "userA");
+        assert_eq!(sig.groups().len(), 2);
+
+        // A disconnecting user leaves all its groups at once; space2 (its only
+        // member) is reaped, space1 survives for userB.
+        sig.leave_all_groups("userA");
+        let groups = sig.groups();
+        assert!(groups.get("space2").is_none(), "single-member group must be reaped");
+        let s1 = groups.get("space1").unwrap();
+        assert_eq!(s1.stores.len(), 1);
+        assert!(s1.stores.contains_key("userB"));
+    }
+
+    #[test]
+    fn signalling_an_unknown_group_never_materialises_a_group() {
+        let sig = new_signaler();
+        // No one has joined "ghost" and nothing listens to it. Before the fix
+        // this created a permanent empty `Group` — the unbounded leak.
+        sig.signal_group("k", "ghost", serde_json::json!({"n": 1}), false, Vec::new());
+        assert_eq!(sig.groups().len(), 0, "signalling must not create groups");
+    }
+
+    #[test]
+    fn a_group_with_a_listener_is_not_reaped_when_emptied() {
+        let sig = new_signaler();
+        // Machine/program groups carry a listener (via `listen_to_group`) and
+        // legitimately have no store members — they must survive reaping.
+        sig.listen_to_group(noop_listener("machine1"), true);
+        sig.join_group("machine1", "userA");
+        sig.leave_group("machine1", "userA");
+        assert_eq!(sig.groups().len(), 1, "listener-backed group must be kept");
+        assert!(sig.groups().get("machine1").unwrap().listener.lock().unwrap().is_some());
+    }
+}

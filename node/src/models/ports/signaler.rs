@@ -65,5 +65,11 @@ pub trait ISignaler: Send + Sync {
     );
     fn join_group(&self, group_id: &str, user_id: &str);
     fn leave_group(&self, group_id: &str, user_id: &str);
+    /// Remove `user_id` from every group it is a member of, reaping any group
+    /// left with no members, listener, or override. Called when a user's last
+    /// connection closes so a disconnected client's group memberships (and the
+    /// now-empty groups they leave behind) cannot accumulate for the life of
+    /// the node.
+    fn leave_all_groups(&self, user_id: &str);
     fn retrive_group(&self, group_id: &str) -> Option<Arc<Group>>;
 }
