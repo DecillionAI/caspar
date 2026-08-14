@@ -75,6 +75,22 @@ fn aot_locks() -> &'static Mutex<HashMap<String, Arc<Mutex<()>>>> {
     CELL.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
+/// Global gate serializing ALL AOT compilations across modules.
+///
+/// WasmEdge's AOT backend lowers each module to intermediate object files whose
+/// functions are named generically (`f0`, `f1`, … — one set per module). When
+/// two *different* modules compile concurrently, those object files collide at
+/// the `ld.lld` link step (`error: duplicate symbol: f10`), the compile fails,
+/// and AOT latches off for the rest of the process. The per-module `aot_locks`
+/// only dedupe compiles of the *same* module, so cross-module compilation must
+/// be serialized here. AOT is one-time per module (the result is cached to
+/// disk), so this only serializes first-time warm-up and never touches the hot
+/// path where a cached artifact already exists.
+fn aot_compile_gate() -> &'static Mutex<()> {
+    static CELL: OnceLock<Mutex<()>> = OnceLock::new();
+    CELL.get_or_init(|| Mutex::new(()))
+}
+
 /// AOT is on unless `CASPAR_WASM_AOT` is explicitly a falsey value.
 fn aot_enabled() -> bool {
     match std::env::var("CASPAR_WASM_AOT") {
@@ -151,6 +167,14 @@ fn compile_aot(src: &str, dst: &str) -> Result<(), String> {
     let tmp = format!("{}.tmp.{}", dst, std::process::id());
     let src_owned = src.to_string();
     let tmp_for_compile = tmp.clone();
+    // Serialize the compile itself across all modules (see `aot_compile_gate`).
+    // Held only for the duration of the LLVM/link work; recovered from a
+    // poisoned lock so a single failed compile can never wedge AOT for the
+    // whole process (the panic is contained by the `catch_unwind` below, so in
+    // practice the guard is dropped cleanly).
+    let _gate = aot_compile_gate()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| -> Result<(), String> {
         // `Wasm` output format = universal wasm (native code in a custom section),
         // so the artifact loads through the normal Loader path and stays portable

@@ -3,7 +3,9 @@
 
 use std::path::Path;
 use std::process::Command;
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc;
+use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
@@ -14,6 +16,40 @@ use caspar_vm_sdk::util::{emit_vm_error, panic_message, parse_vm_resource_limits
 use caspar_vm_sdk::{VmPlugin, VmPluginMeta};
 
 use crate::runtime::{global_managed_vms, terminate_managed_vm, ManagedVmHandle, WasmMac};
+
+/// Spawn a **cancellable** exec-timeout watchdog for one wasm run.
+///
+/// Returns a sender and the watchdog's join handle. Dropping (or sending on)
+/// the sender wakes the watchdog immediately, so a run that finishes in
+/// milliseconds reaps its watchdog at once instead of leaving a thread asleep
+/// for the full `timeout`. Only if the sender is still alive when `timeout`
+/// elapses — a genuinely runaway run — does the watchdog trip `stop_flag`
+/// (once) and invoke `on_timeout`.
+///
+/// This is the fix for the per-signal thread pile-up: a wasm signal spawns a
+/// fresh VM every time (no keep-alive), and the previous naked
+/// `thread::sleep(timeout)` watchdog stayed alive for the whole `timeout` after
+/// every run, so under sustained load ~`rate × timeout` watchdog threads were
+/// live at once — hundreds of MB of stacks, ending in thread/memory exhaustion.
+fn spawn_exec_watchdog(
+    stop_flag: Arc<AtomicBool>,
+    timeout: Duration,
+    on_timeout: impl FnOnce() + Send + 'static,
+) -> (mpsc::Sender<()>, thread::JoinHandle<()>) {
+    let (tx, rx) = mpsc::channel::<()>();
+    let handle = thread::spawn(move || {
+        // `Timeout` ⇒ the run is still going at the deadline (runaway); any
+        // other outcome (`Ok`/`Disconnected`) means the run completed and
+        // signalled/dropped the sender, so exit quietly without tripping stop.
+        if let Err(mpsc::RecvTimeoutError::Timeout) = rx.recv_timeout(timeout) {
+            // `swap` trips the flag exactly once; only the winner logs.
+            if !stop_flag.swap(true, Ordering::Relaxed) {
+                on_timeout();
+            }
+        }
+    });
+    (tx, handle)
+}
 
 pub struct WasmVmController {
     meta: VmPluginMeta,
@@ -88,21 +124,41 @@ impl VmPlugin for WasmVmController {
                         },
                     );
                 }
-                let stop_flag = rt.stop_flag();
+                // Cancellable exec-timeout watchdog. A wasm signal spawns a
+                // fresh VM every time (no keep-alive), so the watchdog must be
+                // woken the instant the run finishes — otherwise it lingers for
+                // the full `max_exec_time_secs` (default 60s) after a run that
+                // actually took milliseconds. Under sustained signalling that
+                // piled up ~one sleeping thread per invocation (rate × 60s live
+                // at once), leaking hundreds of MB of thread stacks until the
+                // node exhausted threads/memory and crashed.
+                //
+                // `recv_timeout` returns `Timeout` only if the run is still
+                // going at the deadline (a genuine runaway → trip the stop
+                // flag); when the run completes we drop `done_tx`, so the
+                // watchdog wakes immediately (`Disconnected`) and exits, and we
+                // join it so no thread is left detached.
                 let timeout_machine = machine_id.clone();
                 let timeout_vm = vm_id.clone();
-                thread::spawn(move || {
-                    thread::sleep(Duration::from_secs(limits.max_exec_time_secs));
-                    if !stop_flag.load(Ordering::Relaxed) {
-                        stop_flag.store(true, Ordering::Relaxed);
+                let timeout_secs = limits.max_exec_time_secs;
+                let (done_tx, watchdog) = spawn_exec_watchdog(
+                    rt.stop_flag(),
+                    Duration::from_secs(timeout_secs),
+                    move || {
                         log(format!(
                             "wasm vm timeout reached: machine={} vm={} limit={}s",
-                            timeout_machine, timeout_vm, limits.max_exec_time_secs
+                            timeout_machine, timeout_vm, timeout_secs
                         ));
-                    }
-                });
+                    },
+                );
                 let exec_res = rt.execute_on_update(inp1);
                 rt.finalize();
+                // Wake the watchdog now that the run is done, then reap it. On a
+                // panic in the run above, `catch_unwind` unwinds through here:
+                // `done_tx` still drops (waking the watchdog) and the join
+                // handle detaches, so the watchdog exits promptly either way.
+                drop(done_tx);
+                let _ = watchdog.join();
                 exec_res
             }));
 
@@ -266,4 +322,52 @@ fn run_local_build_script(script_path: &str) -> Result<(), String> {
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::AtomicBool;
+    use std::time::Instant;
+
+    // The core of the leak fix: a completed run must reap its watchdog at once
+    // (no lingering sleeping thread), and must not trip the stop flag.
+    #[test]
+    fn watchdog_wakes_immediately_when_the_run_completes() {
+        let stop = Arc::new(AtomicBool::new(false));
+        // A one-hour timeout — before the fix this thread would sleep the whole
+        // hour after the run finished.
+        let (done_tx, handle) =
+            spawn_exec_watchdog(stop.clone(), Duration::from_secs(3600), || {
+                panic!("timeout callback must not fire on normal completion");
+            });
+        drop(done_tx); // the run finished
+        let t = Instant::now();
+        handle.join().unwrap();
+        assert!(
+            t.elapsed() < Duration::from_secs(5),
+            "watchdog lingered after completion instead of waking immediately"
+        );
+        assert!(
+            !stop.load(Ordering::Relaxed),
+            "stop flag must not trip when the run completed in time"
+        );
+    }
+
+    // The watchdog must still kill a genuinely runaway run.
+    #[test]
+    fn watchdog_trips_stop_on_a_real_timeout() {
+        let stop = Arc::new(AtomicBool::new(false));
+        let fired = Arc::new(AtomicBool::new(false));
+        let fired_cb = fired.clone();
+        let (done_tx, handle) =
+            spawn_exec_watchdog(stop.clone(), Duration::from_millis(50), move || {
+                fired_cb.store(true, Ordering::Relaxed);
+            });
+        // Keep the sender alive past the deadline (simulating a hung run).
+        handle.join().unwrap();
+        assert!(stop.load(Ordering::Relaxed), "stop flag must trip on timeout");
+        assert!(fired.load(Ordering::Relaxed), "on_timeout must fire on timeout");
+        drop(done_tx);
+    }
 }
