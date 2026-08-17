@@ -52,6 +52,59 @@ fn normalize_entity_type(s: &str) -> String {
     s.trim().to_lowercase()
 }
 
+/// Resolve the machine that owns a program.
+///
+/// `Program::machine_id` is canonical for current state. Older/restored state can
+/// contain a damaged program row while still retaining the immutable
+/// `machinePrograms::<machine>::<program>` link written by `/programs/create` in
+/// the same transaction. In that case, use the link as a compatibility fallback.
+/// We deliberately fail closed when no linked owner exists or more than one
+/// linked machine is found.
+fn resolve_program_owner_machine(trx: &dyn ITrx, program: &Program) -> Creature {
+    let canonical = Creature {
+        id: program.machine_id.clone(),
+        ..Default::default()
+    }
+    .pull(trx);
+    if !canonical.owner_id.is_empty() {
+        return canonical;
+    }
+
+    let prefix = "machinePrograms::";
+    let suffix = format!("::{}", program.id);
+    let mut resolved: Option<Creature> = None;
+    let links = trx
+        .get_links_list(prefix, -1, -1, &[])
+        .unwrap_or_default();
+    for link in links {
+        let Some(machine_id) = link
+            .strip_prefix(prefix)
+            .and_then(|rest| rest.strip_suffix(&suffix))
+        else {
+            continue;
+        };
+        if machine_id.is_empty() {
+            continue;
+        }
+        let candidate = Creature {
+            id: machine_id.to_string(),
+            ..Default::default()
+        }
+        .pull(trx);
+        if candidate.owner_id.is_empty() {
+            continue;
+        }
+        if resolved
+            .as_ref()
+            .is_some_and(|existing| existing.id != candidate.id)
+        {
+            return Creature::default();
+        }
+        resolved = Some(candidate);
+    }
+    resolved.unwrap_or_default()
+}
+
 /// Execute a runtime plugin's stop plan against the current transaction:
 /// take the plan's terminate input and resolve every requested state link
 /// into it. With `strict`, a missing required link aborts the stop (used by
@@ -642,11 +695,7 @@ fn run_program_entity(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
             let entity_type = normalize_entity_type(&entity.entity_type);
             // A program owns itself: authorize against the recorded program owner
             // rather than the deprecated app_id parent pointer.
-            let owner_machine = Creature {
-                id: program.machine_id.clone(),
-                ..Default::default()
-            }
-            .pull(&*trx);
+            let owner_machine = resolve_program_owner_machine(&*trx, &program);
             if owner_machine.owner_id != state.info().user_id() {
                 return Err(anyhow!("you are not owner of this program"));
             }
@@ -803,11 +852,7 @@ fn stop_program_entity(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
             }
             let entity_type = normalize_entity_type(&entity.entity_type);
             // Authorize against the recorded program owner (no app_id).
-            let owner_machine = Creature {
-                id: program.machine_id.clone(),
-                ..Default::default()
-            }
-            .pull(&*trx);
+            let owner_machine = resolve_program_owner_machine(&*trx, &program);
             if owner_machine.owner_id != state.info().user_id() {
                 return Err(anyhow!("you are not owner of this program"));
             }
@@ -880,12 +925,8 @@ fn read_vm_logs(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
                     if program.id.is_empty() {
                         break;
                     }
-                    owner_user_id = Creature {
-                        id: program.machine_id.clone(),
-                        ..Default::default()
-                    }
-                    .pull(&*trx)
-                    .owner_id;
+                    owner_user_id =
+                        resolve_program_owner_machine(&*trx, &program).owner_id;
                     break;
                 }
             }
@@ -938,11 +979,7 @@ fn list_entity_vms(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
                 ..Default::default()
             }
             .pull(&*trx);
-            let owner_machine = Creature {
-                id: program.machine_id.clone(),
-                ..Default::default()
-            }
-            .pull(&*trx);
+            let owner_machine = resolve_program_owner_machine(&*trx, &program);
             if owner_machine.owner_id != state.info().user_id() {
                 return Err(anyhow!("you are not owner of this program"));
             }
@@ -1038,11 +1075,7 @@ fn open_vm_terminal(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
                 ..Default::default()
             }
             .pull(&*trx);
-            let owner_machine = Creature {
-                id: program.machine_id.clone(),
-                ..Default::default()
-            }
-            .pull(&*trx);
+            let owner_machine = resolve_program_owner_machine(&*trx, &program);
             if owner_machine.owner_id != state.info().user_id() {
                 return Err(anyhow!("you are not owner of this creature"));
             }
@@ -1075,11 +1108,7 @@ fn close_vm_terminal(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
                 ..Default::default()
             }
             .pull(&*trx);
-            let owner_machine = Creature {
-                id: program.machine_id.clone(),
-                ..Default::default()
-            }
-            .pull(&*trx);
+            let owner_machine = resolve_program_owner_machine(&*trx, &program);
             if owner_machine.owner_id != state.info().user_id() {
                 return Err(anyhow!("you are not owner of this creature"));
             }
@@ -1184,11 +1213,7 @@ fn deploy(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
             }
             .pull(&*trx);
             // Authorize against the recorded program owner (no app_id).
-            let owner_machine = Creature {
-                id: program.machine_id.clone(),
-                ..Default::default()
-            }
-            .pull(&*trx);
+            let owner_machine = resolve_program_owner_machine(&*trx, &program);
             if owner_machine.owner_id != state.info().user_id() {
                 return Err(anyhow!("access to vm denied"));
             }

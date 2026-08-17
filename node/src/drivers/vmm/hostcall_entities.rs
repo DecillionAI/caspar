@@ -225,9 +225,16 @@ impl Vmm {
                     .unwrap_or_else(|| Value::Object(Map::new()));
                 let id_owned = id.clone();
                 let machine_id_owned = machine_id.clone();
+                let create_error = Arc::new(Mutex::new(String::new()));
+                let create_error_for_state = create_error.clone();
                 self.app.modify_state(
                     false,
                     Box::new(move |t: &dyn ITrx| {
+                        if t.has_obj("Program", &id_owned) {
+                            *create_error_for_state.lock().unwrap() =
+                                "program already exists".to_string();
+                            return Ok(());
+                        }
                         let mut machine = Creature {
                             id: machine_id_owned.clone(),
                             ..Default::default()
@@ -259,6 +266,10 @@ impl Vmm {
                         Ok(())
                     }),
                 );
+                let error = create_error.lock().unwrap().clone();
+                if !error.is_empty() {
+                    return (json!({"ok": false, "error": error}).to_string(), req_id);
+                }
                 (
                     format!(
                         "{{\"ok\":true,\"programId\":\"{}\",\"machineId\":\"{}\"}}",
