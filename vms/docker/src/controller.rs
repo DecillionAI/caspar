@@ -433,6 +433,33 @@ impl DockerVmController {
         }))
     }
 
+    /// Inspect the concrete container backing a standalone program entity.
+    fn status_vm(&self, packet: &JsonValue) -> Result<JsonValue, String> {
+        let machine_id = packet["machineId"].as_str().unwrap_or("");
+        if machine_id.is_empty() {
+            return Err("machineId is required".to_string());
+        }
+        let entity_id = packet["entityId"]
+            .as_str()
+            .or_else(|| packet["imageName"].as_str())
+            .unwrap_or("main");
+        let container_name = packet["containerName"].as_str().unwrap_or("main");
+        let vm_id = packet["vmId"].as_str().unwrap_or("");
+        let container_id = docker_container_id(machine_id, entity_id, container_name, vm_id);
+        let status = self
+            .container_state(&container_id)?
+            .unwrap_or_else(|| "not-found".to_string());
+        Ok(json!({
+            "ok": true,
+            "runtime": "docker",
+            "machineId": machine_id,
+            "vmId": vm_id,
+            "containerId": container_id,
+            "status": status,
+            "running": status == "running",
+        }))
+    }
+
     fn exec_vm(&self, packet: &JsonValue) -> Result<JsonValue, String> {
         let machine_id = packet["machineId"].as_str().unwrap_or("");
         let identity = DockerIdentity::from_packet(packet);
@@ -852,6 +879,10 @@ impl VmPlugin for DockerVmPlugin {
 
     fn terminate_vm(&self, packet: &JsonValue) -> Result<JsonValue, String> {
         self.with_controller(|c| c.terminate_vm(packet))
+    }
+
+    fn status_vm(&self, packet: &JsonValue) -> Result<JsonValue, String> {
+        self.with_controller(|c| c.status_vm(packet))
     }
 
     fn exec_vm(&self, packet: &JsonValue) -> Result<JsonValue, String> {

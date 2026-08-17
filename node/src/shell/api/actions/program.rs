@@ -652,6 +652,10 @@ fn run_program_entity(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
             }
             let vm_id = Uuid::new_v4().to_string();
             trx.put_link(&format!("VmStatus::{}", vm_id), "running");
+            trx.put_link(
+                &format!("VmStartedAt::{}", vm_id),
+                &chrono::Utc::now().timestamp_millis().to_string(),
+            );
             // Bind a deterministic custom VM gateway route to this specific
             // instance when requested. The external URL stays fixed across
             // redeploys (keyed by the owning creature's username + path); only
@@ -809,6 +813,7 @@ fn stop_program_entity(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
             }
             let vm_id = input.vm_id.clone();
             trx.del_key(&format!("link::VmStatus::{}", vm_id));
+            trx.del_key(&format!("link::VmStartedAt::{}", vm_id));
             trx.del_key(&format!(
                 "link::VmInstance::{}::{}::{}",
                 program.id, input.entity_id, vm_id
@@ -834,6 +839,10 @@ fn stop_program_entity(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
             });
             let stop_input =
                 build_stop_input_from_plan(&app_for_handler, &*trx, &entity_type, &ctx, true)?;
+            trx.del_key(&format!(
+                "link::VmContainerName::{}::{}::{}",
+                program.id, input.entity_id, vm_id
+            ));
             let msg = json!({
                 "key": "terminateVm",
                 "input": stop_input,
@@ -903,6 +912,113 @@ fn read_vm_logs(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
                 count,
             );
             Ok(json!({"logs": logs}))
+        },
+    )
+}
+
+/// List the VM instances recorded for one program entity and ask its runtime
+/// plugin for the current process/container state.
+fn list_entity_vms(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
+    build_secure_action::<RunProgramEntityInput, _>(
+        app,
+        "/machines/listEntityVms",
+        user_guard(),
+        move |state: Arc<dyn IState>, input: RunProgramEntityInput| -> Result<Value> {
+            let trx = state.trx();
+            let program_id = if input.program_id.is_empty() {
+                input.machine_id.clone()
+            } else {
+                input.program_id.clone()
+            };
+            if !trx.has_obj("Program", &program_id) {
+                return Err(anyhow!("program does not exist"));
+            }
+            let program = Program {
+                id: program_id.clone(),
+                ..Default::default()
+            }
+            .pull(&*trx);
+            let owner_machine = Creature {
+                id: program.machine_id.clone(),
+                ..Default::default()
+            }
+            .pull(&*trx);
+            if owner_machine.owner_id != state.info().user_id() {
+                return Err(anyhow!("you are not owner of this program"));
+            }
+            let entity = Entity {
+                program_id: program.id.clone(),
+                entity_id: input.entity_id.clone(),
+                ..Default::default()
+            }
+            .pull(&*trx);
+            if entity.entity_id.is_empty() {
+                return Err(anyhow!("entity does not exist"));
+            }
+
+            let entity_type = normalize_entity_type(&entity.entity_type);
+            let plugin = caspar_vm_sdk::registry::get(&entity_type)
+                .ok_or_else(|| anyhow!("invalid entity type"))?;
+            let prefix = format!("VmInstance::{}::{}::", program.id, input.entity_id);
+            let links = trx.get_links_list(&prefix, -1, -1, &[]).unwrap_or_default();
+            let mut instances: Vec<Value> = Vec::new();
+
+            for link in links {
+                let vm_id = link.strip_prefix(&prefix).unwrap_or(&link).to_string();
+                if vm_id.is_empty() {
+                    continue;
+                }
+                let recorded_status = trx.get_link(&format!("VmStatus::{}", vm_id));
+                let started_at = trx
+                    .get_link(&format!("VmStartedAt::{}", vm_id))
+                    .parse::<i64>()
+                    .unwrap_or(0);
+                let container_name = trx.get_link(&format!(
+                    "VmContainerName::{}::{}::{}",
+                    program.id, input.entity_id, vm_id
+                ));
+                let probe = plugin.status_vm(&json!({
+                    "runtime": entity_type,
+                    "machineId": program.id,
+                    "programId": program.id,
+                    "entityId": input.entity_id,
+                    "vmId": vm_id,
+                    "containerName": container_name,
+                }));
+                let (status, running, detail) = match probe {
+                    Ok(value) => {
+                        let status = value["status"].as_str().unwrap_or("unknown").to_string();
+                        let running = value["running"].as_bool().unwrap_or(status == "running");
+                        (status, running, value)
+                    }
+                    Err(error) => (
+                        if recorded_status.is_empty() { "stopped" } else { "unknown" }.to_string(),
+                        false,
+                        json!({"error": error}),
+                    ),
+                };
+                instances.push(json!({
+                    "vmId": vm_id,
+                    "status": status,
+                    "running": running,
+                    "recordedStatus": recorded_status,
+                    "startedAt": started_at,
+                    "detail": detail,
+                }));
+            }
+
+            instances.sort_by(|a, b| {
+                b["startedAt"]
+                    .as_i64()
+                    .unwrap_or(0)
+                    .cmp(&a["startedAt"].as_i64().unwrap_or(0))
+            });
+            Ok(json!({
+                "programId": program.id,
+                "entityId": input.entity_id,
+                "runtime": entity_type,
+                "instances": instances,
+            }))
         },
     )
 }
@@ -1533,6 +1649,7 @@ pub fn install(app: Arc<dyn ICore>) {
         update_program(app.clone()),
         run_program_entity(app.clone()),
         stop_program_entity(app.clone()),
+        list_entity_vms(app.clone()),
         read_vm_logs(app.clone()),
         open_vm_terminal(app.clone()),
         close_vm_terminal(app.clone()),

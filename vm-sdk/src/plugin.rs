@@ -25,6 +25,17 @@ pub trait VmPlugin: Send + Sync {
     /// Stop a VM (suspend by default; runtimes may honour `purge`).
     fn terminate_vm(&self, packet: &Value) -> Result<Value, String>;
 
+    /// Inspect a VM without mutating it.
+    ///
+    /// Runtimes with an external process/container should override this and
+    /// return at least `{ status, running }`. The default keeps the program API
+    /// runtime-neutral while allowing runtimes without an inspect primitive to
+    /// report that their state is unknown.
+    fn status_vm(&self, packet: &Value) -> Result<Value, String> {
+        let _ = packet;
+        Ok(json!({"status": "unknown", "running": false}))
+    }
+
     /// Execute a command inside a running VM.
     fn exec_vm(&self, packet: &Value) -> Result<Value, String> {
         let _ = packet;
