@@ -25,7 +25,7 @@ on:
       wasmedge_version:
         description: 'WasmEdge runtime version to build/link against'
         required: false
-        default: '0.14.0'
+        default: '0.17.1'
         type: string
   # Rebuild automatically when the node's source changes on the default branch.
   # dist/ is intentionally NOT in these paths, so the artifact commit this
@@ -107,7 +107,7 @@ jobs:
 
       - name: Build dist/ for ${{ matrix.arch }} (node + keygen + casparctl)
         run: |
-          ./build-dist.sh --wasmedge-ver "${{ inputs.wasmedge_version || '0.14.0' }}"
+          ./build-dist.sh --wasmedge-ver "${{ inputs.wasmedge_version || '0.17.1' }}"
 
       - name: Verify all three binaries are ${{ matrix.arch }}
         run: |
