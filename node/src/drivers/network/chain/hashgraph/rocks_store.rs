@@ -78,7 +78,12 @@ impl RocksDbStore {
     /// `maintenance_mode` option deactivates writing to the persistent
     /// database, while still adding/updating the in-memory store.
     pub fn new(cache_size: i64, path: &str, maintenance_mode: bool) -> Result<RocksDbStore> {
-        let mut opts = Options::default();
+        // Bounded-memory options (capped open files + shared LRU block cache):
+        // the consensus DB gains an SST file on every decided round and is
+        // never pruned, so the default unlimited `max_open_files` pinned an
+        // ever-growing set of index/filter blocks in RAM. See
+        // `crate::drivers::rocks_tuning`.
+        let mut opts = crate::drivers::rocks_tuning::tuned_options();
         opts.create_if_missing(true);
         let db = DB::open(&opts, path)?;
 
@@ -336,7 +341,15 @@ impl Store for RocksDbStore {
     }
 
     fn get_frame(&self, rr: i64) -> Result<Frame> {
-        self.inmem_store.get_frame(rr)
+        // Frames are held in a small in-memory hot set (see
+        // `inmem_store::MAX_FRAME_CACHE`); on a miss fall back to the durable
+        // RocksDB copy written by `db_set_frame`. Without this fallback, evicting
+        // a frame from the cache would make it unreadable even though it is on
+        // disk. The DB read is not re-cached, so the hot set stays bounded.
+        match self.inmem_store.get_frame(rr) {
+            Ok(frame) => Ok(frame),
+            Err(_) => self.db_get_frame(rr),
+        }
     }
 
     fn get_peer_set(&self, round: i64) -> Result<Arc<PeerSet>> {

@@ -61,13 +61,16 @@ fn write_err(e: impl std::error::Error + 'static) -> StorageError<NodeId> {
 /// Open (or create) the cluster RocksDB with its column families.
 pub fn open_db(dir: &Path) -> anyhow::Result<Arc<DB>> {
     std::fs::create_dir_all(dir)?;
-    let mut opts = Options::default();
+    // Bounded-memory options + shared block cache (see
+    // `crate::drivers::rocks_tuning`) so the raft log/state DB can't grow
+    // resident memory without bound either.
+    let mut opts = crate::drivers::rocks_tuning::tuned_options();
     opts.create_missing_column_families(true);
     opts.create_if_missing(true);
     let cfs = vec![
-        ColumnFamilyDescriptor::new("meta", Options::default()),
-        ColumnFamilyDescriptor::new("logs", Options::default()),
-        ColumnFamilyDescriptor::new("sm", Options::default()),
+        ColumnFamilyDescriptor::new("meta", crate::drivers::rocks_tuning::tuned_options()),
+        ColumnFamilyDescriptor::new("logs", crate::drivers::rocks_tuning::tuned_options()),
+        ColumnFamilyDescriptor::new("sm", crate::drivers::rocks_tuning::tuned_options()),
     ];
     Ok(Arc::new(DB::open_cf_descriptors(&opts, dir, cfs)?))
 }
