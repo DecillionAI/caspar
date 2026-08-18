@@ -35,7 +35,11 @@ pub trait IGlobe: Send + Sync {
         reply_to: &str,
         store_id: &str,
         pay: Option<ChainPayPacket>,
-        callback: TypedMessageCallback,
+        // `None` for fire-and-forget sends that never expect a reply. A `Some`
+        // callback is registered one-shot and dropped the moment its reply is
+        // delivered; passing `None` avoids parking a callback that would never
+        // be reaped (the source of an unbounded `message_callbacks` leak).
+        callback: Option<TypedMessageCallback>,
     );
     #[allow(clippy::too_many_arguments)]
     fn exec_base_response_on_chain(

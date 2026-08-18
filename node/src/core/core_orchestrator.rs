@@ -334,12 +334,15 @@ impl Core {
                     packet.message_type = "vm.execute".to_string();
                 }
                 if !packet.reply_to.is_empty() {
+                    // One-shot: a reply delivers its callback exactly once, so
+                    // remove it here. Leaving it in the map (the old `get`) meant
+                    // every registered message callback lived for the life of the
+                    // node — an unbounded `message_callbacks` leak.
                     let cb = self
                         .message_callbacks
                         .lock()
                         .unwrap()
-                        .get(&packet.reply_to)
-                        .cloned();
+                        .remove(&packet.reply_to);
                     if let Some(cb) = cb {
                         (cb.fn_)(packet.key.clone(), packet.payload.clone());
                     }
@@ -422,7 +425,13 @@ impl Core {
                         return String::new();
                     }
                 };
-                {
+                // Only the submitting node holds a callback for its own base
+                // request (registered in `send_base_request_on_chain`) and
+                // reaps it below once it processes the committed request. On any
+                // other node this `or_insert_with` used to park a no-op callback
+                // that nothing ever removed — one leaked entry per base request
+                // routed through the node, unbounded over its lifetime.
+                if packet.submitter == self.id {
                     let mut cbs = self.callbacks.lock().unwrap();
                     cbs.entry(packet.request_id.clone())
                         .or_insert_with(|| Arc::new(ChainCallback {

@@ -172,17 +172,24 @@ impl IGlobe for Globe {
         reply_to: &str,
         store_id: &str,
         pay: Option<ChainPayPacket>,
-        callback: TypedMessageCallback,
+        callback: Option<TypedMessageCallback>,
     ) {
         let callback_id = secure_unique_string();
-        let cb_arc: Arc<dyn Fn(String, Vec<u8>) + Send + Sync> = Arc::from(callback);
-        (self.set_message_cb_fn)(
-            &callback_id,
-            MessageCallback {
-                id: callback_id.clone(),
-                fn_: cb_arc,
-            },
-        );
+        // Register a reply callback only when the caller actually wants one.
+        // Fire-and-forget sends pass `None`, so no entry is parked in
+        // `message_callbacks` — previously every send left a permanent entry
+        // there (it was never removed on delivery either), an unbounded leak on
+        // the on-chain messaging path.
+        if let Some(callback) = callback {
+            let cb_arc: Arc<dyn Fn(String, Vec<u8>) + Send + Sync> = Arc::from(callback);
+            (self.set_message_cb_fn)(
+                &callback_id,
+                MessageCallback {
+                    id: callback_id.clone(),
+                    fn_: cb_arc,
+                },
+            );
+        }
         let chain_id = if chain_id.is_empty() { "main" } else { chain_id };
         let msg = ChainMessage {
             key: key.to_string(),
