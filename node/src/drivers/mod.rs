@@ -15,6 +15,7 @@ pub mod cluster;
 pub mod file;
 pub mod network;
 pub mod ratelimit;
+pub mod rocks_tuning;
 pub mod security;
 pub mod signaler;
 pub mod storage;

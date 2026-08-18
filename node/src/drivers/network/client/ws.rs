@@ -451,8 +451,14 @@ impl Ws {
 
         let (tx, rx) = mpsc::channel::<OutboundFrame>();
         let socket = Socket::new(peer.clone(), tx);
-        if let Some((ip, _)) = peer.rsplit_once(':') {
-            self.sockets.insert(ip.to_string(), socket.clone());
+        // Register the connection under its source IP up front so an inbound
+        // signal can find a socket for an as-yet-unauthenticated peer. This
+        // entry MUST be torn down on disconnect even when the connection never
+        // authenticates (see the cleanup below) — otherwise every probe or
+        // pre-auth client leaks a stale `Arc<Socket>` for the life of the node.
+        let peer_key = socket.peer_ip();
+        if !peer_key.is_empty() {
+            self.sockets.insert(peer_key.clone(), socket.clone());
         }
 
         // Local frame queue + back-pressure flag. The protocol requires that
@@ -568,6 +574,18 @@ impl Ws {
         let _ = ws.close(None);
         socket.shutdown();
         let user_id = socket.user_id();
+        // Always drop the IP-keyed `sockets` entry this connection registered at
+        // accept time, before the unauthenticated early-return below. Only the
+        // deferred branch used to remove from `sockets`, and it only removed the
+        // user-id entry, so unauthenticated probes (and any connection from an IP
+        // that never logged in) leaked a stale `Arc<Socket>` for the life of the
+        // node. `remove_if` runs the predicate under the shard write lock, so the
+        // entry is dropped only when it still points at this socket (a fresh
+        // connection from the same IP may already have replaced it).
+        if !peer_key.is_empty() {
+            self.sockets
+                .remove_if(&peer_key, |_, current| Arc::ptr_eq(&socket, current));
+        }
         if user_id.is_empty() {
             return;
         }

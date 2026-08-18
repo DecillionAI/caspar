@@ -1,0 +1,2 @@
+# AOT compile artifacts produced by tests
+*.wasm.so

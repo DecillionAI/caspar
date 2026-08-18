@@ -29,6 +29,12 @@ use crate::shell::api::main_api::plug_all;
 use crate::shell::kasper::new_app;
 
 fn main() {
+    // Cap glibc's per-thread arena pool and keep freed pages returning to the
+    // OS. Must run before any worker thread is spawned (pprof/telemetry below
+    // both spawn), so glibc never grows past the cap. See
+    // `configure_allocator` for the leak this addresses.
+    configure_allocator();
+
     // .env loading: simple manual parser (skip dotenvy to avoid the extra
     // dependency — the file lives next to the binary in production).
     let _ = load_dotenv(".env");
@@ -235,11 +241,96 @@ fn main() {
     ports.insert("chain".to_string(), port_chain);
     app.tools().network().run(ports);
 
+    // Periodically hand freed heap pages back to the OS (see
+    // `configure_allocator`). Cheap once arenas are capped.
+    spawn_malloc_trimmer();
+
     // Block forever — background threads run the gossip / chain dispatch.
     loop {
         thread::sleep(Duration::from_secs(60 * 60));
     }
 }
+
+/// glibc allocator tuning to stop unbounded RSS growth under sustained load.
+///
+/// Every inbound wasm signal is executed on a freshly `thread::spawn`ed worker
+/// (plus a watchdog thread) — see `vms/wasm/src/controller.rs`. glibc's malloc
+/// gives each thread that contends for the main arena its own 64 MiB secondary
+/// arena, up to `8 * ncpu` of them by default (32 on a 4-core box ≈ 2 GiB).
+/// Those arenas are pooled and reused when the thread exits, but their resident
+/// pages are never returned once grown, and their trim threshold drifts upward
+/// after frees. The result is RSS that climbs monotonically over a day of
+/// signalling — the memory the process reported growing ~1.2 GiB over 12 h,
+/// even though the malloc heap itself (per massif) stays flat: the bytes are
+/// freed but retained by the allocator.
+///
+/// Two knobs fix it without touching the per-signal threading model:
+///   * `M_ARENA_MAX` caps the number of arenas so the pool can't balloon.
+///   * `M_TRIM_THRESHOLD` fixed low keeps top-of-heap trimming responsive
+///     instead of letting glibc raise the threshold after large frees.
+/// Combined with the periodic `malloc_trim` below, resident memory now tracks
+/// live allocations instead of the high-water mark.
+///
+/// Both are tunable via env (`CASPAR_MALLOC_ARENA_MAX`, default 2) so an
+/// operator can widen or disable the cap without a rebuild. glibc-only; a no-op
+/// on other libcs.
+#[cfg(all(target_os = "linux", target_env = "gnu"))]
+fn configure_allocator() {
+    // glibc mallopt parameter numbers (not exported by the libc crate on all
+    // versions, so spell them out — they are stable ABI).
+    const M_TRIM_THRESHOLD: libc::c_int = -1;
+    const M_ARENA_TEST: libc::c_int = -7;
+    const M_ARENA_MAX: libc::c_int = -8;
+
+    let arena_max: libc::c_int = env::var("CASPAR_MALLOC_ARENA_MAX")
+        .ok()
+        .and_then(|v| v.trim().parse().ok())
+        .unwrap_or(2);
+
+    unsafe {
+        if arena_max > 0 {
+            // Hard cap on the arena pool, plus the "start testing" threshold so
+            // glibc never provisions beyond the cap in the first place.
+            libc::mallopt(M_ARENA_MAX, arena_max);
+            libc::mallopt(M_ARENA_TEST, arena_max);
+        }
+        // Keep the main-arena trim threshold pinned low (128 KiB) so sbrk space
+        // is released promptly rather than after the threshold auto-grows.
+        libc::mallopt(M_TRIM_THRESHOLD, 128 * 1024);
+    }
+
+    eprintln!(
+        "[startup] allocator: M_ARENA_MAX={} (0 = unchanged), trim threshold pinned",
+        arena_max
+    );
+}
+
+#[cfg(not(all(target_os = "linux", target_env = "gnu")))]
+fn configure_allocator() {}
+
+/// Background thread that calls `malloc_trim(0)` on an interval, returning the
+/// freed tops of every (now capped) arena to the OS via `madvise`. Interval is
+/// `CASPAR_MALLOC_TRIM_SECS` (default 30); 0 disables it. glibc-only.
+#[cfg(all(target_os = "linux", target_env = "gnu"))]
+fn spawn_malloc_trimmer() {
+    let secs: u64 = env::var("CASPAR_MALLOC_TRIM_SECS")
+        .ok()
+        .and_then(|v| v.trim().parse().ok())
+        .unwrap_or(30);
+    if secs == 0 {
+        return;
+    }
+    thread::spawn(move || loop {
+        thread::sleep(Duration::from_secs(secs));
+        unsafe {
+            libc::malloc_trim(0);
+        }
+    });
+    eprintln!("[startup] allocator: malloc_trim every {}s", secs);
+}
+
+#[cfg(not(all(target_os = "linux", target_env = "gnu")))]
+fn spawn_malloc_trimmer() {}
 
 fn parse_owner_key(pem: &str) -> Option<rsa::RsaPrivateKey> {
     use rsa::pkcs8::DecodePrivateKey;

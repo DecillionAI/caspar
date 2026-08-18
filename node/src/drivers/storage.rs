@@ -15,7 +15,7 @@ use std::time::Duration;
 use anyhow::{anyhow, Result};
 use postgres::tls::NoTls;
 use r2d2_postgres::PostgresConnectionManager;
-use rocksdb::TransactionDB;
+use rocksdb::{TransactionDB, TransactionDBOptions};
 use uuid::Uuid;
 
 use crate::models::ports::storage::{IStorage, KvDb, TsDb};
@@ -45,8 +45,14 @@ impl Storage {
     ) -> Result<Arc<Storage>> {
         fs::create_dir_all(base_db_path)
             .map_err(|e| anyhow!("mkdir {}: {}", base_db_path, e))?;
+        // Bounded-memory options instead of `open_default`: this DB takes a
+        // write per signal and is never fully pruned, so the default unlimited
+        // `max_open_files` grew resident memory without bound as SST files
+        // accumulated. See `crate::drivers::rocks_tuning`.
+        let mut kv_opts = crate::drivers::rocks_tuning::tuned_options();
+        kv_opts.create_if_missing(true);
         let kvdb: Arc<TransactionDB> = Arc::new(
-            TransactionDB::open_default(base_db_path)
+            TransactionDB::open(&kv_opts, &TransactionDBOptions::default(), base_db_path)
                 .map_err(|e| anyhow!("open kvdb {}: {}", base_db_path, e))?,
         );
 

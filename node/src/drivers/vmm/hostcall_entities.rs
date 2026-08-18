@@ -910,7 +910,7 @@ impl Vmm {
                     "",
                     &store_id,
                     None,
-                    Box::new(|_, _| {}),
+                    None,
                 );
                 (format!("{{\"ok\":true,\"chainId\":\"{}\"}}", chain_id), req_id)
             }
@@ -949,7 +949,7 @@ impl Vmm {
                     "",
                     &store_id,
                     None,
-                    Box::new(|_, _| {}),
+                    None,
                 );
                 (
                     format!(
@@ -973,7 +973,7 @@ impl Vmm {
                     "",
                     &store_id,
                     None,
-                    Box::new(|_, _| {}),
+                    None,
                 );
                 (r#"{"ok":true,"notified":true}"#.into(), req_id)
             }
@@ -1679,7 +1679,7 @@ impl Vmm {
             &reply_to,
             &store_id,
             pay,
-            Box::new(|_, _| {}),
+            None,
         );
         ("{}".into(), req_id)
     }

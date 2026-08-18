@@ -5146,6 +5146,7 @@ dependencies = [
 [[package]]
 name = "wasmedge-macro"
 version = "0.6.1"
+source = "git+https://github.com/WasmEdge/wasmedge-rust-sdk?rev=3e7d3bf9ad1e0ee5324c05a9e3ba9ce596fd3c59#3e7d3bf9ad1e0ee5324c05a9e3ba9ce596fd3c59"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -5154,7 +5155,8 @@ dependencies = [
 
 [[package]]
 name = "wasmedge-sys"
-version = "0.19.4"
+version = "0.20.0"
+source = "git+https://github.com/WasmEdge/wasmedge-rust-sdk?rev=3e7d3bf9ad1e0ee5324c05a9e3ba9ce596fd3c59#3e7d3bf9ad1e0ee5324c05a9e3ba9ce596fd3c59"
 dependencies = [
  "bindgen 0.69.5",
  "cfg-if",
@@ -5181,6 +5183,7 @@ dependencies = [
 [[package]]
 name = "wasmedge-types"
 version = "0.6.0"
+source = "git+https://github.com/WasmEdge/wasmedge-rust-sdk?rev=3e7d3bf9ad1e0ee5324c05a9e3ba9ce596fd3c59#3e7d3bf9ad1e0ee5324c05a9e3ba9ce596fd3c59"
 dependencies = [
  "thiserror 1.0.69",
  "wat",
