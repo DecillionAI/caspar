@@ -404,10 +404,33 @@ fn check_requirements(repo: &Path) -> Result<()> {
     if !node_bin.exists() && !built_bin.exists() {
         bail!("caspar-node binary not found (dist/bin/caspar-node or node/target/release/caspar-node)");
     }
-    if !repo.join("dist/lib/wasmedge/libwasmedge.so.0").exists()
-        && !repo.join("dist/lib/wasmedge/libwasmedge.so").exists()
     {
-        bail!("bundled WasmEdge library not found under dist/lib/wasmedge");
+        let wasmedge_dir = repo.join("dist/lib/wasmedge");
+        let link = wasmedge_dir.join("libwasmedge.so.0");
+        let lib = if link.exists() {
+            link
+        } else if wasmedge_dir.join("libwasmedge.so").exists() {
+            wasmedge_dir.join("libwasmedge.so")
+        } else {
+            bail!("bundled WasmEdge library not found under dist/lib/wasmedge");
+        };
+        // The real .so is stored in Git LFS. Follow the symlink to the object
+        // and confirm it is a genuine ELF library, not an unresolved LFS
+        // pointer (the repo was cloned/pulled without Git LFS). Otherwise the
+        // node fails at dlopen with a cryptic error.
+        let real = fs::canonicalize(&lib).unwrap_or(lib);
+        let mut head = [0u8; 4];
+        if let Ok(mut f) = fs::File::open(&real) {
+            use std::io::Read;
+            let _ = f.read(&mut head);
+        }
+        if head != *b"\x7fELF" {
+            bail!(
+                "WasmEdge library at {} is not a valid ELF object — it looks like an \
+unresolved Git LFS pointer. Install Git LFS and fetch it:\n  git lfs install && git lfs pull",
+                real.display()
+            );
+        }
     }
     if !repo.join("dist/bin/caspar-keygen").exists() {
         bail!("caspar-keygen not found at dist/bin/caspar-keygen");

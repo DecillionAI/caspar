@@ -1343,6 +1343,16 @@ local_start_node() {
   fi
   # Ensure dist/lib/wasmedge is on the dynamic linker path so libwasmedge.so.0 is found.
   local wasmedge_lib_dir="$REPO_DIR/dist/lib/wasmedge"
+  # The real libwasmedge.so is stored in Git LFS; if the repo was cloned/pulled
+  # without Git LFS the symlink resolves to a tiny LFS pointer and the node
+  # fails at dlopen. Detect that early and print a clear fix.
+  local _wasmedge_real
+  _wasmedge_real="$(readlink -f "$wasmedge_lib_dir/libwasmedge.so.0" 2>/dev/null || true)"
+  if [[ -n "$_wasmedge_real" && "$(head -c 4 "$_wasmedge_real" 2>/dev/null)" != $'\x7fELF' ]]; then
+    echo "ERROR: $_wasmedge_real is not a valid ELF library (unresolved Git LFS pointer)." >&2
+    echo "       Install Git LFS and fetch it:  git lfs install && git lfs pull" >&2
+    exit 1
+  fi
   local launch_ld_path="${wasmedge_lib_dir}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
   # Override the /app/data container paths with per-node host paths, and point
   # SHARDCHAIN_SCRIPT at the in-repo copy (the node defaults to the Docker path

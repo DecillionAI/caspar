@@ -34,9 +34,17 @@ RUN apt-get update -y && apt-get install -y --no-install-recommends \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # ─── WasmEdge runtime library (pre-built, from dist/lib/wasmedge/) ──────────
+# The real libwasmedge.so is stored in Git LFS. The build context must be a
+# checkout with LFS objects fetched (git lfs pull); otherwise the copied file
+# is a small LFS pointer and the node fails at dlopen.
 COPY dist/lib/wasmedge/ /usr/local/lib/wasmedge/
 
-RUN echo "/usr/local/lib/wasmedge" > /etc/ld.so.conf.d/wasmedge.conf \
+RUN real="$(readlink -f /usr/local/lib/wasmedge/libwasmedge.so.0)" \
+ && if [ "$(head -c 4 "$real" | od -An -tx1 | tr -d ' \n')" != "7f454c46" ]; then \
+        echo "ERROR: $real is not an ELF library — the build context has an unresolved Git LFS pointer. Run 'git lfs install && git lfs pull' before building." >&2; \
+        exit 1; \
+    fi \
+ && echo "/usr/local/lib/wasmedge" > /etc/ld.so.conf.d/wasmedge.conf \
  && ldconfig
 
 ENV LD_LIBRARY_PATH="/usr/local/lib/wasmedge"
