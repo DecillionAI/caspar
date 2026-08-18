@@ -243,5 +243,13 @@ input_impls! {
     SignalInput => "",
     UpdateProgramInput => "global",
     VmTerminalInput => "global",
-    RunProgramEntityInput => "global",
+    // VM lifecycle (run / stop / list instances — all `RunProgramEntityInput`)
+    // is per-node routing, not global state. Origin "" routes it through the
+    // local execution path (`modify_state_securly` → direct storage commit /
+    // raft in cluster mode), and federation to the owning node when remote —
+    // instead of a babble consensus round per invocation. The creature's own
+    // execution writes already take the local path (`app.modify_state` in the
+    // vmm host calls); only this invocation wrapper was needlessly on-chain.
+    // Token charging stays on-chain via `charge_running_standalone_vms`.
+    RunProgramEntityInput => "",
 }
