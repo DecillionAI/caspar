@@ -7,3 +7,10 @@
 *.md    text eol=lf
 *.yml   text eol=lf
 *.yaml  text eol=lf
+
+# WasmEdge runtime shared libraries are large prebuilt binaries (>100 MB with
+# the LLVM AOT backend at 0.17+), which exceeds GitHub's per-file limit. Store
+# them via Git LFS. Matches the real versioned objects (libwasmedge.so.0.1.1),
+# not the tiny symlinks (libwasmedge.so, libwasmedge.so.0), which git-lfs skips.
+dist/lib/wasmedge/libwasmedge.so.*.* filter=lfs diff=lfs merge=lfs -text
+dist/arm64/lib/wasmedge/libwasmedge.so.*.* filter=lfs diff=lfs merge=lfs -text

@@ -144,6 +144,10 @@ jobs:
         with:
           ref: ${{ github.ref_name }}
           token: ${{ secrets.GITHUB_TOKEN }}
+          # The WasmEdge libs under dist/ are Git LFS objects; fetch them and
+          # set up the LFS filters so the commit/push below stores the rebuilt
+          # libs as LFS objects rather than 100 MB+ blobs GitHub rejects.
+          lfs: true
 
       - name: Download built artifacts
         uses: actions/download-artifact@v4
@@ -184,6 +188,11 @@ jobs:
           set -euo pipefail
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          # Ensure the LFS clean filter is active so the large WasmEdge libs
+          # (dist/**/libwasmedge.so.*.*, matched by .gitattributes) are staged
+          # as LFS pointers and their objects pushed to LFS storage.
+          git lfs install --local
 
           git add dist/
 
