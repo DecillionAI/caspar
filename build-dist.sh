@@ -12,7 +12,7 @@
 # Options:
 #   --skip-node      Skip cargo build for caspar-node/keygen (use existing binary)
 #   --skip-ctl       Skip cargo build for casparctl
-#   --wasmedge-ver V Override WasmEdge version to install (default: 0.14.0)
+#   --wasmedge-ver V Override WasmEdge version to install (default: 0.17.1)
 #   --disable-vm K   Disable a VM plugin for this node build (repeatable, or
 #                    comma-separated keys). Equivalent to `casparctl vms disable`.
 #   --enable-vm K    Re-enable a previously disabled VM plugin (repeatable).
@@ -28,7 +28,7 @@ REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 NODE_DIR="$REPO_DIR/node"
 CTL_DIR="$REPO_DIR/cmd/casparctl"
 DIST_DIR="$REPO_DIR/dist"
-WASMEDGE_VERSION="0.14.0"
+WASMEDGE_VERSION="0.17.1"
 WASMEDGE_HOME="${WASMEDGE_HOME:-$HOME/.wasmedge}"
 QUESTDB_VERSION="8.3.1"
 
