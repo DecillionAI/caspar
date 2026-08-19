@@ -64,6 +64,25 @@ fn frame_key(index: i64) -> String {
     format!("{}_{:09}", FRAME_PREFIX, index)
 }
 
+/// How many recent frames to keep on disk. Babble writes a frame per decided
+/// round and never removes them, so the store otherwise grows without bound
+/// (each frame is a full round snapshot — the single biggest consumer, and the
+/// main driver of the data-dir bloat that fills the box). A pruned frame is
+/// recomputed from the retained events/rounds on the rare miss (see
+/// `Hashgraph::get_frame`), so trimming old ones is safe. Env-tunable.
+fn frame_retention_rounds() -> i64 {
+    std::env::var("CASPAR_BABBLE_FRAME_RETENTION")
+        .ok()
+        .and_then(|v| v.trim().parse::<i64>().ok())
+        .filter(|&n| n > 0)
+        .unwrap_or(4096)
+}
+
+/// Prune frames older than the retention window every this many rounds — a
+/// range delete is one tombstone, so an infrequent cadence keeps read
+/// amplification negligible while still cleaning up any existing backlog.
+const FRAME_PRUNE_EVERY_ROUNDS: i64 = 128;
+
 /// Contains references to the RocksDB database and the in-memory store. When
 /// `maintenance_mode` is active, data is written only to the caches.
 pub struct RocksDbStore {
@@ -311,6 +330,20 @@ impl RocksDbStore {
         let key = frame_key(frame.round);
         let val = frame.marshal()?;
         self.db.put(key.as_bytes(), val)?;
+        // Bound on-disk frame growth: periodically range-delete frames older than
+        // the retention window. `frame_key` is zero-padded and `frame` sorts
+        // between `block` and `round`, so this range only ever contains frame
+        // keys with round < cutoff. Range-delete cleans the whole backlog (not
+        // just one round), which is what reclaims a data-dir already bloated by
+        // old frames. Pruned frames recompute on the rare miss.
+        if frame.round > 0 && frame.round % FRAME_PRUNE_EVERY_ROUNDS == 0 {
+            let cutoff = frame.round - frame_retention_rounds();
+            if cutoff > 0 {
+                let mut batch = WriteBatch::default();
+                batch.delete_range(frame_key(0).as_bytes(), frame_key(cutoff).as_bytes());
+                let _ = self.db.write(batch);
+            }
+        }
         Ok(())
     }
 }

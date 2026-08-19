@@ -259,7 +259,18 @@ impl Blockchain {
         let mut engine = Babble::new(arc_config);
         let transport = self.trans.lock().unwrap().clone();
         if let Err(e) = engine.init(transport, &wchain.id, chain_id, None) {
-            eprintln!("babble init {}/{}: {}", wchain.id, chain_id, e);
+            // A consensus engine that fails to init (e.g. babble's RocksDB store
+            // can't be created on a full disk) is fatal: the node would keep
+            // serving reads/signals while every consensus write — creature
+            // deploy, metering — hangs forever, a silent brick that no health
+            // check catches. Exit instead so the supervisor / casparctl restarts
+            // the node; once the underlying cause (disk) clears, the store init
+            // succeeds on the next start.
+            eprintln!(
+                "FATAL: babble consensus init failed for {}/{}: {} — exiting so the node is restarted rather than run with dead consensus",
+                wchain.id, chain_id, e
+            );
+            std::process::exit(1);
         }
         // Independent, lock-free-of-the-engine peer-host cache. Seed it with the
         // engine's current peer set and hand a clone to the consensus core so
