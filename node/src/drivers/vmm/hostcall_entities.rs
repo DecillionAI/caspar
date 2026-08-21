@@ -112,7 +112,13 @@ impl Vmm {
                 (format!("{{\"ok\":true,\"id\":\"{}\"}}", id), req_id)
             }
             "delete" => {
-                let id = check_str(input, "id", "");
+                let mut id = check_str(input, "id", "");
+                if id.is_empty() {
+                    id = check_str(input, "creatureId", "");
+                }
+                if id.is_empty() {
+                    id = check_str(input, "userId", "");
+                }
                 if id.is_empty() {
                     return (r#"{"ok":false,"error":"id is required"}"#.into(), req_id);
                 }
@@ -127,6 +133,38 @@ impl Vmm {
                         .pull(t);
                         if !c.username.is_empty() {
                             t.del_index("Creature", "username", "id", &c.username);
+                        }
+                        let email = t.get_link(&format!("UserIdToEmail::{}", id_owned));
+                        if !email.is_empty() {
+                            t.del_key(&format!("link::UserEmailToId::{}", email));
+                        }
+                        t.del_key(&format!("link::UserIdToEmail::{}", id_owned));
+                        t.del_key(&format!("link::UserPrivateKey::{}", id_owned));
+                        let stores = Store::list(
+                            t,
+                            &format!("hasaccess::{}::", id_owned),
+                            false,
+                            &HashMap::new(),
+                            &HashMap::new(),
+                            -1,
+                            -1,
+                        )
+                        .unwrap_or_default();
+                        for store in stores {
+                            t.del_key(&format!("link::onaccess::{}::{}", store.id, id_owned));
+                            t.del_key(&format!("link::hasaccess::{}::{}", id_owned, store.id));
+                            t.del_key(&format!("link::creatorof::{}::{}", id_owned, store.id));
+                            let prefix = format!("onaccess::{}::", store.id);
+                            let remaining =
+                                t.get_links_list(&prefix, -1, -1, &[]).unwrap_or_default();
+                            let others = remaining.iter().any(|k| {
+                                let member = k.strip_prefix(&prefix).unwrap_or(k);
+                                !member.is_empty() && member != id_owned
+                            });
+                            if !others {
+                                store.delete(t);
+                                t.del_key(&format!("Json::StoreMeta::{}::metadata", store.id));
+                            }
                         }
                         for col in [
                             "|",
