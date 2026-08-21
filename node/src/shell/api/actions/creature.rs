@@ -1060,18 +1060,23 @@ fn login(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
                     ..Default::default()
                 }
                 .pull(&*trx);
-                let session_id = trx.get_index("Session", "userId", "id", &user.id);
-                let session = Session {
-                    id: session_id,
-                    ..Default::default()
+                if !user.id.is_empty() {
+                    let session_id = trx.get_index("Session", "userId", "id", &user.id);
+                    let session = Session {
+                        id: session_id,
+                        ..Default::default()
+                    }
+                    .pull(&*trx);
+                    let private_key = trx.get_link(&format!("UserPrivateKey::{}", user.id));
+                    return Ok(serde_json::to_value(LoginOutput {
+                        user,
+                        session,
+                        private_key,
+                    })?);
                 }
-                .pull(&*trx);
-                let private_key = trx.get_link(&format!("UserPrivateKey::{}", user.id));
-                return Ok(serde_json::to_value(LoginOutput {
-                    user,
-                    session,
-                    private_key,
-                })?);
+                // Stale email link (creature was deleted but UserEmailToId was
+                // not). Drop it so this login mints a new identity.
+                trx.del_key(&format!("link::UserEmailToId::{}", email));
             }
             let expected_username = format!("{}@{}", input.username, app_for_handler.id());
             if trx.has_index("Creature", "username", "id", &expected_username) {
@@ -1151,23 +1156,25 @@ fn delete(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
             .unwrap_or_default();
             for store in &store_list {
                 trx.del_key(&format!("link::onaccess::{}::{}", store.id, input.user_id));
+                trx.del_key(&format!("link::hasaccess::{}::{}", input.user_id, store.id));
+                trx.del_key(&format!("link::creatorof::{}::{}", input.user_id, store.id));
+                let prefix = format!("onaccess::{}::", store.id);
+                let remaining = trx
+                    .get_links_list(&prefix, -1, -1, &[])
+                    .unwrap_or_default();
+                let others = remaining.iter().any(|k| {
+                    let member = k.strip_prefix(&prefix).unwrap_or(k);
+                    !member.is_empty() && member != input.user_id
+                });
+                if !others {
+                    store.delete(&*trx);
+                }
             }
-            let created_store_list = Store::list(
-                &*trx,
-                &format!("creatorof::{}::", input.user_id),
-                false,
-                &HashMap::new(),
-                &HashMap::new(),
-                -1,
-                -1,
-            )
-            .unwrap_or_default();
-            for store in &created_store_list {
-                store.delete(&*trx);
-            }
-            trx.del_key(&format!("link::UserIdToEmail::{}", input.user_id));
             let email = trx.get_link(&format!("UserIdToEmail::{}", input.user_id));
-            trx.del_key(&format!("link::UserEmailToId::{}", email));
+            trx.del_key(&format!("link::UserIdToEmail::{}", input.user_id));
+            if !email.is_empty() {
+                trx.del_key(&format!("link::UserEmailToId::{}", email));
+            }
             trx.del_key(&format!("link::UserPrivateKey::{}", input.user_id));
             Ok(json!({}))
         },
