@@ -1,4 +1,7 @@
 machines/docker/appbox/src/credentials.json
+.DS_Store
+*.code-workspace
+
 # Rust build artifacts
 target/
 **/target/
