@@ -72,6 +72,9 @@ fn as_i64(raw: &Value) -> Option<i64> {
 // `machine` (a non-human being that can own programs). Registration is
 // idempotent and runs in the install (bootstrap) phase of the shell API.
 
+const DEFAULT_CREATURE_INITIAL_BALANCE: i64 = 0;
+const LEGACY_HUMAN_INITIAL_BALANCE: i64 = 1_000_000_000_000_000;
+
 fn creature_type_key(name: &str) -> String {
     format!("Json::CreatureType::{}", name)
 }
@@ -95,6 +98,31 @@ fn register_creature_type_if_absent(trx: &dyn ITrx, name: &str, spec: Value) {
     }
 }
 
+/// Replace the old built-in human grant without overwriting a host-defined
+/// balance. Nodes that already installed the human type otherwise retain the
+/// legacy value forever because built-in type registration is idempotent.
+fn migrate_legacy_human_balance(trx: &dyn ITrx) {
+    let Some(mut spec) = get_creature_type(trx, "human") else {
+        return;
+    };
+    if spec.get("initialBalance").and_then(Value::as_i64)
+        != Some(LEGACY_HUMAN_INITIAL_BALANCE)
+    {
+        return;
+    }
+
+    spec.insert(
+        "initialBalance".to_string(),
+        json!(DEFAULT_CREATURE_INITIAL_BALANCE),
+    );
+    let _ = trx.put_json(
+        &creature_type_key("human"),
+        "spec",
+        &Value::Object(spec),
+        false,
+    );
+}
+
 /// Idempotently register the built-in creature types. Safe to call from every
 /// namespace's `install()` — the host can register additional custom types the
 /// same way.
@@ -106,7 +134,7 @@ pub fn install_creature_types(app: Arc<dyn ICore>) {
                 trx,
                 "human",
                 json!({
-                    "initialBalance": 0i64,
+                    "initialBalance": DEFAULT_CREATURE_INITIAL_BALANCE,
                     "customFields": [],
                     "desc": "The primary human being on the network."
                 }),
@@ -115,11 +143,12 @@ pub fn install_creature_types(app: Arc<dyn ICore>) {
                 trx,
                 "machine",
                 json!({
-                    "initialBalance": 0i64,
+                    "initialBalance": DEFAULT_CREATURE_INITIAL_BALANCE,
                     "customFields": [],
                     "desc": "A non-human being that can own programs."
                 }),
             );
+            migrate_legacy_human_balance(trx);
             Ok(())
         }),
     );
@@ -132,8 +161,7 @@ fn resolve_initial_balance(trx: &dyn ITrx, creature_type: &str) -> Result<i64> {
     match get_creature_type(trx, creature_type) {
         Some(spec) => Ok(spec.get("initialBalance").and_then(|v| v.as_i64()).unwrap_or(0)),
         None => match creature_type {
-            "human" => Ok(0),
-            "machine" => Ok(0),
+            "human" | "machine" => Ok(DEFAULT_CREATURE_INITIAL_BALANCE),
             other => Err(anyhow!("unknown creature type: {}", other)),
         },
     }
