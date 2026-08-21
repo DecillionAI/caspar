@@ -51,13 +51,16 @@ created before install runs, still works); unknown types are rejected.
 Registered idempotently in the shell API's **install (bootstrap) phase**
 (`install_creature_types`, called from a namespace's `install()`):
 
-- **`human`** — the primary being. `initialBalance = 1e15`.
+- **`human`** — the primary being. `initialBalance = 0`.
 - **`machine`** — a non-human being that owns programs. `initialBalance = 0`.
   ("Machines" in the program/deploy API are exactly the creatures of type
   `machine`; `/machines/list` filters creatures by `type == "machine"`.)
 
 Registration is *register-if-absent*, so it is safe to run from every
 namespace's install and to add further host-defined types the same way.
+During install, nodes created with the former `human` default of `1e15` migrate
+that legacy type spec to zero. Other host-defined initial balances are left
+unchanged.
 
 ### Inspecting the registry
 
