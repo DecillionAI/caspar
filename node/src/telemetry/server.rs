@@ -36,6 +36,12 @@ pub struct Snapshot {
     pub validators: HashMap<String, Value>,
     pub staking: HashMap<String, Value>,
     pub election: HashMap<String, Value>,
+    /// Host CPU / memory / disk sampled straight from the machine (see
+    /// `telemetry::resources`). Present whether the node runs in Docker or as a
+    /// bare process, so `casparctl stats` and the admin panel show resource
+    /// usage with no Docker dependency.
+    #[serde(default)]
+    pub resources: HashMap<String, Value>,
 }
 
 /// Telemetry server state.
@@ -49,6 +55,8 @@ pub struct TelemetryServer {
     entity_port: String,
     vm_port: String,
     telemetry_port: String,
+    storage_root: String,
+    resources: crate::telemetry::resources::ResourceSampler,
     lock: Mutex<()>,
 }
 
@@ -77,6 +85,8 @@ pub fn start_from_env() -> Result<()> {
         entity_port: env::var("ENTITY_API_PORT").unwrap_or_default(),
         vm_port: env::var("VM_API_PORT").unwrap_or_default(),
         telemetry_port: env_or("TELEMETRY_API_PORT", "9099"),
+        storage_root: env::var("STORAGE_ROOT_PATH").unwrap_or_default(),
+        resources: crate::telemetry::resources::ResourceSampler::new(),
         lock: Mutex::new(()),
     });
 
@@ -225,6 +235,7 @@ impl TelemetryServer {
                 "round" => json!(0),
                 "status" => json!("unknown"),
             },
+            resources: self.resources.collect(&self.storage_root),
         }
     }
 }

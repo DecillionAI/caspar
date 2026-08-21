@@ -12,6 +12,7 @@
 //! pulling in axum/hyper.
 
 pub mod pprof;
+pub mod resources;
 pub mod server;
 
 pub use server::{start_from_env, Snapshot, TelemetryServer};

@@ -130,6 +130,8 @@ struct TelemetrySnapshot {
     staking: HashMap<String, Value>,
     #[serde(default)]
     election: HashMap<String, Value>,
+    #[serde(default)]
+    resources: HashMap<String, Value>,
 }
 
 // ───────────────────────── Entry point + dispatch ─────────────────────────
@@ -596,25 +598,35 @@ fn run_stats(args: &[String]) -> Result<()> {
     let mut cpu_history: Vec<f64> = Vec::with_capacity(TREND_MAX_POINTS);
 
     let render = |cpu_history: &mut Vec<f64>| -> Result<()> {
-        let inspect = get_inspect_info(&name)?;
+        let inspect = get_inspect_info(&name).unwrap_or_default();
         let (stats, stats_err) = match get_container_stats(&name) {
             Ok(s) => (Some(s), None),
             Err(e) => (None, Some(e.to_string())),
         };
-        if let Some(s) = &stats {
-            if let Some(cpu) = parse_percent(&s.cpu_perc) {
-                cpu_history.push(cpu);
-                if cpu_history.len() > TREND_MAX_POINTS {
-                    let cut = cpu_history.len() - TREND_MAX_POINTS;
-                    cpu_history.drain(..cut);
-                }
-            }
-        }
         let logs = get_container_logs(&name, log_lines).unwrap_or_else(|_| vec![]);
         let (telemetry, telemetry_err) = match get_telemetry_snapshot() {
             Ok(t) => (Some(t), None),
             Err(e) => (None, Some(e.to_string())),
         };
+        // Feed the CPU trend from the container stats when running under Docker,
+        // otherwise from the node's host CPU in telemetry — so the sparkline
+        // works in non-Docker mode too.
+        let cpu_point = stats
+            .as_ref()
+            .and_then(|s| parse_percent(&s.cpu_perc))
+            .or_else(|| {
+                telemetry
+                    .as_ref()
+                    .and_then(|t| t.resources.get("cpu_percent"))
+                    .and_then(|v| v.as_f64())
+            });
+        if let Some(cpu) = cpu_point {
+            cpu_history.push(cpu);
+            if cpu_history.len() > TREND_MAX_POINTS {
+                let cut = cpu_history.len() - TREND_MAX_POINTS;
+                cpu_history.drain(..cut);
+            }
+        }
         render_dashboard(
             &inspect,
             stats.as_ref(),
@@ -833,15 +845,21 @@ fn render_dashboard(
             format!("Restart count: {}", info.restart_count),
         ],
     );
+    let trend = render_sparkline(cpu_history);
     if let Some(err) = stats_err {
+        // Non-Docker mode (bare `casparctl run`): container-level stats are not
+        // available, but the node reports host CPU / RAM / disk in its telemetry
+        // snapshot, so resource usage is shown below in HOST RESOURCES anyway.
         print_section(
-            "RESOURCE STATS",
-            &[format!("Stats unavailable: {}", err)],
+            "RESOURCE STATS (CONTAINER)",
+            &[
+                format!("Container stats unavailable: {}", err),
+                "Node is not running under Docker — see HOST RESOURCES below.".to_string(),
+            ],
         );
     } else if let Some(s) = stats {
-        let trend = render_sparkline(cpu_history);
         print_section(
-            "RESOURCE STATS",
+            "RESOURCE STATS (CONTAINER)",
             &[
                 format!(
                     "CPU: {}   MEM: {} ({})",
@@ -850,10 +868,13 @@ fn render_dashboard(
                 format!("NET I/O: {}", s.net_io),
                 format!("BLOCK I/O: {}", s.block_io),
                 format!("PIDs: {}", s.pids),
-                format!("CPU trend: {}", trend),
             ],
         );
     }
+    // HOST RESOURCES — the node's own machine CPU / RAM / disk, from telemetry.
+    // Works in Docker and non-Docker mode alike (point in the task brief), and
+    // carries the CPU sparkline so a trend is always shown.
+    print_section("HOST RESOURCES", &host_resource_lines(telemetry, &trend));
     print_section("PORT MAPPINGS", &info.ports);
     if let Some(err) = telemetry_err {
         print_section(
@@ -956,6 +977,84 @@ fn chain_stats_lines(t: Option<&TelemetrySnapshot>) -> Vec<String> {
         lines.push("(no chain data)".to_string());
     }
     lines
+}
+
+/// Host CPU / memory / disk lines from the telemetry snapshot's `resources`
+/// map (collected by the node from `/proc` + `statvfs`, so it is present in both
+/// Docker and bare-process runs). Renders a placeholder when the running node is
+/// too old to report resources yet.
+fn host_resource_lines(t: Option<&TelemetrySnapshot>, cpu_trend: &str) -> Vec<String> {
+    let Some(t) = t else {
+        return vec!["(no telemetry)".to_string()];
+    };
+    let r = &t.resources;
+    if r.is_empty() {
+        return vec!["(node not reporting host resources — telemetry too old)".to_string()];
+    }
+    let num = |k: &str| -> Option<f64> { r.get(k).and_then(|v| v.as_f64()) };
+    let mut lines = Vec::new();
+
+    let cpu = num("cpu_percent");
+    let cores = num("cpu_cores");
+    lines.push(format!(
+        "CPU: {}   Cores: {}   Trend: {}",
+        cpu.map(|v| format!("{:.1}%", v)).unwrap_or_else(|| "n/a".into()),
+        cores.map(|v| format!("{}", v as u64)).unwrap_or_else(|| "?".into()),
+        cpu_trend,
+    ));
+    if let (Some(l1), Some(l5), Some(l15)) =
+        (num("load_avg_1m"), num("load_avg_5m"), num("load_avg_15m"))
+    {
+        lines.push(format!("Load avg: {:.2}  {:.2}  {:.2}  (1m/5m/15m)", l1, l5, l15));
+    }
+    if let (Some(used), Some(total)) = (num("mem_used_bytes"), num("mem_total_bytes")) {
+        lines.push(format!(
+            "MEM: {} / {} ({})",
+            human_bytes(used),
+            human_bytes(total),
+            num("mem_used_percent")
+                .map(|v| format!("{:.1}%", v))
+                .unwrap_or_else(|| "?".into()),
+        ));
+    }
+    if let (Some(used), Some(total)) = (num("disk_used_bytes"), num("disk_total_bytes")) {
+        let path = r.get("disk_path").and_then(|v| v.as_str()).unwrap_or("/");
+        lines.push(format!(
+            "DISK ({}): {} / {} ({})",
+            path,
+            human_bytes(used),
+            human_bytes(total),
+            num("disk_used_percent")
+                .map(|v| format!("{:.1}%", v))
+                .unwrap_or_else(|| "?".into()),
+        ));
+    }
+    if let Some(rss) = num("process_rss_bytes") {
+        lines.push(format!("Node process RSS: {}", human_bytes(rss)));
+    }
+    if let Some(up) = num("host_uptime_sec") {
+        lines.push(format!("Host uptime: {}", format_duration(Duration::from_secs(up as u64))));
+    }
+    lines
+}
+
+/// Human-readable byte size (base-1024) for the resource lines.
+fn human_bytes(v: f64) -> String {
+    if !v.is_finite() || v < 0.0 {
+        return "n/a".to_string();
+    }
+    const UNITS: [&str; 6] = ["B", "KiB", "MiB", "GiB", "TiB", "PiB"];
+    let mut val = v;
+    let mut idx = 0;
+    while val >= 1024.0 && idx < UNITS.len() - 1 {
+        val /= 1024.0;
+        idx += 1;
+    }
+    if idx == 0 {
+        format!("{} {}", val as u64, UNITS[idx])
+    } else {
+        format!("{:.2} {}", val, UNITS[idx])
+    }
 }
 
 fn render_compact_value(v: &Value) -> String {
