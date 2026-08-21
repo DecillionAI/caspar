@@ -106,7 +106,7 @@ pub fn install_creature_types(app: Arc<dyn ICore>) {
                 trx,
                 "human",
                 json!({
-                    "initialBalance": 1_000_000_000_000_000i64,
+                    "initialBalance": 0i64,
                     "customFields": [],
                     "desc": "The primary human being on the network."
                 }),
@@ -132,7 +132,7 @@ fn resolve_initial_balance(trx: &dyn ITrx, creature_type: &str) -> Result<i64> {
     match get_creature_type(trx, creature_type) {
         Some(spec) => Ok(spec.get("initialBalance").and_then(|v| v.as_i64()).unwrap_or(0)),
         None => match creature_type {
-            "human" => Ok(1_000_000_000_000_000),
+            "human" => Ok(0),
             "machine" => Ok(0),
             other => Err(anyhow!("unknown creature type: {}", other)),
         },
