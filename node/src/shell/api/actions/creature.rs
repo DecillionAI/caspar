@@ -2875,7 +2875,7 @@ fn request_payout(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
                     "payoutId": payout_id,
                     "destinationRef": destination,
                 }),
-                &[user_id],
+                std::slice::from_ref(&user_id),
                 now,
             )?;
             Ok(json!({"applied": true, "payout": payout_map, "journalId": journal_id}))
