@@ -1,7 +1,7 @@
-use crate::drivers::vmm::prelude::*;
-use crate::drivers::vmm::globals::with_global_app;
 use crate::drivers::vmm::bridge::runtime_io::wasm_send;
+use crate::drivers::vmm::globals::with_global_app;
 use crate::drivers::vmm::host::functions::*;
+use crate::drivers::vmm::prelude::*;
 
 pub(crate) struct HostHierarchy {
     pub(crate) vm_id: String,
@@ -34,9 +34,13 @@ fn resolve_cached_vm_hierarchy(packet: &JsonValue, input: &JsonValue) -> CachedV
         return CachedVmHierarchy::default();
     }
     with_global_app(|app| {
-        app.tools().vmm().get_vm_context(&vm_id).map(|(creature_id, program_id)| {
-            CachedVmHierarchy { creature_id, program_id }
-        })
+        app.tools()
+            .vmm()
+            .get_vm_context(&vm_id)
+            .map(|(creature_id, program_id)| CachedVmHierarchy {
+                creature_id,
+                program_id,
+            })
     })
     .flatten()
     .unwrap_or_default()
@@ -132,7 +136,7 @@ pub(crate) fn resolve_host_hierarchy(packet: &JsonValue, input: &JsonValue) -> H
 /// adapter that computes the storage namespace from `HostHierarchy` and
 /// delegates.
 pub(crate) fn run_db_op(ctx: &HostHierarchy, input: &JsonValue) -> Result<String, String> {
-    let op  = input["op"].as_str().unwrap_or("");
+    let op = input["op"].as_str().unwrap_or("");
     let key = input["key"].as_str().unwrap_or("");
     let val = input["val"].as_str().unwrap_or("");
     let prefix = input["prefix"].as_str().unwrap_or("");
@@ -144,7 +148,10 @@ pub(crate) fn run_db_op(ctx: &HostHierarchy, input: &JsonValue) -> Result<String
                 ctx.creature_id, ctx.program_id, ctx.entity_name, ctx.entity_path
             )
         } else if !ctx.entity_name.is_empty() {
-            format!("{}::{}::{}", ctx.creature_id, ctx.program_id, ctx.entity_name)
+            format!(
+                "{}::{}::{}",
+                ctx.creature_id, ctx.program_id, ctx.entity_name
+            )
         } else {
             format!("{}::{}", ctx.creature_id, ctx.program_id)
         }
@@ -158,7 +165,9 @@ pub(crate) fn run_db_op(ctx: &HostHierarchy, input: &JsonValue) -> Result<String
     let ns_prefix = format!("AppletDb::{}::{}", db_prefix, prefix);
 
     match with_global_app(|app| {
-        app.tools().vmm().vm_db_op(&ctx.vm_id, op, &namespaced_key, val, &ns_prefix)
+        app.tools()
+            .vmm()
+            .vm_db_op(&ctx.vm_id, op, &namespaced_key, val, &ns_prefix)
     }) {
         Some(result) => result,
         None => Err("vmm not initialised".to_string()),
@@ -284,7 +293,7 @@ pub(crate) fn handle_unified_host_call(packet: &JsonValue) -> String {
                 match with_global_app(|app| app.tools().vmm().vm_db_commit_explicit(&vm_id)) {
                     Some(Ok(())) => json!({"ok": true}).to_string(),
                     Some(Err(e)) => json!({"ok": false, "error": e}).to_string(),
-                    None         => json!({"ok": false, "error": "vmm not initialised"}).to_string(),
+                    None => json!({"ok": false, "error": "vmm not initialised"}).to_string(),
                 }
             }
         }
@@ -298,6 +307,35 @@ pub(crate) fn handle_unified_host_call(packet: &JsonValue) -> String {
         "elpifyProof" | "verifyProgramExecution" => host_fn_verify_program(&input),
         "protocolApi" | "callProtocolApi" => host_fn_protocol_api(&input),
         "signal" => host_fn_signal(&input),
+        // Read-only execution-host identity. The node supplies every returned
+        // identity and checks the target against its in-process listener table;
+        // a guest can ask about a program id but cannot claim a node owner or
+        // make a remote program appear locally hosted.
+        "nodeIdentity" => host_fn_node_identity(&ctx.program_id, &input),
+        // Federated finance writes are deliberately not ordinary `putJson`
+        // calls. Only a node-owned control program may ask the host to sign
+        // them, and the resulting packet is committed on the global chain.
+        "publishFinanceCatalog" => host_fn_submit_node_finance(
+            &ctx.program_id,
+            "/creatures/publishFinanceCatalog",
+            input.clone(),
+        ),
+        "registerFinanceNode" => host_fn_register_finance_node(&ctx.program_id, &input),
+        "retireFinanceNode" => host_fn_retire_finance_node(&ctx.program_id),
+        "registerFinanceResource" => {
+            host_fn_register_finance_resource(&ctx.program_id, &input)
+        }
+        "reviewFinanceResource" => host_fn_submit_node_finance(
+            &ctx.program_id,
+            "/creatures/reviewFinanceResource",
+            input.clone(),
+        ),
+        "retireFinanceResource" => host_fn_submit_node_finance(
+            &ctx.program_id,
+            "/creatures/retireFinanceResource",
+            input.clone(),
+        ),
+        "publishFinanceQuote" => host_fn_publish_finance_quote(&ctx.program_id, &input),
         // Secret reads, authenticated as the node-authoritative creature bound to
         // this VM (get_vm_context on the runtime-stamped / gateway-verified vmId),
         // never a `creatureId` the guest may put in the request — so
@@ -321,9 +359,7 @@ pub(crate) fn handle_unified_host_call(packet: &JsonValue) -> String {
         "getStore" => host_fn_get_store(&input),
         "listStores" => host_fn_list_stores(&input),
         // List the creatures (members) that have access to a store.
-        "listStoreAccess" | "listStoreMembers" | "readMembers" => {
-            host_fn_list_store_access(&input)
-        }
+        "listStoreAccess" | "listStoreMembers" | "readMembers" => host_fn_list_store_access(&input),
         "updateStore" => host_fn_update_store(&input),
         "createCreature" | "createOwnedCreature" => host_fn_create_creature(&input),
         "getCreature" => host_fn_get_creature(&input),
@@ -333,6 +369,18 @@ pub(crate) fn handle_unified_host_call(packet: &JsonValue) -> String {
         "transfer" => host_fn_transfer(&input),
         "consumeLock" => host_fn_consume_lock(&input),
         "lockToken" => host_fn_lock_token(&input),
+        "startHold" => {
+            let caller = resolve_cached_vm_hierarchy(packet, &input).program_id;
+            host_fn_start_hold(&caller, &input)
+        }
+        "settleHold" => {
+            let caller = resolve_cached_vm_hierarchy(packet, &input).program_id;
+            host_fn_settle_hold(&caller, &input)
+        }
+        "releaseHold" => {
+            let caller = resolve_cached_vm_hierarchy(packet, &input).program_id;
+            host_fn_release_hold(&caller, &input)
+        }
         "createProgram" => host_fn_create_program(&input),
         "deleteProgram" | "deleteOwnedProgram" => host_fn_delete_program(&input),
         // Program CRUD reads — exposed so store/miniapp creatures can fetch a
@@ -356,11 +404,21 @@ pub(crate) fn handle_unified_host_call(packet: &JsonValue) -> String {
         "genId" | "getLink" | "delKey" | "getJson" | "putJson" | "getByPrefix"
         | "hasAccessToStore" | "joinGroup" => host_fn_micro(op, &input),
         // Resource (vm-scoped) store CRUD.
-        "createResourceStore" | "createVmOwnedStore" => host_fn_resource_store(&"create".to_string(), &input),
-        "updateResourceStore" | "updateVmOwnedStore" => host_fn_resource_store(&"update".to_string(), &input),
-        "deleteResourceStore" | "deleteVmOwnedStore" => host_fn_resource_store(&"delete".to_string(), &input),
-        "getResourceStore"    | "getVmOwnedStore"    => host_fn_resource_store(&"get".to_string(), &input),
-        "listResourceStores"  | "listVmOwnedStores"  => host_fn_resource_store(&"list".to_string(), &input),
+        "createResourceStore" | "createVmOwnedStore" => {
+            host_fn_resource_store(&"create".to_string(), &input)
+        }
+        "updateResourceStore" | "updateVmOwnedStore" => {
+            host_fn_resource_store(&"update".to_string(), &input)
+        }
+        "deleteResourceStore" | "deleteVmOwnedStore" => {
+            host_fn_resource_store(&"delete".to_string(), &input)
+        }
+        "getResourceStore" | "getVmOwnedStore" => {
+            host_fn_resource_store(&"get".to_string(), &input)
+        }
+        "listResourceStores" | "listVmOwnedStores" => {
+            host_fn_resource_store(&"list".to_string(), &input)
+        }
         // Resource entities (file blobs etc.).
         "createResourceEntity" => host_fn_resource_entity_create(&input),
         "deleteResourceEntity" => host_fn_resource_entity_delete(&input),
@@ -407,7 +465,11 @@ pub(crate) fn host_fn_secret_get(caller: &str, input: &JsonValue) -> String {
     }
     let owner = {
         let o = input["owner"].as_str().unwrap_or("").trim();
-        if o.is_empty() { caller.to_string() } else { o.to_string() }
+        if o.is_empty() {
+            caller.to_string()
+        } else {
+            o.to_string()
+        }
     };
     let need_grant = owner != caller;
     let secret_link = format!("Secret::{}::{}", owner, name);
@@ -454,7 +516,9 @@ pub(crate) fn host_fn_secret_get(caller: &str, input: &JsonValue) -> String {
     };
     match secret_crypto::decrypt(&blob, &key) {
         Ok(bytes) => match String::from_utf8(bytes) {
-            Ok(value) => json!({"ok": true, "owner": owner, "name": name, "value": value}).to_string(),
+            Ok(value) => {
+                json!({"ok": true, "owner": owner, "name": name, "value": value}).to_string()
+            }
             Err(_) => json!({"ok": false, "error": "stored secret is not valid UTF-8"}).to_string(),
         },
         Err(e) => json!({"ok": false, "error": e.to_string()}).to_string(),
@@ -511,7 +575,12 @@ fn host_fn_program(op: &str, input: &JsonValue) -> String {
 
 /// List the creatures with access to a store. Input: `{ storeId }`.
 pub(crate) fn host_fn_list_store_access(input: &JsonValue) -> String {
-    match with_global_app(|app| app.tools().vmm().host_action_store("listAccess", input, 0).0) {
+    match with_global_app(|app| {
+        app.tools()
+            .vmm()
+            .host_action_store("listAccess", input, 0)
+            .0
+    }) {
         Some(out) => out,
         None => json!({"ok": false, "error": "vmm not initialised"}).to_string(),
     }
@@ -547,7 +616,12 @@ pub(crate) fn host_fn_resource_store(op: &str, input: &JsonValue) -> String {
 
 /// Dispatch into `IVmm::host_action_resource_entity_create`.
 pub(crate) fn host_fn_resource_entity_create(input: &JsonValue) -> String {
-    match with_global_app(|app| app.tools().vmm().host_action_resource_entity_create(input, 0).0) {
+    match with_global_app(|app| {
+        app.tools()
+            .vmm()
+            .host_action_resource_entity_create(input, 0)
+            .0
+    }) {
         Some(out) => out,
         None => json!({"ok": false, "error": "vmm not initialised"}).to_string(),
     }
@@ -555,7 +629,12 @@ pub(crate) fn host_fn_resource_entity_create(input: &JsonValue) -> String {
 
 /// Dispatch into `IVmm::host_action_resource_entity_delete`.
 pub(crate) fn host_fn_resource_entity_delete(input: &JsonValue) -> String {
-    match with_global_app(|app| app.tools().vmm().host_action_resource_entity_delete(input, 0).0) {
+    match with_global_app(|app| {
+        app.tools()
+            .vmm()
+            .host_action_resource_entity_delete(input, 0)
+            .0
+    }) {
         Some(out) => out,
         None => json!({"ok": false, "error": "vmm not initialised"}).to_string(),
     }
@@ -577,7 +656,9 @@ pub(crate) fn host_fn_signal_user(input: &JsonValue) -> String {
     let packet_str = input["packet"].as_str().unwrap_or("{}");
     let value = serde_json::from_str::<JsonValue>(packet_str).unwrap_or(JsonValue::Null);
     let delivered = crate::drivers::vmm::globals::with_global_app(|app| {
-        app.tools().signaler().signal_user(key, user_id, value, true);
+        app.tools()
+            .signaler()
+            .signal_user(key, user_id, value, true);
     });
     match delivered {
         Some(()) => json!({"ok": true}).to_string(),
@@ -618,3 +699,658 @@ pub(crate) fn host_fn_signal_group(input: &JsonValue) -> String {
     }
 }
 
+/// Return the current execution node's public billing identity and whether a
+/// resource program is actually hosted by this node. This is deliberately a
+/// read-only host fact: billing/market creatures use it to bind deployments to
+/// the node that executed the deploy action instead of trusting client fields.
+pub(crate) fn host_fn_node_identity(caller_program_id: &str, input: &JsonValue) -> String {
+    let target_program_id = input["resourceProgramId"]
+        .as_str()
+        .or_else(|| input["programId"].as_str())
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    let Some(app) = with_global_app(|app| app.clone()) else {
+        return json!({"ok": false, "error": "vmm not initialised"}).to_string();
+    };
+    let listeners = app.tools().signaler().listeners();
+    let caller_program_id = caller_program_id.trim();
+    let caller_hosted = !caller_program_id.is_empty() && listeners.contains_key(caller_program_id);
+    let resource_hosted = target_program_id.is_empty() || listeners.contains_key(&target_program_id);
+    json!({
+        "ok": true,
+        "nodeOwnerAccountId": app.owner_id(),
+        "originId": app.id(),
+        "callerProgramId": caller_program_id,
+        "callerHosted": caller_hosted,
+        "resourceProgramId": target_program_id,
+        "resourceHosted": resource_hosted,
+    })
+    .to_string()
+}
+
+// Resolve the account that owns a program through Program -> Machine ->
+// Creature. Both the finance-control check and resource ownership stamping use
+// persisted host state; no owner value supplied by a guest is trusted.
+fn finance_program_binding(
+    app: &Arc<dyn ICore>,
+    program_id: &str,
+) -> Option<(String, String)> {
+    use crate::models::transaction::ITrx;
+    use crate::shell::api::model::{Creature, Program};
+    use std::sync::Mutex;
+
+    let program_id = program_id.trim().to_string();
+    if program_id.is_empty() {
+        return None;
+    }
+    let slot = Arc::new(Mutex::new(None::<(String, String)>));
+    let slot_c = slot.clone();
+    app.modify_state(
+        true,
+        Box::new(move |trx: &dyn ITrx| {
+            let program = Program {
+                id: program_id.clone(),
+                ..Default::default()
+            }
+            .pull(trx);
+            if program.machine_id.is_empty() {
+                return Ok(());
+            }
+            let machine_id = program.machine_id;
+            let machine = Creature {
+                id: machine_id.clone(),
+                ..Default::default()
+            }
+            .pull(trx);
+            if !machine.owner_id.is_empty() {
+                *slot_c.lock().unwrap() = Some((machine_id, machine.owner_id));
+            }
+            Ok(())
+        }),
+    );
+    let binding = slot.lock().unwrap().clone();
+    binding
+}
+
+fn finance_program_owner(app: &Arc<dyn ICore>, program_id: &str) -> Option<String> {
+    finance_program_binding(app, program_id).map(|(_, owner)| owner)
+}
+
+fn finance_node_control_program(app: &Arc<dyn ICore>, caller_program_id: &str) -> bool {
+    let caller_program_id = caller_program_id.trim();
+    !caller_program_id.is_empty()
+        && app
+            .tools()
+            .signaler()
+            .listeners()
+            .contains_key(caller_program_id)
+        && finance_program_owner(app, caller_program_id).as_deref() == Some(app.owner_id().as_str())
+}
+
+fn finance_node_record(
+    app: &Arc<dyn ICore>,
+    node_owner_account_id: &str,
+) -> Option<serde_json::Map<String, JsonValue>> {
+    use crate::models::transaction::ITrx;
+    use std::sync::Mutex;
+
+    let owner = node_owner_account_id.to_string();
+    let slot = Arc::new(Mutex::new(None));
+    let slot_c = slot.clone();
+    app.modify_state(
+        true,
+        Box::new(move |trx: &dyn ITrx| {
+            if let Ok(nodes) = trx.get_json("Json::CreatureNamespace::billing", "nodes") {
+                *slot_c.lock().unwrap() = nodes.get(&owner).and_then(JsonValue::as_object).cloned();
+            }
+            Ok(())
+        }),
+    );
+    let node = slot.lock().unwrap().clone();
+    node
+}
+
+/// Submit a node-owner-signed finance mutation to the global chain. The guest
+/// supplies only the proposed payload; authorization is derived from the
+/// runtime-stamped caller program and its persisted owning machine.
+pub(crate) fn host_fn_submit_node_finance(
+    caller_program_id: &str,
+    action: &str,
+    payload_value: JsonValue,
+) -> String {
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    let Some(app) = with_global_app(|app| app.clone()) else {
+        return json!({"ok": false, "error": "vmm not initialised"}).to_string();
+    };
+    if !finance_node_control_program(&app, caller_program_id) {
+        return json!({
+            "ok": false,
+            "error": "a locally hosted node-owner control program is required"
+        })
+        .to_string();
+    }
+    let payload = match serde_json::to_vec(&payload_value) {
+        Ok(value) => value,
+        Err(error) => {
+            return json!({"ok": false, "error": format!("cannot encode finance packet: {error}")})
+                .to_string()
+        }
+    };
+    let owner_id = app.owner_id();
+    let signature = app.sign_packet_as_owner(&payload);
+    let (tx, rx) = mpsc::channel::<(Vec<u8>, i64, Option<String>)>();
+    let callback: crate::models::globe::BaseResponseCallback =
+        Box::new(move |data, status, error| {
+            let _ = tx.send((data, status, error.map(|value| value.to_string())));
+        });
+    app.globe().send_base_request_on_chain(
+        action,
+        payload,
+        &signature,
+        &owner_id,
+        "",
+        callback,
+    );
+    match rx.recv_timeout(Duration::from_secs(30)) {
+        Ok((data, status, None)) => {
+            let result = serde_json::from_slice::<JsonValue>(&data).unwrap_or(JsonValue::Null);
+            json!({"ok": status < 400, "statusCode": status, "result": result}).to_string()
+        }
+        Ok((_data, status, Some(error))) => {
+            json!({"ok": false, "statusCode": status, "error": error}).to_string()
+        }
+        Err(_) => json!({"ok": false, "error": "global finance commit timed out"}).to_string(),
+    }
+}
+
+pub(crate) fn host_fn_register_finance_node(
+    caller_program_id: &str,
+    input: &JsonValue,
+) -> String {
+    let Some(app) = with_global_app(|app| app.clone()) else {
+        return json!({"ok": false, "error": "vmm not initialised"}).to_string();
+    };
+    if !finance_node_control_program(&app, caller_program_id) {
+        return json!({"ok": false, "error": "node-owner control program required"}).to_string();
+    }
+    let Some(mut node) = input.get("node").and_then(JsonValue::as_object).cloned() else {
+        return json!({"ok": false, "error": "finance node object required"}).to_string();
+    };
+    let meter = node
+        .get("meterProgramId")
+        .and_then(JsonValue::as_str)
+        .unwrap_or("");
+    let talent_meter = node
+        .get("talentMeterProgramId")
+        .and_then(JsonValue::as_str)
+        .unwrap_or("");
+    let listeners = app.tools().signaler().listeners();
+    if meter.is_empty()
+        || talent_meter.is_empty()
+        || !listeners.contains_key(meter)
+        || !listeners.contains_key(talent_meter)
+    {
+        return json!({
+            "ok": false,
+            "error": "registered finance meter programs must be hosted by this node"
+        })
+        .to_string();
+    }
+    let owner_id = app.owner_id();
+    let Some((meter_creature_id, meter_owner_id)) = finance_program_binding(&app, meter) else {
+        return json!({"ok": false, "error": "billing meter program binding unavailable"}).to_string();
+    };
+    let Some((talent_creature_id, talent_owner_id)) =
+        finance_program_binding(&app, talent_meter)
+    else {
+        return json!({"ok": false, "error": "talent meter program binding unavailable"}).to_string();
+    };
+    if meter_owner_id != owner_id || talent_owner_id != owner_id {
+        return json!({"ok": false, "error": "finance meters must be owned by the node owner"}).to_string();
+    }
+    node.insert("nodeOwnerAccountId".into(), json!(owner_id));
+    node.insert("meterCreatureId".into(), json!(meter_creature_id));
+    node.insert("meterEntityId".into(), json!("davinci"));
+    node.insert("talentMeterCreatureId".into(), json!(talent_creature_id));
+    node.insert("talentMeterEntityId".into(), json!("main"));
+    node.insert("settlementAuthority".into(), json!(app.owner_id()));
+    node.insert("originId".into(), json!(app.id()));
+    node.insert("status".into(), json!("active"));
+    host_fn_submit_node_finance(
+        caller_program_id,
+        "/creatures/registerFinanceNode",
+        json!({"node": node}),
+    )
+}
+
+pub(crate) fn host_fn_retire_finance_node(caller_program_id: &str) -> String {
+    let Some(app) = with_global_app(|app| app.clone()) else {
+        return json!({"ok": false, "error": "vmm not initialised"}).to_string();
+    };
+    host_fn_submit_node_finance(
+        caller_program_id,
+        "/creatures/retireFinanceNode",
+        json!({"nodeOwnerAccountId": app.owner_id()}),
+    )
+}
+
+pub(crate) fn host_fn_register_finance_resource(
+    caller_program_id: &str,
+    input: &JsonValue,
+) -> String {
+    let Some(app) = with_global_app(|app| app.clone()) else {
+        return json!({"ok": false, "error": "vmm not initialised"}).to_string();
+    };
+    if !finance_node_control_program(&app, caller_program_id) {
+        return json!({"ok": false, "error": "node-owner control program required"}).to_string();
+    }
+    let Some(mut resource) = input
+        .get("resource")
+        .and_then(JsonValue::as_object)
+        .cloned()
+    else {
+        return json!({"ok": false, "error": "finance resource object required"}).to_string();
+    };
+    let program_id = resource
+        .get("programId")
+        .and_then(JsonValue::as_str)
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    if program_id.is_empty()
+        || !app
+            .tools()
+            .signaler()
+            .listeners()
+            .contains_key(&program_id)
+    {
+        return json!({"ok": false, "error": "resource program is not hosted by this node"})
+            .to_string();
+    }
+    let Some(resource_owner) = finance_program_owner(&app, &program_id) else {
+        return json!({"ok": false, "error": "resource program owner unavailable"}).to_string();
+    };
+    let node_owner = app.owner_id();
+    let Some(node) = finance_node_record(&app, &node_owner) else {
+        return json!({"ok": false, "error": "active global finance node registration required"})
+            .to_string();
+    };
+    if node.get("status").and_then(JsonValue::as_str) != Some("active") {
+        return json!({"ok": false, "error": "finance node registration is not active"})
+            .to_string();
+    }
+    resource.insert("owner".into(), json!(resource_owner));
+    resource.insert("hostNodeOwnerAccountId".into(), json!(node_owner));
+    resource.insert("hostOriginId".into(), json!(app.id()));
+    resource.insert(
+        "billingMeterProgramId".into(),
+        node.get("meterProgramId").cloned().unwrap_or(JsonValue::Null),
+    );
+    resource.insert(
+        "billingMeterCreatureId".into(),
+        node.get("meterCreatureId").cloned().unwrap_or(JsonValue::Null),
+    );
+    resource.insert(
+        "billingMeterEntityId".into(),
+        node.get("meterEntityId").cloned().unwrap_or(JsonValue::Null),
+    );
+    resource.insert(
+        "nodeRegistrationRevision".into(),
+        node.get("revision").cloned().unwrap_or(JsonValue::Null),
+    );
+    resource.insert(
+        "nodeSandboxPerMinuteMinor".into(),
+        node.get("sandboxPerMinuteMinor")
+            .cloned()
+            .unwrap_or(JsonValue::Null),
+    );
+    host_fn_submit_node_finance(
+        caller_program_id,
+        "/creatures/registerFinanceResource",
+        json!({"resource": resource}),
+    )
+}
+
+pub(crate) fn host_fn_publish_finance_quote(
+    caller_program_id: &str,
+    input: &JsonValue,
+) -> String {
+    let Some(app) = with_global_app(|app| app.clone()) else {
+        return json!({"ok": false, "error": "vmm not initialised"}).to_string();
+    };
+    if !finance_node_control_program(&app, caller_program_id) {
+        return json!({"ok": false, "error": "node-owner control program required"}).to_string();
+    }
+    let Some(quote) = input.get("quote").and_then(JsonValue::as_object).cloned() else {
+        return json!({"ok": false, "error": "finance quote object required"}).to_string();
+    };
+    let execution = quote
+        .get("executionPlan")
+        .and_then(JsonValue::as_object);
+    let authority = execution
+        .and_then(|plan| plan.get("settlementAuthority"))
+        .and_then(JsonValue::as_str)
+        .unwrap_or("");
+    let meter = execution
+        .and_then(|plan| plan.get("meterProgramId"))
+        .and_then(JsonValue::as_str)
+        .unwrap_or("");
+    let quote_kind = quote.get("kind").and_then(JsonValue::as_str).unwrap_or("");
+    let owner_id = app.owner_id();
+    let issuer_node = finance_node_record(&app, &owner_id);
+    let coordinator_node = finance_node_record(&app, authority);
+    let registered_meter = coordinator_node.as_ref().and_then(|row| {
+        if quote_kind == "talent" {
+            row.get("talentMeterProgramId")
+        } else {
+            row.get("meterProgramId")
+        }
+    });
+    if authority.is_empty()
+        || meter.is_empty()
+        || issuer_node
+            .as_ref()
+            .and_then(|row| row.get("status"))
+            .and_then(JsonValue::as_str)
+            != Some("active")
+        || coordinator_node
+            .as_ref()
+            .and_then(|row| row.get("status"))
+            .and_then(JsonValue::as_str)
+            != Some("active")
+        || registered_meter.and_then(JsonValue::as_str) != Some(meter)
+        || (quote_kind == "talent"
+            && (authority != owner_id
+                || !app.tools().signaler().listeners().contains_key(meter)))
+    {
+        return json!({
+            "ok": false,
+            "error": "quote issuer or coordinator does not match the active finance registry"
+        })
+        .to_string();
+    }
+    host_fn_submit_node_finance(
+        caller_program_id,
+        "/creatures/publishFinanceQuote",
+        json!({"quote": quote}),
+    )
+}
+
+/// Settle a quote-bound financial hold on behalf of the authenticated metering
+/// program. The VM never receives the node-owner private key: its program id is
+/// resolved from node-owned VM context, checked against the signed hold, and
+/// only then does the node sign and submit the settlement action.
+/// Atomically reserve an open hold for one authenticated metering run.
+pub(crate) fn host_fn_start_hold(caller_program_id: &str, input: &JsonValue) -> String {
+    use crate::models::transaction::ITrx;
+    use crate::shell::api::packets::creatures::StartHoldInput;
+    use std::sync::{mpsc, Arc, Mutex};
+    use std::time::Duration;
+
+    let caller_program_id = caller_program_id.trim().to_string();
+    let hold_id = input["holdId"].as_str().unwrap_or("").trim().to_string();
+    if caller_program_id.is_empty() || hold_id.is_empty() {
+        return json!({"ok": false, "error": "verified meter program and holdId are required"})
+            .to_string();
+    }
+    let Some(app) = with_global_app(|app| app.clone()) else {
+        return json!({"ok": false, "error": "vmm not initialised"}).to_string();
+    };
+    let hold_slot = Arc::new(Mutex::new(serde_json::Map::<String, JsonValue>::new()));
+    let hold_slot_c = hold_slot.clone();
+    let hold_id_c = hold_id.clone();
+    app.modify_state(
+        true,
+        Box::new(move |trx: &dyn ITrx| {
+            if let Ok(hold) = trx.get_json(&format!("Json::FinanceHold::{hold_id_c}"), "hold") {
+                *hold_slot_c.lock().unwrap() = hold;
+            }
+            Ok(())
+        }),
+    );
+    let hold = hold_slot.lock().unwrap().clone();
+    if hold.is_empty() {
+        return json!({"ok": false, "error": "hold not found"}).to_string();
+    }
+    let hold_status = hold.get("status").and_then(JsonValue::as_str).unwrap_or("");
+    let already_started = hold_status == "running"
+        && hold.get("runId").and_then(JsonValue::as_str) == input["runId"].as_str();
+    if hold_status != "open" && !already_started {
+        return json!({"ok": false, "error": "hold is not open for this run"}).to_string();
+    }
+    if hold.get("meterProgramId").and_then(JsonValue::as_str) != Some(caller_program_id.as_str()) {
+        return json!({"ok": false, "error": "calling program is not authorized for this hold"})
+            .to_string();
+    }
+    let owner_id = app.owner_id();
+    if hold.get("settlementAuthority").and_then(JsonValue::as_str) != Some(owner_id.as_str()) {
+        return json!({"ok": false, "error": "hold authority is not this node owner"}).to_string();
+    }
+    if already_started {
+        return json!({"ok": true, "alreadyApplied": true, "holdId": hold_id}).to_string();
+    }
+
+    let start: StartHoldInput = match serde_json::from_value(input.clone()) {
+        Ok(value) => value,
+        Err(err) => {
+            return json!({"ok": false, "error": format!("invalid start: {err}")}).to_string()
+        }
+    };
+    let payload = match serde_json::to_vec(&start) {
+        Ok(value) => value,
+        Err(err) => {
+            return json!({"ok": false, "error": format!("cannot encode start: {err}")}).to_string()
+        }
+    };
+    let signature = app.sign_packet_as_owner(&payload);
+    let (tx, rx) = mpsc::channel::<(Vec<u8>, i64, Option<String>)>();
+    let callback: crate::models::globe::BaseResponseCallback =
+        Box::new(move |data, status, err| {
+            let _ = tx.send((data, status, err.map(|value| value.to_string())));
+        });
+    app.globe().send_base_request_on_chain(
+        "/creatures/startHold",
+        payload,
+        &signature,
+        &owner_id,
+        "",
+        callback,
+    );
+    match rx.recv_timeout(Duration::from_secs(30)) {
+        Ok((data, status, None)) => {
+            let result = serde_json::from_slice::<JsonValue>(&data).unwrap_or(JsonValue::Null);
+            json!({"ok": status < 400, "statusCode": status, "result": result}).to_string()
+        }
+        Ok((_data, status, Some(error))) => {
+            json!({"ok": false, "statusCode": status, "error": error}).to_string()
+        }
+        Err(_) => json!({"ok": false, "error": "hold start timed out"}).to_string(),
+    }
+}
+
+pub(crate) fn host_fn_release_hold(caller_program_id: &str, input: &JsonValue) -> String {
+    use crate::models::transaction::ITrx;
+    use crate::shell::api::packets::creatures::ReleaseHoldInput;
+    use std::sync::{mpsc, Arc, Mutex};
+    use std::time::Duration;
+
+    let caller_program_id = caller_program_id.trim().to_string();
+    let hold_id = input["holdId"].as_str().unwrap_or("").trim().to_string();
+    if caller_program_id.is_empty() || hold_id.is_empty() {
+        return json!({"ok": false, "error": "verified meter program and holdId are required"})
+            .to_string();
+    }
+    let Some(app) = with_global_app(|app| app.clone()) else {
+        return json!({"ok": false, "error": "vmm not initialised"}).to_string();
+    };
+    let hold_slot = Arc::new(Mutex::new(serde_json::Map::<String, JsonValue>::new()));
+    let hold_slot_c = hold_slot.clone();
+    let hold_id_c = hold_id.clone();
+    app.modify_state(
+        true,
+        Box::new(move |trx: &dyn ITrx| {
+            if let Ok(hold) = trx.get_json(&format!("Json::FinanceHold::{hold_id_c}"), "hold") {
+                *hold_slot_c.lock().unwrap() = hold;
+            }
+            Ok(())
+        }),
+    );
+    let hold = hold_slot.lock().unwrap().clone();
+    if hold.is_empty() {
+        return json!({"ok": false, "error": "hold not found"}).to_string();
+    }
+    let status = hold.get("status").and_then(JsonValue::as_str).unwrap_or("");
+    let release_id = input["releaseId"].as_str().unwrap_or("");
+    let already_released = matches!(status, "released" | "expired")
+        && hold.get("releaseId").and_then(JsonValue::as_str) == Some(release_id);
+    if status != "open" && status != "running" && !already_released {
+        return json!({"ok": false, "error": "hold is not active for this release"}).to_string();
+    }
+    if hold.get("meterProgramId").and_then(JsonValue::as_str) != Some(caller_program_id.as_str()) {
+        return json!({"ok": false, "error": "calling program is not authorized for this hold"})
+            .to_string();
+    }
+    let owner_id = app.owner_id();
+    if hold.get("settlementAuthority").and_then(JsonValue::as_str) != Some(owner_id.as_str()) {
+        return json!({"ok": false, "error": "hold authority is not this node owner"}).to_string();
+    }
+    if already_released {
+        return json!({"ok": true, "alreadyApplied": true, "holdId": hold_id}).to_string();
+    }
+    let release: ReleaseHoldInput = match serde_json::from_value(input.clone()) {
+        Ok(value) => value,
+        Err(err) => {
+            return json!({"ok": false, "error": format!("invalid release: {err}")}).to_string()
+        }
+    };
+    let payload = match serde_json::to_vec(&release) {
+        Ok(value) => value,
+        Err(err) => {
+            return json!({"ok": false, "error": format!("cannot encode release: {err}")})
+                .to_string()
+        }
+    };
+    let signature = app.sign_packet_as_owner(&payload);
+    let (tx, rx) = mpsc::channel::<(Vec<u8>, i64, Option<String>)>();
+    let callback: crate::models::globe::BaseResponseCallback =
+        Box::new(move |data, status, err| {
+            let _ = tx.send((data, status, err.map(|value| value.to_string())));
+        });
+    app.globe().send_base_request_on_chain(
+        "/creatures/releaseHold",
+        payload,
+        &signature,
+        &owner_id,
+        "",
+        callback,
+    );
+    match rx.recv_timeout(Duration::from_secs(30)) {
+        Ok((data, status, None)) => {
+            let result = serde_json::from_slice::<JsonValue>(&data).unwrap_or(JsonValue::Null);
+            json!({"ok": status < 400, "statusCode": status, "result": result}).to_string()
+        }
+        Ok((_data, status, Some(error))) => {
+            json!({"ok": false, "statusCode": status, "error": error}).to_string()
+        }
+        Err(_) => json!({"ok": false, "error": "hold release timed out"}).to_string(),
+    }
+}
+
+pub(crate) fn host_fn_settle_hold(caller_program_id: &str, input: &JsonValue) -> String {
+    use crate::models::transaction::ITrx;
+    use crate::shell::api::packets::creatures::SettleHoldInput;
+    use std::sync::{mpsc, Arc, Mutex};
+    use std::time::Duration;
+
+    let caller_program_id = caller_program_id.trim().to_string();
+    let hold_id = input["holdId"].as_str().unwrap_or("").trim().to_string();
+    if caller_program_id.is_empty() || hold_id.is_empty() {
+        return json!({"ok": false, "error": "verified meter program and holdId are required"})
+            .to_string();
+    }
+
+    let Some(app) = with_global_app(|app| app.clone()) else {
+        return json!({"ok": false, "error": "vmm not initialised"}).to_string();
+    };
+    let hold_slot = Arc::new(Mutex::new(serde_json::Map::<String, JsonValue>::new()));
+    let hold_slot_c = hold_slot.clone();
+    let hold_id_c = hold_id.clone();
+    app.modify_state(
+        true,
+        Box::new(move |trx: &dyn ITrx| {
+            if let Ok(hold) = trx.get_json(&format!("Json::FinanceHold::{hold_id_c}"), "hold") {
+                *hold_slot_c.lock().unwrap() = hold;
+            }
+            Ok(())
+        }),
+    );
+    let hold = hold_slot.lock().unwrap().clone();
+    if hold.is_empty() {
+        return json!({"ok": false, "error": "hold not found"}).to_string();
+    }
+    let hold_status = hold.get("status").and_then(JsonValue::as_str).unwrap_or("");
+    let already_settled = hold_status == "settled"
+        && hold.get("settlementId").and_then(JsonValue::as_str) == input["settlementId"].as_str();
+    if hold_status != "running" && !already_settled {
+        return json!({"ok": false, "error": "hold is not running for this settlement"})
+            .to_string();
+    }
+    if hold.get("meterProgramId").and_then(JsonValue::as_str) != Some(caller_program_id.as_str()) {
+        return json!({"ok": false, "error": "calling program is not authorized for this hold"})
+            .to_string();
+    }
+
+    let owner_id = app.owner_id();
+    if hold.get("settlementAuthority").and_then(JsonValue::as_str) != Some(owner_id.as_str()) {
+        return json!({
+            "ok": false,
+            "error": "hold settlement authority is not this node owner"
+        })
+        .to_string();
+    }
+    if already_settled {
+        return json!({"ok": true, "alreadyApplied": true, "holdId": hold_id}).to_string();
+    }
+
+    let settle: SettleHoldInput = match serde_json::from_value(input.clone()) {
+        Ok(value) => value,
+        Err(err) => {
+            return json!({"ok": false, "error": format!("invalid settlement: {err}")}).to_string()
+        }
+    };
+    let payload = match serde_json::to_vec(&settle) {
+        Ok(value) => value,
+        Err(err) => {
+            return json!({"ok": false, "error": format!("cannot encode settlement: {err}")})
+                .to_string()
+        }
+    };
+    let signature = app.sign_packet_as_owner(&payload);
+    let (tx, rx) = mpsc::channel::<(Vec<u8>, i64, Option<String>)>();
+    let callback: crate::models::globe::BaseResponseCallback =
+        Box::new(move |data, status, err| {
+            let _ = tx.send((data, status, err.map(|value| value.to_string())));
+        });
+    app.globe().send_base_request_on_chain(
+        "/creatures/settleHold",
+        payload,
+        &signature,
+        &owner_id,
+        "",
+        callback,
+    );
+
+    match rx.recv_timeout(Duration::from_secs(30)) {
+        Ok((data, status, None)) => {
+            let result = serde_json::from_slice::<JsonValue>(&data).unwrap_or(JsonValue::Null);
+            json!({"ok": status < 400, "statusCode": status, "result": result}).to_string()
+        }
+        Ok((_data, status, Some(error))) => {
+            json!({"ok": false, "statusCode": status, "error": error}).to_string()
+        }
+        Err(_) => json!({"ok": false, "error": "settlement timed out"}).to_string(),
+    }
+}

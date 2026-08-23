@@ -23,18 +23,18 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 use uuid::Uuid;
 
+use crate::core::actor::model::secured::guard::Guard;
 use crate::models::action::ISecureAction;
 use crate::models::core::ICore;
-use crate::models::transaction::ITrx;
 use crate::models::state::IState;
-use crate::core::actor::model::secured::guard::Guard;
+use crate::models::transaction::ITrx;
+use crate::shell::api::model::{Creature, Entity, Program};
+use crate::shell::api::packets::plugin::PlugInput;
 use crate::shell::api::packets::program::{
     CreateMachineInput, DeleteProgramInput, DeployInput, DownloadEntityInput, ListAppMachsInput,
     ListInput, MachineBuildsInput, ReadVmLogsInput, RunProgramEntityInput, UpdateProgramInput,
     VmResourcesInput, VmTerminalInput,
 };
-use crate::shell::api::model::{Creature, Entity, Program};
-use crate::shell::api::packets::plugin::PlugInput;
 use crate::shell::utils::future::async_once;
 
 use super::util::build_secure_action;
@@ -45,6 +45,7 @@ fn user_guard() -> Guard {
     Guard {
         is_user: true,
         is_in_store: false,
+        allow_applet_sign: true,
     }
 }
 
@@ -73,9 +74,7 @@ fn resolve_program_owner_machine(trx: &dyn ITrx, program: &Program) -> Creature 
     let prefix = "machinePrograms::";
     let suffix = format!("::{}", program.id);
     let mut resolved: Option<Creature> = None;
-    let links = trx
-        .get_links_list(prefix, -1, -1, &[])
-        .unwrap_or_default();
+    let links = trx.get_links_list(prefix, -1, -1, &[]).unwrap_or_default();
     for link in links {
         let Some(machine_id) = link
             .strip_prefix(prefix)
@@ -122,8 +121,7 @@ fn build_stop_input_from_plan(
         .vmm()
         .plan_stop_entity(runtime, ctx)
         .map_err(|e| anyhow!(e))?;
-    let mut stop_input: Map<String, Value> =
-        plan["input"].as_object().cloned().unwrap_or_default();
+    let mut stop_input: Map<String, Value> = plan["input"].as_object().cloned().unwrap_or_default();
     if let Some(links) = plan["links"].as_array() {
         for query in links {
             let field = query["field"].as_str().unwrap_or("");
@@ -568,10 +566,10 @@ fn create_program(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
                 return Err(anyhow!("you are not owner of machine"));
             }
             let program = Program {
-                id: app_for_handler.tools().storage().gen_id(
-                    &*trx,
-                    &crate::models::input::IInput::origin(&input),
-                ),
+                id: app_for_handler
+                    .tools()
+                    .storage()
+                    .gen_id(&*trx, &crate::models::input::IInput::origin(&input)),
                 machine_id: machine.id.clone(),
                 path: input.path.clone(),
                 runtime: input.runtime.clone(),
@@ -709,8 +707,7 @@ fn run_program_entity(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
             // instance when requested. The external URL stays fixed across
             // redeploys (keyed by the owning creature's username + path); only
             // the route's target vm id is refreshed here to the fresh instance.
-            let gateway_path =
-                crate::drivers::vmm::http_route::normalize_path(&input.gateway_path);
+            let gateway_path = crate::drivers::vmm::http_route::normalize_path(&input.gateway_path);
             if !gateway_path.is_empty() {
                 register_gateway_route(
                     &*trx,
@@ -760,7 +757,11 @@ fn run_program_entity(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
                     true,
                 )?;
             }
-            if !app_for_handler.tools().vmm().is_supported_runtime(&entity_type) {
+            if !app_for_handler
+                .tools()
+                .vmm()
+                .is_supported_runtime(&entity_type)
+            {
                 return Err(anyhow!("invalid entity type"));
             }
             let params: HashMap<String, String> = if input.params.is_empty() {
@@ -769,10 +770,7 @@ fn run_program_entity(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
                 input.params.clone()
             };
             trx.put_link(
-                &format!(
-                    "VmInstance::{}::{}::{}",
-                    program.id, input.entity_id, vm_id
-                ),
+                &format!("VmInstance::{}::{}::{}", program.id, input.entity_id, vm_id),
                 "true",
             );
             // Ask the runtime's plugin how to launch this entity: it returns
@@ -925,8 +923,7 @@ fn read_vm_logs(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
                     if program.id.is_empty() {
                         break;
                     }
-                    owner_user_id =
-                        resolve_program_owner_machine(&*trx, &program).owner_id;
+                    owner_user_id = resolve_program_owner_machine(&*trx, &program).owner_id;
                     break;
                 }
             }
@@ -1029,7 +1026,12 @@ fn list_entity_vms(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
                         (status, running, value)
                     }
                     Err(error) => (
-                        if recorded_status.is_empty() { "stopped" } else { "unknown" }.to_string(),
+                        if recorded_status.is_empty() {
+                            "stopped"
+                        } else {
+                            "unknown"
+                        }
+                        .to_string(),
                         false,
                         json!({"error": error}),
                     ),
@@ -1290,8 +1292,7 @@ fn deploy(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
             // creature to every instance of this origin (edge execution +
             // raft-propagated state), "local" pins it to this instance and
             // keeps all of its VM state out of the consensus.
-            let distributed =
-                input.wants_distribution() && crate::drivers::cluster::is_active();
+            let distributed = input.wants_distribution() && crate::drivers::cluster::is_active();
             let distribution_label = if distributed { "cluster" } else { "local" };
             let mut entity_model = Entity {
                 program_id: program.id.clone(),
@@ -1386,10 +1387,7 @@ fn deploy(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
                 // Downloadable entities (front-end scripts executed on the
                 // client) are served at any time via /programs/downloadEntity.
                 trx.put_link(
-                    &format!(
-                        "vmEntityDownloadable::{}::{}",
-                        program.id, input.entity_id
-                    ),
+                    &format!("vmEntityDownloadable::{}::{}", program.id, input.entity_id),
                     &format!("{}/{}", build_folder_path, primary_file_name),
                 );
             }
@@ -1485,8 +1483,8 @@ fn download_entity(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
                 ..Default::default()
             }
             .pull(&*trx);
-            let bytes = std::fs::read(&path)
-                .map_err(|e| anyhow!("entity file unavailable: {}", e))?;
+            let bytes =
+                std::fs::read(&path).map_err(|e| anyhow!("entity file unavailable: {}", e))?;
             Ok(json!({
                 "programId": program_id,
                 "entityId": input.entity_id,

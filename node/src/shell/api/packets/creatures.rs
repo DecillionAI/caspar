@@ -40,7 +40,11 @@ pub struct CreateInput {
     pub public_key: String,
     #[serde(rename = "chainId", default, skip_serializing_if = "Option::is_none")]
     pub chain_id: Option<String>,
-    #[serde(rename = "subchainId", default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "subchainId",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
     pub subchain_id: Option<String>,
     #[serde(rename = "ownerId", default, skip_serializing_if = "Option::is_none")]
     pub owner_id: Option<String>,
@@ -49,9 +53,15 @@ pub struct CreateInput {
 }
 
 impl IInput for CreateInput {
-    fn get_store_id(&self) -> String { String::new() }
-    fn origin(&self) -> String { "global".to_string() }
-    fn as_any(&self) -> &dyn std::any::Any { self }
+    fn get_store_id(&self) -> String {
+        String::new()
+    }
+    fn origin(&self) -> String {
+        "global".to_string()
+    }
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -64,7 +74,11 @@ pub struct SignalInput {
     pub store_id: String,
     #[serde(rename = "creatureId", default)]
     pub creature_id: String,
-    #[serde(rename = "programId", default, skip_serializing_if = "String::is_empty")]
+    #[serde(
+        rename = "programId",
+        default,
+        skip_serializing_if = "String::is_empty"
+    )]
     pub program_id: String,
     #[serde(rename = "entityId", default, skip_serializing_if = "String::is_empty")]
     pub entity_id: String,
@@ -82,9 +96,15 @@ pub struct SignalInput {
 }
 
 impl IInput for SignalInput {
-    fn get_store_id(&self) -> String { self.store_id.clone() }
-    fn origin(&self) -> String { String::new() }
-    fn as_any(&self) -> &dyn std::any::Any { self }
+    fn get_store_id(&self) -> String {
+        self.store_id.clone()
+    }
+    fn origin(&self) -> String {
+        String::new()
+    }
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -257,6 +277,220 @@ pub struct LockTokenStepInput {
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct PublishFinanceCatalogInput {
+    #[serde(default)]
+    pub catalog: Value,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct RegisterFinanceNodeInput {
+    #[serde(default)]
+    pub node: Value,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct RetireFinanceNodeInput {
+    #[serde(rename = "nodeOwnerAccountId", default)]
+    pub node_owner_account_id: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct RegisterFinanceResourceInput {
+    #[serde(default)]
+    pub resource: Value,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ReviewFinanceResourceInput {
+    #[serde(rename = "resourceId", default)]
+    pub resource_id: String,
+    #[serde(default)]
+    pub kind: String,
+    #[serde(default)]
+    pub status: String,
+    #[serde(default)]
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct RetireFinanceResourceInput {
+    #[serde(rename = "resourceId", default)]
+    pub resource_id: String,
+    #[serde(default)]
+    pub kind: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct PublishFinanceQuoteInput {
+    #[serde(default)]
+    pub quote: Value,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct CreateHoldInput {
+    #[serde(rename = "quoteId", default)]
+    pub quote_id: String,
+    #[serde(rename = "pricingVersion", default)]
+    pub pricing_version: String,
+    #[serde(rename = "maxAmount", default)]
+    pub max_amount: i64,
+    #[serde(rename = "settlementAuthority", default)]
+    pub settlement_authority: String,
+    #[serde(rename = "meterProgramId", default)]
+    pub meter_program_id: String,
+    #[serde(rename = "expiresAt", default)]
+    pub expires_at: i64,
+    #[serde(rename = "idempotencyKey", default)]
+    pub idempotency_key: String,
+    #[serde(rename = "contextHash", default)]
+    pub context_hash: String,
+    #[serde(rename = "beneficiaryPlanHash", default)]
+    pub beneficiary_plan_hash: String,
+    #[serde(default)]
+    pub beneficiaries: Vec<HoldBeneficiaryInput>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct HoldBeneficiaryInput {
+    #[serde(rename = "userId", default)]
+    pub user_id: String,
+    #[serde(default)]
+    pub role: String,
+    #[serde(rename = "maxAmount", default)]
+    pub max_amount: i64,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct StartHoldInput {
+    #[serde(rename = "holdId", default)]
+    pub hold_id: String,
+    #[serde(rename = "payerUserId", default)]
+    pub payer_user_id: String,
+    #[serde(rename = "quoteId", default)]
+    pub quote_id: String,
+    #[serde(rename = "runId", default)]
+    pub run_id: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct SettleHoldInput {
+    #[serde(rename = "holdId", default)]
+    pub hold_id: String,
+    #[serde(rename = "payerUserId", default)]
+    pub payer_user_id: String,
+    #[serde(rename = "quoteId", default)]
+    pub quote_id: String,
+    #[serde(rename = "settlementId", default)]
+    pub settlement_id: String,
+    #[serde(rename = "usageHash", default)]
+    pub usage_hash: String,
+    #[serde(default)]
+    pub lines: Vec<SettlementLineInput>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct SettlementLineInput {
+    #[serde(rename = "userId", default)]
+    pub user_id: String,
+    #[serde(default)]
+    pub role: String,
+    #[serde(default)]
+    pub amount: i64,
+    #[serde(rename = "sourceRef", default)]
+    pub source_ref: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ReleaseHoldInput {
+    #[serde(rename = "holdId", default)]
+    pub hold_id: String,
+    #[serde(rename = "payerUserId", default)]
+    pub payer_user_id: String,
+    #[serde(rename = "releaseId", default)]
+    pub release_id: String,
+    #[serde(default)]
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct GetHoldInput {
+    #[serde(rename = "holdId", default)]
+    pub hold_id: String,
+    #[serde(rename = "payerUserId", default)]
+    pub payer_user_id: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct GetFinancialAccountInput {
+    /// Defaults to the authenticated caller. Only the network owner may inspect
+    /// another creature's private financial account.
+    #[serde(rename = "userId", default)]
+    pub user_id: String,
+    #[serde(default)]
+    pub limit: i64,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ReconcileFinancialSystemInput {
+    #[serde(rename = "maxIssues", default)]
+    pub max_issues: i64,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct RequestPayoutInput {
+    #[serde(rename = "requestId", default)]
+    pub request_id: String,
+    #[serde(default)]
+    pub amount: i64,
+    /// Opaque token issued by the configured payout processor. Never send bank
+    /// or card details to the chain.
+    #[serde(rename = "destinationRef", default)]
+    pub destination_ref: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ResolvePayoutInput {
+    #[serde(rename = "payoutId", default)]
+    pub payout_id: String,
+    #[serde(rename = "resolutionId", default)]
+    pub resolution_id: String,
+    #[serde(default)]
+    pub status: String,
+    #[serde(rename = "providerReference", default)]
+    pub provider_reference: String,
+    #[serde(default)]
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ListPayoutsInput {
+    #[serde(rename = "userId", default)]
+    pub user_id: String,
+    #[serde(default)]
+    pub limit: i64,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct PaymentAdjustmentInput {
+    /// Target creature id. Payment processors resolve and authenticate this
+    /// server-side; the browser never submits this action directly.
+    #[serde(rename = "userId", default)]
+    pub user_id: String,
+    /// Positive credits the available wallet; negative reverses a payment. A
+    /// reversal larger than the available wallet becomes recoverable debt.
+    #[serde(default)]
+    pub amount: i64,
+    #[serde(default)]
+    pub kind: String,
+    #[serde(default)]
+    pub reference: String,
+    #[serde(rename = "idempotencyKey", default)]
+    pub idempotency_key: String,
+    #[serde(default)]
+    pub metadata: Value,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct TransferInput {
     #[serde(rename = "toUsername", default)]
     pub to_username: String,
@@ -300,6 +534,24 @@ input_impls! {
     GetByUsernameInput => "",
     MintInput        => "global",
     LockTokenInput   => "global",
+    PublishFinanceCatalogInput => "global",
+    RegisterFinanceNodeInput => "global",
+    RetireFinanceNodeInput => "global",
+    RegisterFinanceResourceInput => "global",
+    ReviewFinanceResourceInput => "global",
+    RetireFinanceResourceInput => "global",
+    PublishFinanceQuoteInput => "global",
+    CreateHoldInput  => "global",
+    StartHoldInput   => "global",
+    SettleHoldInput  => "global",
+    ReleaseHoldInput => "global",
+    GetHoldInput     => "global",
+    GetFinancialAccountInput => "global",
+    ReconcileFinancialSystemInput => "global",
+    RequestPayoutInput => "global",
+    ResolvePayoutInput => "global",
+    ListPayoutsInput => "global",
+    PaymentAdjustmentInput => "global",
     TransferInput    => "global",
     UpdateInput      => "global",
     LoginInput       => "",

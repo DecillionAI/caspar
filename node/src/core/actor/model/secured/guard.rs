@@ -41,6 +41,11 @@ pub struct Guard {
     pub is_user: bool,
     #[serde(rename = "isInStore", default)]
     pub is_in_store: bool,
+    /// Whether a machine may authenticate through the in-process applet
+    /// marker. Financial actions set this to false so value movement always
+    /// requires a real signature from the declared authority.
+    #[serde(rename = "allowAppletSign", default)]
+    pub allow_applet_sign: bool,
 }
 
 impl Guard {
@@ -59,15 +64,20 @@ impl Guard {
         if user_id.is_empty() || signature.is_empty() {
             return (false, Info::new("", ""));
         }
-        let (identified, _, is_god) =
-            app.tools().security().auth_with_signature(user_id, packet, signature);
+        let (identified, _, is_god) = app
+            .tools()
+            .security()
+            .auth_with_signature(user_id, packet, signature);
         if !identified {
             return (false, Info::new("", ""));
         }
         if !self.is_in_store {
             return (true, Info::new_with_god(user_id, "", is_god));
         }
-        let has_access = app.tools().security().has_access_to_store(user_id, store_id);
+        let has_access = app
+            .tools()
+            .security()
+            .has_access_to_store(user_id, store_id);
         if !has_access {
             return (false, Info::new("", ""));
         }
@@ -87,29 +97,39 @@ impl Guard {
         if !self.is_user {
             return self.optional_identity(app.as_ref(), packet, signature, user_id, store_id);
         }
-        if matches!(insider.first(), Some(true)) && signature == "#appletsign" {
+        if self.allow_applet_sign
+            && matches!(insider.first(), Some(true))
+            && signature == "#appletsign"
+        {
             let typ = read_user_type(&app, user_id);
             if typ == "machine" {
                 if !self.is_in_store {
                     return (true, Info::new_with_god(user_id, "", false));
                 }
-                let has_access =
-                    app.tools().security().has_access_to_store(user_id, store_id);
+                let has_access = app
+                    .tools()
+                    .security()
+                    .has_access_to_store(user_id, store_id);
                 if !has_access {
                     return (false, Info::new("", ""));
                 }
                 return (true, Info::new_with_god(user_id, store_id, false));
             }
         }
-        let (identified, _, is_god) =
-            app.tools().security().auth_with_signature(user_id, packet, signature);
+        let (identified, _, is_god) = app
+            .tools()
+            .security()
+            .auth_with_signature(user_id, packet, signature);
         if !identified {
             return (false, Info::new("", ""));
         }
         if !self.is_in_store {
             return (true, Info::new_with_god(user_id, "", is_god));
         }
-        let has_access = app.tools().security().has_access_to_store(user_id, store_id);
+        let has_access = app
+            .tools()
+            .security()
+            .has_access_to_store(user_id, store_id);
         if !has_access {
             return (false, Info::new("", ""));
         }
@@ -129,29 +149,36 @@ impl Guard {
         if !self.is_user {
             return self.optional_identity(app.as_ref(), packet, signature, user_id, store_id);
         }
-        if signature == "#appletsign" {
+        if self.allow_applet_sign && signature == "#appletsign" {
             let typ = read_user_type(&app, user_id);
             if typ == "machine" {
                 if !self.is_in_store {
                     return (true, Info::new_with_god(user_id, "", false));
                 }
-                let has_access =
-                    app.tools().security().has_access_to_store(user_id, store_id);
+                let has_access = app
+                    .tools()
+                    .security()
+                    .has_access_to_store(user_id, store_id);
                 if !has_access {
                     return (false, Info::new("", ""));
                 }
                 return (true, Info::new_with_god(user_id, store_id, false));
             }
         }
-        let (identified, _, is_god) =
-            app.tools().security().auth_with_signature(user_id, packet, signature);
+        let (identified, _, is_god) = app
+            .tools()
+            .security()
+            .auth_with_signature(user_id, packet, signature);
         if !identified {
             return (false, Info::new("", ""));
         }
         if !self.is_in_store {
             return (true, Info::new_with_god(user_id, "", is_god));
         }
-        let has_access = app.tools().security().has_access_to_store(user_id, store_id);
+        let has_access = app
+            .tools()
+            .security()
+            .has_access_to_store(user_id, store_id);
         if !has_access {
             return (false, Info::new("", ""));
         }
@@ -173,12 +200,16 @@ impl Guard {
             if user_id.is_empty() || signature.is_empty() {
                 return false;
             }
-            let (identified, _, _) =
-                app.tools().security().auth_with_signature(user_id, packet, signature);
+            let (identified, _, _) = app
+                .tools()
+                .security()
+                .auth_with_signature(user_id, packet, signature);
             return identified;
         }
-        let (identified, _, _) =
-            app.tools().security().auth_with_signature(user_id, packet, signature);
+        let (identified, _, _) = app
+            .tools()
+            .security()
+            .auth_with_signature(user_id, packet, signature);
         identified
     }
 }
