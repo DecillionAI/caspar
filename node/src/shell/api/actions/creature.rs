@@ -970,6 +970,63 @@ fn valid_finance_hash(value: &str) -> bool {
     value.len() == 64 && value.bytes().all(|b| b.is_ascii_hexdigit())
 }
 
+fn valid_finance_origin(value: &str) -> bool {
+    if valid_finance_id(value) {
+        return true;
+    }
+    if value.is_empty()
+        || value.len() > 2_048
+        || value
+            .bytes()
+            .any(|byte| byte.is_ascii_control() || byte.is_ascii_whitespace())
+    {
+        return false;
+    }
+    let Ok(origin) = url::Url::parse(value) else {
+        return false;
+    };
+    matches!(origin.scheme(), "http" | "https" | "ws" | "wss")
+        && origin.host_str().is_some()
+        && origin.username().is_empty()
+        && origin.password().is_none()
+        && matches!(origin.path(), "" | "/")
+        && origin.query().is_none()
+        && origin.fragment().is_none()
+}
+
+#[cfg(test)]
+mod finance_origin_tests {
+    use super::valid_finance_origin;
+
+    #[test]
+    fn accepts_caspar_endpoint_origins_and_legacy_ids() {
+        for origin in [
+            "global",
+            "http://localhost:8074",
+            "https://node.example:8076",
+            "ws://127.0.0.1:8074/",
+            "wss://node.example",
+        ] {
+            assert!(valid_finance_origin(origin), "expected valid origin: {origin}");
+        }
+    }
+
+    #[test]
+    fn rejects_unsafe_or_non_base_origins() {
+        for origin in [
+            "",
+            "ftp://node.example",
+            "http://",
+            "http://user@node.example",
+            "http://node.example/path",
+            "http://node.example?query=1",
+            "http://node.example#fragment",
+        ] {
+            assert!(!valid_finance_origin(origin), "expected invalid origin: {origin}");
+        }
+    }
+}
+
 fn finance_hash(value: &Value) -> Result<String> {
     let bytes = serde_json::to_vec(value)?;
     let mut hasher = Sha256::new();
@@ -1419,7 +1476,7 @@ fn register_finance_node(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
             if caller != owner
                 || authority != caller
                 || !valid_finance_id(&caller)
-                || !valid_finance_id(origin)
+                || !valid_finance_origin(origin)
                 || !valid_finance_id(meter)
                 || !valid_finance_id(talent_meter)
                 || !valid_finance_id(meter_creature)
