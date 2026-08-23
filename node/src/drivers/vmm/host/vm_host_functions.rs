@@ -2,6 +2,7 @@ use crate::drivers::vmm::bridge::runtime_io::wasm_send;
 use crate::drivers::vmm::globals::with_global_app;
 use crate::drivers::vmm::host::functions::*;
 use crate::drivers::vmm::prelude::*;
+use crate::models::core::ICore;
 
 pub(crate) struct HostHierarchy {
     pub(crate) vm_id: String,
