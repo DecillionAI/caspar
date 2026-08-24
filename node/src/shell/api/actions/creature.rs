@@ -34,7 +34,8 @@ use crate::shell::api::packets::creatures::{
     ReconcileFinancialSystemInput, RegisterFinanceNodeInput, RegisterFinanceResourceInput,
     RequestPayoutInput, ResolvePayoutInput, RetireFinanceNodeInput, RetireFinanceResourceInput,
     ReviewFinanceResourceInput, ListPayoutsInput, LoginInput, LoginOutput, MetaInput, MintInput,
-    PaymentAdjustmentInput, PublishFinanceCatalogInput, PublishFinanceQuoteInput, ReleaseHoldInput,
+    OpenPoolInput, PaymentAdjustmentInput, PublishFinanceCatalogInput, PublishFinanceQuoteInput,
+    RefreshPoolInput, ClosePoolInput, ReleaseHoldInput,
     SecretGetInput, SecretGrantInput, SecretListGrantedInput, SecretListInput, SecretPutInput,
     SecretRevokeInput, SettleHoldInput, SignalInput as CreatureSignalInput, StartHoldInput,
     StorageUploadInput, TransferInput, UpdateInput,
@@ -1064,6 +1065,28 @@ fn put_finance_hold(trx: &dyn ITrx, hold_id: &str, hold: &Map<String, Value>) ->
         &Value::Object(hold.clone()),
         false,
     )
+}
+
+fn finance_pool_key(pool_id: &str) -> String {
+    format!("Json::FinancePool::{pool_id}")
+}
+
+fn get_finance_pool(trx: &dyn ITrx, pool_id: &str) -> Result<Map<String, Value>> {
+    trx.get_json(&finance_pool_key(pool_id), "pool")
+        .map_err(|_| anyhow!("pool not found"))
+}
+
+fn put_finance_pool(trx: &dyn ITrx, pool_id: &str, pool: &Map<String, Value>) -> Result<()> {
+    trx.put_json(
+        &finance_pool_key(pool_id),
+        "pool",
+        &Value::Object(pool.clone()),
+        false,
+    )
+}
+
+fn finance_pool_reservation_key(run_id: &str) -> String {
+    format!("Json::FinancePoolReservation::{run_id}")
 }
 
 fn finance_held_amount(trx: &dyn ITrx, payer_id: &str) -> Result<i64> {
@@ -3090,6 +3113,289 @@ fn list_payouts(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
     )
 }
 
+// ── Shared authorization pool ────────────────────────────────────────────────
+// A per-user pool is a standing hold many runs draw down together (see
+// decillionai-server/docs/SHARED-POOL-DESIGN.md). Wallet accounting mirrors
+// createHold/releaseHold; only the granularity differs (one long-lived hold with
+// a running `remaining`/`reserved`/`spent` instead of one hold per run). Every
+// transition keeps the invariant maxAmount == remaining + reserved + spent +
+// refunded, and payer `held` == pool `remaining + reserved`.
+
+/// Split a wallet debit into the withdrawable portion it must consume, given the
+/// payer's current balance and withdrawable counter. Non-withdrawable (top-up)
+/// funds are consumed first. Returns the withdrawable amount to deduct.
+fn withdrawable_debit_portion(balance: i64, withdrawable: i64, amount: i64) -> i64 {
+    let nonwithdrawable = balance.saturating_sub(withdrawable);
+    amount.saturating_sub(nonwithdrawable)
+}
+
+fn open_pool(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
+    build_secure_action::<OpenPoolInput, _>(
+        app,
+        "/creatures/openPool",
+        finance_guard(),
+        move |state: Arc<dyn IState>, input: OpenPoolInput| -> Result<Value> {
+            let trx = state.trx();
+            let payer_id = state.info().user_id();
+            let now = Utc::now().timestamp_millis();
+            if !valid_finance_id(&input.settlement_authority)
+                || !valid_finance_id(&input.meter_program_id)
+                || !valid_finance_id(&input.idempotency_key)
+            {
+                return Err(anyhow!("invalid authority, meter, or idempotency identifier"));
+            }
+            if input.max_amount <= 0 {
+                return Err(anyhow!("maxAmount must be greater than zero"));
+            }
+            if input.expires_at <= now {
+                return Err(anyhow!("pool expiry must be in the future"));
+            }
+            let marker = format!("FinancePoolOpen::{payer_id}::{}", input.idempotency_key);
+            let existing = trx.get_link(&marker);
+            if !existing.is_empty() {
+                let pool = get_finance_pool(&*trx, &existing)?;
+                return Ok(json!({"applied": false, "alreadyApplied": true, "pool": pool}));
+            }
+            if finance_debt_amount(&*trx, &payer_id)? > 0 {
+                return Err(anyhow!("wallet has outstanding payment debt"));
+            }
+            let mut payer = Creature { id: payer_id.clone(), ..Default::default() }.pull(&*trx);
+            if payer.id.is_empty() {
+                return Err(anyhow!("payer creature not found"));
+            }
+            let withdrawable = finance_withdrawable_amount(&*trx, &payer_id)?;
+            if withdrawable > payer.balance {
+                return Err(anyhow!("withdrawable balance exceeds available balance"));
+            }
+            let withdrawable_amount =
+                withdrawable_debit_portion(payer.balance, withdrawable, input.max_amount);
+            payer.balance = payer.balance.checked_sub(input.max_amount).ok_or_else(|| {
+                anyhow!("insufficient available balance to open this pool")
+            })?;
+            set_finance_withdrawable_amount(
+                &*trx,
+                &payer_id,
+                withdrawable.checked_sub(withdrawable_amount).ok_or_else(|| {
+                    anyhow!("withdrawable composition underflow")
+                })?,
+            )?;
+            payer.push(&*trx);
+            let held = finance_held_amount(&*trx, &payer_id)?
+                .checked_add(input.max_amount)
+                .ok_or_else(|| anyhow!("held balance overflow"))?;
+            set_finance_held_amount(&*trx, &payer_id, held)?;
+
+            let pool_id = secure_unique_string();
+            let pool = json!({
+                "version": 1,
+                "poolId": pool_id,
+                "payerUserId": payer_id,
+                "maxAmount": input.max_amount,
+                "remaining": input.max_amount,
+                "reserved": 0,
+                "spent": 0,
+                "refunded": 0,
+                "withdrawableAmount": withdrawable_amount,
+                "settlementAuthority": input.settlement_authority,
+                "meterProgramId": input.meter_program_id,
+                "status": "open",
+                "expiresAt": input.expires_at,
+                "idempotencyKey": input.idempotency_key,
+                "createdAt": now,
+                "updatedAt": now,
+            });
+            let pool_map = pool
+                .as_object()
+                .cloned()
+                .ok_or_else(|| anyhow!("pool encode failed"))?;
+            put_finance_pool(&*trx, &pool_id, &pool_map)?;
+            trx.put_link(&marker, &pool_id);
+            let participants = vec![payer_id.clone(), input.settlement_authority.clone()];
+            let journal_id = write_finance_journal(
+                &*trx,
+                "pool.opened",
+                &pool_id,
+                &payer_id,
+                json!({"maxAmount": input.max_amount, "withdrawableAmount": withdrawable_amount}),
+                &participants,
+                now,
+            )?;
+            Ok(json!({"applied": true, "pool": pool, "journalId": journal_id}))
+        },
+    )
+}
+
+fn refresh_pool(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
+    build_secure_action::<RefreshPoolInput, _>(
+        app,
+        "/creatures/refreshPool",
+        finance_guard(),
+        move |state: Arc<dyn IState>, input: RefreshPoolInput| -> Result<Value> {
+            let trx = state.trx();
+            let payer_id = state.info().user_id();
+            let now = Utc::now().timestamp_millis();
+            if !valid_finance_id(&input.pool_id) || !valid_finance_id(&input.refresh_id) {
+                return Err(anyhow!("invalid pool or refresh identifier"));
+            }
+            if input.amount <= 0 {
+                return Err(anyhow!("refresh amount must be greater than zero"));
+            }
+            let marker = format!("FinancePoolRefresh::{payer_id}::{}", input.refresh_id);
+            if !trx.get_link(&marker).is_empty() {
+                let pool = get_finance_pool(&*trx, &input.pool_id)?;
+                return Ok(json!({"applied": false, "alreadyApplied": true, "pool": pool}));
+            }
+            if finance_debt_amount(&*trx, &payer_id)? > 0 {
+                return Err(anyhow!("wallet has outstanding payment debt"));
+            }
+            let mut pool = get_finance_pool(&*trx, &input.pool_id)?;
+            if pool.get("payerUserId").and_then(Value::as_str) != Some(payer_id.as_str()) {
+                return Err(anyhow!("pool does not belong to caller"));
+            }
+            if pool.get("status").and_then(Value::as_str) != Some("open") {
+                return Err(anyhow!("pool is not open"));
+            }
+            let mut payer = Creature { id: payer_id.clone(), ..Default::default() }.pull(&*trx);
+            if payer.id.is_empty() {
+                return Err(anyhow!("payer creature not found"));
+            }
+            let withdrawable = finance_withdrawable_amount(&*trx, &payer_id)?;
+            if withdrawable > payer.balance {
+                return Err(anyhow!("withdrawable balance exceeds available balance"));
+            }
+            let withdrawable_add =
+                withdrawable_debit_portion(payer.balance, withdrawable, input.amount);
+            payer.balance = payer.balance.checked_sub(input.amount).ok_or_else(|| {
+                anyhow!("insufficient available balance to refresh this pool")
+            })?;
+            set_finance_withdrawable_amount(
+                &*trx,
+                &payer_id,
+                withdrawable.checked_sub(withdrawable_add).ok_or_else(|| {
+                    anyhow!("withdrawable composition underflow")
+                })?,
+            )?;
+            payer.push(&*trx);
+            let held = finance_held_amount(&*trx, &payer_id)?
+                .checked_add(input.amount)
+                .ok_or_else(|| anyhow!("held balance overflow"))?;
+            set_finance_held_amount(&*trx, &payer_id, held)?;
+
+            let max_amount = pool.get("maxAmount").and_then(as_i64).unwrap_or(0)
+                .checked_add(input.amount)
+                .ok_or_else(|| anyhow!("pool maxAmount overflow"))?;
+            let remaining = pool.get("remaining").and_then(as_i64).unwrap_or(0)
+                .checked_add(input.amount)
+                .ok_or_else(|| anyhow!("pool remaining overflow"))?;
+            let pool_withdrawable = pool.get("withdrawableAmount").and_then(as_i64).unwrap_or(0)
+                .checked_add(withdrawable_add)
+                .ok_or_else(|| anyhow!("pool withdrawable overflow"))?;
+            if input.expires_at > now {
+                pool.insert("expiresAt".to_string(), json!(input.expires_at));
+            }
+            pool.insert("maxAmount".to_string(), json!(max_amount));
+            pool.insert("remaining".to_string(), json!(remaining));
+            pool.insert("withdrawableAmount".to_string(), json!(pool_withdrawable));
+            pool.insert("updatedAt".to_string(), json!(now));
+            put_finance_pool(&*trx, &input.pool_id, &pool)?;
+            trx.put_link(&marker, &input.pool_id);
+            let authority = pool.get("settlementAuthority").and_then(Value::as_str).unwrap_or("").to_string();
+            let participants = vec![payer_id.clone(), authority];
+            let journal_id = write_finance_journal(
+                &*trx,
+                "pool.refreshed",
+                &input.pool_id,
+                &payer_id,
+                json!({"amount": input.amount, "maxAmount": max_amount}),
+                &participants,
+                now,
+            )?;
+            Ok(json!({"applied": true, "pool": Value::Object(pool), "journalId": journal_id}))
+        },
+    )
+}
+
+fn close_pool(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
+    build_secure_action::<ClosePoolInput, _>(
+        app,
+        "/creatures/closePool",
+        finance_guard(),
+        move |state: Arc<dyn IState>, input: ClosePoolInput| -> Result<Value> {
+            let trx = state.trx();
+            let caller_id = state.info().user_id();
+            let now = Utc::now().timestamp_millis();
+            if !valid_finance_id(&input.pool_id) || !valid_finance_id(&input.close_id) {
+                return Err(anyhow!("invalid pool or close identifier"));
+            }
+            let mut pool = get_finance_pool(&*trx, &input.pool_id)?;
+            let payer_id = pool.get("payerUserId").and_then(Value::as_str).unwrap_or("").to_string();
+            let authority = pool.get("settlementAuthority").and_then(Value::as_str).unwrap_or("").to_string();
+            // The payer may always close their own pool; the settlement authority
+            // may close it too (e.g. teardown). No one else.
+            if caller_id != payer_id && caller_id != authority {
+                return Err(anyhow!("caller may not close this pool"));
+            }
+            let status = pool.get("status").and_then(Value::as_str).unwrap_or("");
+            let close_marker = format!("FinancePoolClose::{}", input.pool_id);
+            if status == "closed" {
+                if trx.get_link(&close_marker) == input.close_id {
+                    return Ok(json!({"applied": false, "alreadyApplied": true, "pool": Value::Object(pool)}));
+                }
+                return Err(anyhow!("pool is already closed"));
+            }
+            if status != "open" {
+                return Err(anyhow!("pool is not open"));
+            }
+            let reserved = pool.get("reserved").and_then(as_i64).unwrap_or(0);
+            if reserved != 0 {
+                return Err(anyhow!("pool has in-flight run reservations; cannot close yet"));
+            }
+            let remaining = pool.get("remaining").and_then(as_i64).unwrap_or(0);
+            let pool_withdrawable = pool.get("withdrawableAmount").and_then(as_i64).unwrap_or(0);
+            let withdrawable_refund = remaining.min(pool_withdrawable);
+            if remaining > 0 {
+                let mut payer = Creature { id: payer_id.clone(), ..Default::default() }.pull(&*trx);
+                if payer.id.is_empty() {
+                    return Err(anyhow!("payer creature not found"));
+                }
+                payer.balance = payer.balance.checked_add(remaining)
+                    .ok_or_else(|| anyhow!("payer balance overflow"))?;
+                let withdrawable = finance_withdrawable_amount(&*trx, &payer_id)?
+                    .checked_add(withdrawable_refund)
+                    .ok_or_else(|| anyhow!("withdrawable refund overflow"))?;
+                set_finance_withdrawable_amount(&*trx, &payer_id, withdrawable)?;
+                payer.push(&*trx);
+                let held = finance_held_amount(&*trx, &payer_id)?
+                    .checked_sub(remaining)
+                    .ok_or_else(|| anyhow!("held balance underflow"))?;
+                set_finance_held_amount(&*trx, &payer_id, held)?;
+            }
+            let refunded = pool.get("refunded").and_then(as_i64).unwrap_or(0)
+                .checked_add(remaining)
+                .ok_or_else(|| anyhow!("pool refunded overflow"))?;
+            pool.insert("status".to_string(), json!("closed"));
+            pool.insert("refunded".to_string(), json!(refunded));
+            pool.insert("remaining".to_string(), json!(0));
+            pool.insert("closeId".to_string(), json!(input.close_id));
+            pool.insert("closeReason".to_string(), json!(input.reason));
+            pool.insert("updatedAt".to_string(), json!(now));
+            put_finance_pool(&*trx, &input.pool_id, &pool)?;
+            trx.put_link(&close_marker, &input.close_id);
+            let participants = vec![payer_id.clone(), authority];
+            let journal_id = write_finance_journal(
+                &*trx,
+                "pool.closed",
+                &input.pool_id,
+                &payer_id,
+                json!({"refunded": remaining, "withdrawableRefunded": withdrawable_refund}),
+                &participants,
+                now,
+            )?;
+            Ok(json!({"applied": true, "pool": Value::Object(pool), "journalId": journal_id}))
+        },
+    )
+}
+
 fn reconcile_financial_system(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
     build_secure_action::<ReconcileFinancialSystemInput, _>(
         app,
@@ -4102,6 +4408,9 @@ pub fn install(
         create_hold(app.clone()),
         settle_hold(app.clone()),
         release_hold(app.clone()),
+        open_pool(app.clone()),
+        refresh_pool(app.clone()),
+        close_pool(app.clone()),
         get_hold(app.clone()),
         get_financial_account(app.clone()),
         request_payout(app.clone()),

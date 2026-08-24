@@ -412,6 +412,94 @@ pub struct ReleaseHoldInput {
     pub reason: String,
 }
 
+// ── Shared authorization pool (replaces per-run holds) ───────────────────────
+// A pool is a per-user standing reservation that many runs draw down together;
+// see docs/SHARED-POOL-DESIGN.md in decillionai-server. openPool/refreshPool/
+// closePool are client-signed (payer); reservePool/settlePool/releasePool are
+// meter-signed (settlement authority).
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct OpenPoolInput {
+    #[serde(rename = "maxAmount", default)]
+    pub max_amount: i64,
+    #[serde(rename = "settlementAuthority", default)]
+    pub settlement_authority: String,
+    #[serde(rename = "meterProgramId", default)]
+    pub meter_program_id: String,
+    #[serde(rename = "expiresAt", default)]
+    pub expires_at: i64,
+    #[serde(rename = "idempotencyKey", default)]
+    pub idempotency_key: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct RefreshPoolInput {
+    #[serde(rename = "poolId", default)]
+    pub pool_id: String,
+    #[serde(rename = "refreshId", default)]
+    pub refresh_id: String,
+    #[serde(default)]
+    pub amount: i64,
+    #[serde(rename = "expiresAt", default)]
+    pub expires_at: i64,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ClosePoolInput {
+    #[serde(rename = "poolId", default)]
+    pub pool_id: String,
+    #[serde(rename = "closeId", default)]
+    pub close_id: String,
+    #[serde(default)]
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ReservePoolInput {
+    #[serde(rename = "poolId", default)]
+    pub pool_id: String,
+    #[serde(rename = "payerUserId", default)]
+    pub payer_user_id: String,
+    #[serde(rename = "quoteId", default)]
+    pub quote_id: String,
+    #[serde(rename = "runId", default)]
+    pub run_id: String,
+    #[serde(rename = "maxAmount", default)]
+    pub max_amount: i64,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct SettlePoolInput {
+    #[serde(rename = "poolId", default)]
+    pub pool_id: String,
+    #[serde(rename = "payerUserId", default)]
+    pub payer_user_id: String,
+    #[serde(rename = "quoteId", default)]
+    pub quote_id: String,
+    #[serde(rename = "runId", default)]
+    pub run_id: String,
+    #[serde(rename = "settlementId", default)]
+    pub settlement_id: String,
+    #[serde(rename = "usageHash", default)]
+    pub usage_hash: String,
+    #[serde(default)]
+    pub lines: Vec<SettlementLineInput>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ReleasePoolInput {
+    #[serde(rename = "poolId", default)]
+    pub pool_id: String,
+    #[serde(rename = "payerUserId", default)]
+    pub payer_user_id: String,
+    #[serde(rename = "runId", default)]
+    pub run_id: String,
+    #[serde(rename = "releaseId", default)]
+    pub release_id: String,
+    #[serde(default)]
+    pub reason: String,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct GetHoldInput {
     #[serde(rename = "holdId", default)]
@@ -545,6 +633,12 @@ input_impls! {
     StartHoldInput   => "global",
     SettleHoldInput  => "global",
     ReleaseHoldInput => "global",
+    OpenPoolInput    => "global",
+    RefreshPoolInput => "global",
+    ClosePoolInput   => "global",
+    ReservePoolInput => "global",
+    SettlePoolInput  => "global",
+    ReleasePoolInput => "global",
     GetHoldInput     => "global",
     GetFinancialAccountInput => "global",
     ReconcileFinancialSystemInput => "global",
