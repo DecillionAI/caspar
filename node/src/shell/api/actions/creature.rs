@@ -3247,6 +3247,7 @@ fn reconcile_financial_system(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
                     report("payout.held_mismatch", &user_id, format!("stored={actual}, expected={expected}"));
                 }
             }
+            let mut total_withdrawable_actual: i64 = 0;
             for key in trx.get_links_list("FinanceWithdrawable::", -1, -1, &[]).unwrap_or_default() {
                 let user_id = key.strip_prefix("FinanceWithdrawable::").unwrap_or("");
                 let withdrawable = trx.get_link(&key).parse::<i64>().unwrap_or(-1);
@@ -3258,6 +3259,28 @@ fn reconcile_financial_system(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
                         format!("withdrawable={withdrawable}, available={}", creature.balance),
                     );
                 }
+                if withdrawable > 0 {
+                    total_withdrawable_actual = total_withdrawable_actual.saturating_add(withdrawable);
+                }
+            }
+            // Withdrawable funds are created ONLY by settled earnings; spending and
+            // payouts reduce them and transfers only move them between wallets, so
+            // system-wide withdrawable can never exceed system-wide lifetime
+            // earnings. A positive gap is unbacked withdrawable — counter drift the
+            // per-wallet "withdrawable <= available" check cannot see (e.g. left
+            // over from historical hold leaks, where refunds credited withdrawable
+            // that was never earned). This is the system total, so it is immune to
+            // transfers moving withdrawable between wallets.
+            let total_earned_expected: i64 =
+                earned_expected.values().fold(0_i64, |acc, v| acc.saturating_add(*v));
+            if total_withdrawable_actual > total_earned_expected {
+                report(
+                    "withdrawable.unbacked_total",
+                    "",
+                    format!(
+                        "withdrawable_total={total_withdrawable_actual}, earned_total={total_earned_expected}"
+                    ),
+                );
             }
 
             for (prefix, expected, code) in [
