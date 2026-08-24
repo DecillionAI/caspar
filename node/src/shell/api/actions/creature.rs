@@ -3656,6 +3656,12 @@ fn settle_pool(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
             reservation.insert("settlementId".to_string(), json!(input.settlement_id));
             reservation.insert("actualAmount".to_string(), json!(actual_amount));
             reservation.insert("usageHash".to_string(), json!(input.usage_hash));
+            // Persist the lines so reconciliation can replay pool earnings/spend the
+            // same way it replays settled holds' settlementLines.
+            reservation.insert(
+                "settlementLines".to_string(),
+                serde_json::to_value(&input.lines).unwrap_or(Value::Null),
+            );
             reservation.insert("settledAt".to_string(), json!(now));
             trx.put_json(&reservation_key, "reservation", &Value::Object(reservation), false)?;
             trx.put_link(&settlement_marker, &input.run_id);
@@ -3854,6 +3860,120 @@ fn reconcile_financial_system(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
                         }
                     }
                     _ => report("hold.status_invalid", hold_id, format!("status={status}")),
+                }
+            }
+
+            // Pools hold wallet funds (remaining + reserved while open) and must
+            // satisfy maxAmount == remaining + reserved + spent + refunded.
+            let pool_prefix = "json::Json::FinancePool::";
+            for key in trx.get_by_prefix(pool_prefix) {
+                let Some(pool_id) = key
+                    .strip_prefix(pool_prefix)
+                    .and_then(|rest| rest.strip_suffix("::pool"))
+                else {
+                    continue;
+                };
+                let Ok(pool) = trx.get_json(&finance_pool_key(pool_id), "pool") else {
+                    report("pool.unreadable", pool_id, "pool JSON cannot be read".to_string());
+                    continue;
+                };
+                let payer = pool.get("payerUserId").and_then(Value::as_str).unwrap_or("");
+                let status = pool.get("status").and_then(Value::as_str).unwrap_or("");
+                let max_amount = pool.get("maxAmount").and_then(as_i64).unwrap_or(-1);
+                let remaining = pool.get("remaining").and_then(as_i64).unwrap_or(-1);
+                let reserved = pool.get("reserved").and_then(as_i64).unwrap_or(-1);
+                let spent = pool.get("spent").and_then(as_i64).unwrap_or(-1);
+                let refunded = pool.get("refunded").and_then(as_i64).unwrap_or(-1);
+                if payer.is_empty() || max_amount < 0 || remaining < 0 || reserved < 0 || spent < 0 || refunded < 0 {
+                    report("pool.invalid", pool_id, "payer or pool amounts are invalid".to_string());
+                    continue;
+                }
+                let sum = remaining
+                    .checked_add(reserved)
+                    .and_then(|v| v.checked_add(spent))
+                    .and_then(|v| v.checked_add(refunded));
+                if sum != Some(max_amount) {
+                    report("pool.balance_mismatch", pool_id, format!("remaining={remaining}, reserved={reserved}, spent={spent}, refunded={refunded}, max={max_amount}"));
+                }
+                if status == "open"
+                    && !finance_map_add(&mut held_expected, payer, remaining.saturating_add(reserved))
+                {
+                    report("held.overflow", payer, "expected held (pool) overflow".to_string());
+                }
+            }
+
+            // Pool reservations: an open one still holds its slice in the pool's
+            // `reserved`; a settled one contributes to spent/earned exactly like a
+            // settled hold so those counters reconcile for pool users.
+            let reservation_prefix = "json::Json::FinancePoolReservation::";
+            let mut pool_reserved_expected: HashMap<String, i64> = HashMap::new();
+            for key in trx.get_by_prefix(reservation_prefix) {
+                let Some(run_id) = key
+                    .strip_prefix(reservation_prefix)
+                    .and_then(|rest| rest.strip_suffix("::reservation"))
+                else {
+                    continue;
+                };
+                let Ok(reservation) = trx.get_json(&finance_pool_reservation_key(run_id), "reservation") else {
+                    report("reservation.unreadable", run_id, "reservation JSON cannot be read".to_string());
+                    continue;
+                };
+                let payer = reservation.get("payerUserId").and_then(Value::as_str).unwrap_or("");
+                let pool_id = reservation.get("poolId").and_then(Value::as_str).unwrap_or("");
+                let status = reservation.get("status").and_then(Value::as_str).unwrap_or("");
+                let amount = reservation.get("amount").and_then(as_i64).unwrap_or(-1);
+                if payer.is_empty() || pool_id.is_empty() || amount < 0 {
+                    report("reservation.invalid", run_id, "reservation fields are invalid".to_string());
+                    continue;
+                }
+                match status {
+                    "reserved" => {
+                        if !finance_map_add(&mut pool_reserved_expected, pool_id, amount) {
+                            report("reservation.overflow", pool_id, "expected pool reserved overflow".to_string());
+                        }
+                    }
+                    "settled" => {
+                        let actual = reservation.get("actualAmount").and_then(as_i64).unwrap_or(-1);
+                        if actual < 0 {
+                            report("reservation.settlement_invalid", run_id, "settled reservation missing actualAmount".to_string());
+                            continue;
+                        }
+                        let mut line_total = 0_i64;
+                        for line in reservation.get("settlementLines").and_then(Value::as_array).cloned().unwrap_or_default() {
+                            let user_id = line.get("userId").and_then(Value::as_str).unwrap_or("");
+                            let line_amount = line.get("amount").and_then(as_i64).unwrap_or(-1);
+                            if line_amount <= 0 || !finance_map_add(&mut earned_expected, user_id, line_amount) {
+                                report("reservation.line_invalid", run_id, "invalid pool settlement line".to_string());
+                                continue;
+                            }
+                            line_total = line_total.checked_add(line_amount).unwrap_or(i64::MAX);
+                        }
+                        if line_total != actual {
+                            report("reservation.lines_mismatch", run_id, format!("lines={line_total}, actual={actual}"));
+                        }
+                        if !finance_map_add(&mut spent_expected, payer, actual) {
+                            report("spent.overflow", payer, "expected spent (pool) overflow".to_string());
+                        }
+                    }
+                    "released" => {}
+                    _ => report("reservation.status_invalid", run_id, format!("status={status}")),
+                }
+            }
+            // Each open pool's stored `reserved` must equal the sum of its open reservations.
+            for key in trx.get_by_prefix(pool_prefix) {
+                let Some(pool_id) = key
+                    .strip_prefix(pool_prefix)
+                    .and_then(|rest| rest.strip_suffix("::pool"))
+                else {
+                    continue;
+                };
+                let Ok(pool) = trx.get_json(&finance_pool_key(pool_id), "pool") else {
+                    continue;
+                };
+                let stored = pool.get("reserved").and_then(as_i64).unwrap_or(0);
+                let expected = pool_reserved_expected.get(pool_id).copied().unwrap_or(0);
+                if stored != expected {
+                    report("pool.reserved_mismatch", pool_id, format!("stored={stored}, expected={expected}"));
                 }
             }
 
