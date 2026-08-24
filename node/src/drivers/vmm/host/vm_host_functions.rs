@@ -382,6 +382,18 @@ pub(crate) fn handle_unified_host_call(packet: &JsonValue) -> String {
             let caller = resolve_cached_vm_hierarchy(packet, &input).program_id;
             host_fn_release_hold(&caller, &input)
         }
+        "reservePool" => {
+            let caller = resolve_cached_vm_hierarchy(packet, &input).program_id;
+            host_fn_pool_authority_call(&caller, &input, "/creatures/reservePool", "pool reservation")
+        }
+        "settlePool" => {
+            let caller = resolve_cached_vm_hierarchy(packet, &input).program_id;
+            host_fn_pool_authority_call(&caller, &input, "/creatures/settlePool", "pool settlement")
+        }
+        "releasePool" => {
+            let caller = resolve_cached_vm_hierarchy(packet, &input).program_id;
+            host_fn_pool_authority_call(&caller, &input, "/creatures/releasePool", "pool release")
+        }
         "createProgram" => host_fn_create_program(&input),
         "deleteProgram" | "deleteOwnedProgram" => host_fn_delete_program(&input),
         // Program CRUD reads — exposed so store/miniapp creatures can fetch a
@@ -1353,5 +1365,80 @@ pub(crate) fn host_fn_settle_hold(caller_program_id: &str, input: &JsonValue) ->
             json!({"ok": false, "statusCode": status, "error": error}).to_string()
         }
         Err(_) => json!({"ok": false, "error": "settlement timed out"}).to_string(),
+    }
+}
+
+/// Shared gateway for the meter's authority-signed pool operations (reservePool,
+/// settlePool, releasePool). Mirrors the hold gateways: loads the pool to prove
+/// the calling program is its registered meter and this node owner is its
+/// settlement authority, then signs the request as the node owner and forwards
+/// it to the chain action. The meter (a guest creature) can therefore never
+/// reserve or settle against a pool it was not bound to.
+pub(crate) fn host_fn_pool_authority_call(
+    caller_program_id: &str,
+    input: &JsonValue,
+    route: &str,
+    op_label: &str,
+) -> String {
+    use crate::models::transaction::ITrx;
+    use std::sync::{mpsc, Arc, Mutex};
+    use std::time::Duration;
+
+    let caller_program_id = caller_program_id.trim().to_string();
+    let pool_id = input["poolId"].as_str().unwrap_or("").trim().to_string();
+    if caller_program_id.is_empty() || pool_id.is_empty() {
+        return json!({"ok": false, "error": "verified meter program and poolId are required"})
+            .to_string();
+    }
+    let Some(app) = with_global_app(|app| app.clone()) else {
+        return json!({"ok": false, "error": "vmm not initialised"}).to_string();
+    };
+    let pool_slot = Arc::new(Mutex::new(serde_json::Map::<String, JsonValue>::new()));
+    let pool_slot_c = pool_slot.clone();
+    let pool_id_c = pool_id.clone();
+    app.modify_state(
+        true,
+        Box::new(move |trx: &dyn ITrx| {
+            if let Ok(pool) = trx.get_json(&format!("Json::FinancePool::{pool_id_c}"), "pool") {
+                *pool_slot_c.lock().unwrap() = pool;
+            }
+            Ok(())
+        }),
+    );
+    let pool = pool_slot.lock().unwrap().clone();
+    if pool.is_empty() {
+        return json!({"ok": false, "error": "pool not found"}).to_string();
+    }
+    if pool.get("meterProgramId").and_then(JsonValue::as_str) != Some(caller_program_id.as_str()) {
+        return json!({"ok": false, "error": "calling program is not authorized for this pool"})
+            .to_string();
+    }
+    let owner_id = app.owner_id();
+    if pool.get("settlementAuthority").and_then(JsonValue::as_str) != Some(owner_id.as_str()) {
+        return json!({"ok": false, "error": "pool authority is not this node owner"}).to_string();
+    }
+    let payload = match serde_json::to_vec(input) {
+        Ok(value) => value,
+        Err(err) => {
+            return json!({"ok": false, "error": format!("cannot encode {op_label}: {err}")})
+                .to_string()
+        }
+    };
+    let signature = app.sign_packet_as_owner(&payload);
+    let (tx, rx) = mpsc::channel::<(Vec<u8>, i64, Option<String>)>();
+    let callback: crate::models::globe::BaseResponseCallback =
+        Box::new(move |data, status, err| {
+            let _ = tx.send((data, status, err.map(|value| value.to_string())));
+        });
+    app.globe().send_base_request_on_chain(route, payload, &signature, &owner_id, "", callback);
+    match rx.recv_timeout(Duration::from_secs(30)) {
+        Ok((data, status, None)) => {
+            let result = serde_json::from_slice::<JsonValue>(&data).unwrap_or(JsonValue::Null);
+            json!({"ok": status < 400, "statusCode": status, "result": result}).to_string()
+        }
+        Ok((_data, status, Some(error))) => {
+            json!({"ok": false, "statusCode": status, "error": error}).to_string()
+        }
+        Err(_) => json!({"ok": false, "error": format!("{op_label} timed out")}).to_string(),
     }
 }
