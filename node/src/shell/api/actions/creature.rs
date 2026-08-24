@@ -2128,13 +2128,23 @@ fn create_hold(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
             payer.balance = payer
                 .balance
                 .checked_sub(input.max_amount)
-                .ok_or_else(|| anyhow!("your balance is not enough"))?;
+                .ok_or_else(|| {
+                    anyhow!("insufficient available balance to authorize this run (funds may be held by another active run)")
+                })?;
+            // With max_amount <= balance (just checked) and withdrawable <= balance
+            // (checked above), withdrawable_amount = max(0, max_amount - (balance -
+            // withdrawable)) <= withdrawable, so this subtraction cannot underflow
+            // on a consistent ledger. A failure here therefore means the ledger was
+            // read inconsistently (a hold racing another balance mutation) — fail
+            // the whole authorization cleanly (the transaction is discarded, so no
+            // partial write) with an actionable message rather than leaking a raw
+            // "underflow", and let reconciliation surface any real counter drift.
             set_finance_withdrawable_amount(
                 &*trx,
                 &payer_id,
-                withdrawable
-                    .checked_sub(withdrawable_amount)
-                    .ok_or_else(|| anyhow!("withdrawable balance underflow"))?,
+                withdrawable.checked_sub(withdrawable_amount).ok_or_else(|| {
+                    anyhow!("could not authorize this run against the current balance (concurrent authorization in progress) — please retry")
+                })?,
             )?;
             let held = finance_held_amount(&*trx, &payer_id)?
                 .checked_add(input.max_amount)
