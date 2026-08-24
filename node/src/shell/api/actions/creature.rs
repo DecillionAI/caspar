@@ -2822,6 +2822,19 @@ fn financial_account_snapshot(trx: &dyn ITrx, user_id: &str, limit: usize) -> Re
             }
         }
     }
+    // The user's shared authorization pool (if any), so the client can show what
+    // is pooled for runs (remaining/reserved/spent) instead of an opaque "held".
+    let pool = {
+        let pool_id = trx.get_link(&format!("FinancePoolByUser::{user_id}"));
+        if pool_id.is_empty() {
+            Value::Null
+        } else {
+            match trx.get_json(&finance_pool_key(&pool_id), "pool") {
+                Ok(p) if p.get("status").and_then(Value::as_str) == Some("open") => Value::Object(p),
+                _ => Value::Null,
+            }
+        }
+    };
     Ok(json!({
         "userId": user_id,
         "availableMinor": creature.balance,
@@ -2832,6 +2845,7 @@ fn financial_account_snapshot(trx: &dyn ITrx, user_id: &str, limit: usize) -> Re
         "earnedMinor": finance_counter(trx, &format!("FinanceEarned::{user_id}"))?,
         "spentMinor": finance_counter(trx, &format!("FinanceSpent::{user_id}"))?,
         "activeHolds": active_holds,
+        "pool": pool,
         "transactions": transactions,
         "payouts": finance_payout_records(trx, user_id, limit),
     }))
@@ -3211,6 +3225,9 @@ fn open_pool(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
                 .ok_or_else(|| anyhow!("pool encode failed"))?;
             put_finance_pool(&*trx, &pool_id, &pool_map)?;
             trx.put_link(&marker, &pool_id);
+            // One index link per user to the current pool, so a private account read
+            // can surface it without the caller tracking the id.
+            trx.put_link(&format!("FinancePoolByUser::{payer_id}"), &pool_id);
             let participants = vec![payer_id.clone(), input.settlement_authority.clone()];
             let journal_id = write_finance_journal(
                 &*trx,
