@@ -394,6 +394,10 @@ pub(crate) fn handle_unified_host_call(packet: &JsonValue) -> String {
             let caller = resolve_cached_vm_hierarchy(packet, &input).program_id;
             host_fn_pool_authority_call(&caller, &input, "/creatures/releasePool", "pool release")
         }
+        "debitPool" => {
+            let caller = resolve_cached_vm_hierarchy(packet, &input).program_id;
+            host_fn_pool_authority_call(&caller, &input, "/creatures/debitPool", "pool debit")
+        }
         "createProgram" => host_fn_create_program(&input),
         "deleteProgram" | "deleteOwnedProgram" => host_fn_delete_program(&input),
         // Program CRUD reads — exposed so store/miniapp creatures can fetch a
