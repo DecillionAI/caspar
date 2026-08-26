@@ -664,6 +664,7 @@ input_impls! {
     ReservePoolInput => "global",
     SettlePoolInput  => "global",
     ReleasePoolInput => "global",
+    DebitPoolInput   => "global",
     GetHoldInput     => "global",
     GetFinancialAccountInput => "global",
     ReconcileFinancialSystemInput => "global",
