@@ -36,6 +36,7 @@ use crate::shell::api::packets::creatures::{
     ReviewFinanceResourceInput, ListPayoutsInput, LoginInput, LoginOutput, MetaInput, MintInput,
     OpenPoolInput, PaymentAdjustmentInput, PublishFinanceCatalogInput, PublishFinanceQuoteInput,
     RefreshPoolInput, ClosePoolInput, ReservePoolInput, SettlePoolInput, ReleasePoolInput,
+    DebitPoolInput,
     ReleaseHoldInput,
     SecretGetInput, SecretGrantInput, SecretListGrantedInput, SecretListInput, SecretPutInput,
     SecretRevokeInput, SettleHoldInput, SignalInput as CreatureSignalInput, StartHoldInput,
@@ -1088,6 +1089,15 @@ fn put_finance_pool(trx: &dyn ITrx, pool_id: &str, pool: &Map<String, Value>) ->
 
 fn finance_pool_reservation_key(run_id: &str) -> String {
     format!("Json::FinancePoolReservation::{run_id}")
+}
+
+// Per-run accumulator for live pool debits (debitPool). One record per run holds
+// the running `chargedTotal` and per-beneficiary `credits` so reconciliation can
+// replay a live-debited run's spend/earnings exactly as it replays a settled
+// reservation. Named `FinanceLiveDebit::` (not `FinancePool*`) so it never
+// collides with the pool/reservation prefix scans.
+fn finance_live_debit_key(run_id: &str) -> String {
+    format!("Json::FinanceLiveDebit::{run_id}")
 }
 
 fn finance_held_amount(trx: &dyn ITrx, payer_id: &str) -> Result<i64> {
@@ -3780,6 +3790,239 @@ fn release_pool(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
     )
 }
 
+// Live incremental debit against the shared pool. There is NO per-run
+// reservation or ceiling: a run charges actual accrued cost straight out of the
+// pool's shared `remaining` as it works. All of a payer's concurrent runs across
+// every space draw down the same `remaining`, so this is the single live counter
+// that decides when the wallet is empty. When a debit would exceed `remaining`,
+// nothing is charged and the op returns `{applied:false, exhausted:true}` — the
+// meter reads that as "pool empty" and stops the run peacefully. Idempotent by
+// (authority, debitId): each checkpoint carries a unique debitId, so a retried
+// checkpoint never double-charges. Beneficiary crediting mirrors settlePool
+// (debt repaid first, then wallet + withdrawable); the quote authorizes WHICH
+// beneficiaries may be paid, while the pool's `remaining` is the only amount
+// ceiling.
+fn debit_pool(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
+    build_secure_action::<DebitPoolInput, _>(
+        app,
+        "/creatures/debitPool",
+        finance_guard(),
+        move |state: Arc<dyn IState>, input: DebitPoolInput| -> Result<Value> {
+            let trx = state.trx();
+            let authority_id = state.info().user_id();
+            let now = Utc::now().timestamp_millis();
+            if !valid_finance_id(&input.pool_id)
+                || !valid_finance_id(&input.payer_user_id)
+                || !valid_finance_id(&input.quote_id)
+                || !valid_finance_id(&input.run_id)
+                || !valid_finance_id(&input.debit_id)
+                || !valid_finance_hash(&input.usage_hash)
+            {
+                return Err(anyhow!("invalid debit identifiers or usageHash"));
+            }
+            // Idempotent by debitId: a checkpoint already applied returns its prior
+            // effect without charging again.
+            let debit_marker = format!("FinancePoolDebit::{authority_id}::{}", input.debit_id);
+            if !trx.get_link(&debit_marker).is_empty() {
+                let pool = get_finance_pool(&*trx, &input.pool_id)?;
+                let remaining = pool.get("remaining").and_then(as_i64).unwrap_or(0);
+                return Ok(json!({"applied": false, "alreadyApplied": true, "remaining": remaining}));
+            }
+            let mut pool = get_finance_pool(&*trx, &input.pool_id)?;
+            if pool.get("settlementAuthority").and_then(Value::as_str) != Some(authority_id.as_str()) {
+                return Err(anyhow!("caller is not this pool's settlement authority"));
+            }
+            if pool.get("payerUserId").and_then(Value::as_str) != Some(input.payer_user_id.as_str()) {
+                return Err(anyhow!("payer does not match pool"));
+            }
+            if pool.get("status").and_then(Value::as_str) != Some("open") {
+                return Err(anyhow!("pool is not open"));
+            }
+            let expires_at = pool.get("expiresAt").and_then(as_i64).unwrap_or(0);
+            if expires_at <= 0 || now > expires_at {
+                return Err(anyhow!("pool expired"));
+            }
+            // The quote (client-signed, globally committed) names the authorized
+            // beneficiaries. We enforce membership of each line's (userId|role) in
+            // that set, but NOT the quote's per-run amount caps — the pool's
+            // remaining balance is the only amount ceiling for a live-debited run.
+            let quote = trx
+                .get_json(&format!("Json::BillingQuote::{}", input.quote_id), "quote")
+                .map_err(|_| anyhow!("run quote not found"))?;
+            if quote.get("payerUserId").and_then(Value::as_str) != Some(input.payer_user_id.as_str()) {
+                return Err(anyhow!("quote payer does not match debit"));
+            }
+            let beneficiaries = quote
+                .get("beneficiaries")
+                .and_then(Value::as_array)
+                .ok_or_else(|| anyhow!("quote beneficiaries missing"))?;
+            let mut authorized: HashMap<String, bool> = HashMap::new();
+            for item in beneficiaries {
+                let user_id = item.get("userId").and_then(Value::as_str).unwrap_or("");
+                let role = item.get("role").and_then(Value::as_str).unwrap_or("");
+                if user_id.is_empty() || role.is_empty() {
+                    return Err(anyhow!("invalid quote beneficiary"));
+                }
+                authorized.insert(format!("{user_id}|{role}"), true);
+            }
+
+            let mut delta = 0_i64;
+            // `credits` is keyed by (userId|role) for the reconciliation record and
+            // for earned attribution; `user_credits` aggregates per user so a
+            // beneficiary paid under two roles in one debit is pulled/pushed once
+            // (mirrors settlePool, which never re-reads a just-written balance).
+            let mut credits: HashMap<String, i64> = HashMap::new();
+            let mut user_credits: HashMap<String, i64> = HashMap::new();
+            for line in &input.lines {
+                if line.amount <= 0
+                    || !valid_finance_id(&line.user_id)
+                    || !valid_finance_id(&line.role)
+                    || line.source_ref.len() > 256
+                {
+                    return Err(anyhow!("invalid debit line"));
+                }
+                if line.user_id == input.payer_user_id {
+                    return Err(anyhow!("payer cannot be a debit beneficiary"));
+                }
+                let cap_key = format!("{}|{}", line.user_id, line.role);
+                if !authorized.contains_key(&cap_key) {
+                    return Err(anyhow!("debit beneficiary role not authorized by quote"));
+                }
+                delta = delta
+                    .checked_add(line.amount)
+                    .ok_or_else(|| anyhow!("debit amount overflow"))?;
+                let credited = credits.entry(cap_key).or_insert(0);
+                *credited = credited
+                    .checked_add(line.amount)
+                    .ok_or_else(|| anyhow!("beneficiary amount overflow"))?;
+                let user_credited = user_credits.entry(line.user_id.clone()).or_insert(0);
+                *user_credited = user_credited
+                    .checked_add(line.amount)
+                    .ok_or_else(|| anyhow!("beneficiary amount overflow"))?;
+            }
+            if delta <= 0 {
+                return Err(anyhow!("debit must charge a positive amount"));
+            }
+
+            let remaining = pool.get("remaining").and_then(as_i64).unwrap_or(0);
+            // Peaceful exhaustion: the pool cannot cover this delta. Charge nothing
+            // and tell the meter to stop the run. `remaining >= delta` below also
+            // guarantees the payer's held balance (== remaining + reserved) covers
+            // the debit, so the held subtraction cannot underflow.
+            if remaining < delta {
+                return Ok(json!({
+                    "applied": false,
+                    "exhausted": true,
+                    "remaining": remaining,
+                    "charged": 0,
+                }));
+            }
+
+            let mut participants = vec![input.payer_user_id.clone(), authority_id.clone()];
+            // Credit each authorized beneficiary once, aggregated across roles/lines.
+            for (user_id, amount) in &user_credits {
+                let user_id = user_id.as_str();
+                if user_id.is_empty() {
+                    return Err(anyhow!("invalid credit beneficiary"));
+                }
+                add_finance_counter(&*trx, &format!("FinanceEarned::{user_id}"), *amount)?;
+                let mut receiver = Creature { id: user_id.to_string(), ..Default::default() }.pull(&*trx);
+                if receiver.id.is_empty() {
+                    return Err(anyhow!("debit beneficiary not found"));
+                }
+                let debt = finance_debt_amount(&*trx, user_id)?;
+                let debt_repaid = debt.min(*amount);
+                let wallet_credit = amount
+                    .checked_sub(debt_repaid)
+                    .ok_or_else(|| anyhow!("beneficiary credit underflow"))?;
+                receiver.balance = receiver
+                    .balance
+                    .checked_add(wallet_credit)
+                    .ok_or_else(|| anyhow!("beneficiary balance overflow"))?;
+                let withdrawable = finance_withdrawable_amount(&*trx, user_id)?
+                    .checked_add(wallet_credit)
+                    .ok_or_else(|| anyhow!("withdrawable earnings overflow"))?;
+                set_finance_debt_amount(&*trx, user_id, debt - debt_repaid)?;
+                set_finance_withdrawable_amount(&*trx, user_id, withdrawable)?;
+                receiver.push(&*trx);
+                participants.push(user_id.to_string());
+            }
+
+            // The debited amount leaves the payer's held funds for beneficiaries and
+            // the pool's remaining, and is recorded as spent on both the payer and
+            // the pool. held == remaining + reserved is preserved (both drop by delta).
+            let held = finance_held_amount(&*trx, &input.payer_user_id)?
+                .checked_sub(delta)
+                .ok_or_else(|| anyhow!("held balance underflow"))?;
+            set_finance_held_amount(&*trx, &input.payer_user_id, held)?;
+            add_finance_counter(&*trx, &format!("FinanceSpent::{}", input.payer_user_id), delta)?;
+
+            let new_remaining = remaining
+                .checked_sub(delta)
+                .ok_or_else(|| anyhow!("pool remaining underflow"))?;
+            let spent = pool.get("spent").and_then(as_i64).unwrap_or(0)
+                .checked_add(delta)
+                .ok_or_else(|| anyhow!("pool spent overflow"))?;
+            pool.insert("remaining".to_string(), json!(new_remaining));
+            pool.insert("spent".to_string(), json!(spent));
+            pool.insert("updatedAt".to_string(), json!(now));
+            put_finance_pool(&*trx, &input.pool_id, &pool)?;
+
+            // Per-run accumulator: fold this checkpoint's charge and credits into the
+            // run's running total so reconciliation replays live-debited spend and
+            // earnings the same way it replays a settled reservation.
+            let debit_key = finance_live_debit_key(&input.run_id);
+            let mut record = trx
+                .get_json(&debit_key, "debit")
+                .unwrap_or_else(|_| Map::new());
+            if record.is_empty() {
+                record.insert("runId".to_string(), json!(input.run_id));
+                record.insert("poolId".to_string(), json!(input.pool_id));
+                record.insert("payerUserId".to_string(), json!(input.payer_user_id));
+                record.insert("quoteId".to_string(), json!(input.quote_id));
+                record.insert("createdAt".to_string(), json!(now));
+            }
+            let charged_total = record.get("chargedTotal").and_then(as_i64).unwrap_or(0)
+                .checked_add(delta)
+                .ok_or_else(|| anyhow!("run charged total overflow"))?;
+            record.insert("chargedTotal".to_string(), json!(charged_total));
+            let mut record_credits = record
+                .get("credits")
+                .and_then(Value::as_object)
+                .cloned()
+                .unwrap_or_else(Map::new);
+            for (cap_key, amount) in &credits {
+                let prior = record_credits.get(cap_key).and_then(as_i64).unwrap_or(0)
+                    .checked_add(*amount)
+                    .ok_or_else(|| anyhow!("run credit overflow"))?;
+                record_credits.insert(cap_key.clone(), json!(prior));
+            }
+            record.insert("credits".to_string(), Value::Object(record_credits));
+            record.insert("lastDebitId".to_string(), json!(input.debit_id));
+            record.insert("lastUsageHash".to_string(), json!(input.usage_hash));
+            record.insert("updatedAt".to_string(), json!(now));
+            trx.put_json(&debit_key, "debit", &Value::Object(record), false)?;
+            trx.put_link(&debit_marker, &input.run_id);
+
+            let journal_id = write_finance_journal(
+                &*trx,
+                "pool.debited",
+                &input.pool_id,
+                &input.payer_user_id,
+                json!({"runId": input.run_id, "amount": delta, "remaining": new_remaining}),
+                &participants,
+                now,
+            )?;
+            Ok(json!({
+                "applied": true,
+                "charged": delta,
+                "remaining": new_remaining,
+                "journalId": journal_id,
+            }))
+        },
+    )
+}
+
 fn reconcile_financial_system(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
     build_secure_action::<ReconcileFinancialSystemInput, _>(
         app,
@@ -3976,6 +4219,52 @@ fn reconcile_financial_system(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
                     _ => report("reservation.status_invalid", run_id, format!("status={status}")),
                 }
             }
+
+            // Live pool debits: a live-debited run has no reservation, so its spend
+            // and beneficiary earnings are replayed from its FinanceLiveDebit record
+            // (charged straight from the pool's remaining → spent). This mirrors how a
+            // settled reservation contributes to spent_expected/earned_expected, so
+            // the payer FinanceSpent and beneficiary FinanceEarned counters reconcile
+            // for live-metered runs too. Pool balance itself is covered by the
+            // maxAmount == remaining + reserved + spent + refunded check above.
+            let live_debit_prefix = "json::Json::FinanceLiveDebit::";
+            for key in trx.get_by_prefix(live_debit_prefix) {
+                let Some(run_id) = key
+                    .strip_prefix(live_debit_prefix)
+                    .and_then(|rest| rest.strip_suffix("::debit"))
+                else {
+                    continue;
+                };
+                let Ok(record) = trx.get_json(&finance_live_debit_key(run_id), "debit") else {
+                    report("livedebit.unreadable", run_id, "live debit JSON cannot be read".to_string());
+                    continue;
+                };
+                let payer = record.get("payerUserId").and_then(Value::as_str).unwrap_or("");
+                let charged = record.get("chargedTotal").and_then(as_i64).unwrap_or(-1);
+                if payer.is_empty() || charged < 0 {
+                    report("livedebit.invalid", run_id, "live debit fields are invalid".to_string());
+                    continue;
+                }
+                let mut credit_total = 0_i64;
+                if let Some(credits) = record.get("credits").and_then(Value::as_object) {
+                    for (cap_key, value) in credits {
+                        let user_id = cap_key.split('|').next().unwrap_or("");
+                        let amount = value.as_i64().unwrap_or(-1);
+                        if user_id.is_empty() || amount <= 0 || !finance_map_add(&mut earned_expected, user_id, amount) {
+                            report("livedebit.credit_invalid", run_id, "invalid live debit credit".to_string());
+                            continue;
+                        }
+                        credit_total = credit_total.checked_add(amount).unwrap_or(i64::MAX);
+                    }
+                }
+                if credit_total != charged {
+                    report("livedebit.credit_mismatch", run_id, format!("credits={credit_total}, charged={charged}"));
+                }
+                if !finance_map_add(&mut spent_expected, payer, charged) {
+                    report("spent.overflow", payer, "expected spent (live debit) overflow".to_string());
+                }
+            }
+
             // Each open pool's stored `reserved` must equal the sum of its open reservations.
             for key in trx.get_by_prefix(pool_prefix) {
                 let Some(pool_id) = key
@@ -4912,6 +5201,7 @@ pub fn install(
         reserve_pool(app.clone()),
         settle_pool(app.clone()),
         release_pool(app.clone()),
+        debit_pool(app.clone()),
         get_hold(app.clone()),
         get_financial_account(app.clone()),
         request_payout(app.clone()),

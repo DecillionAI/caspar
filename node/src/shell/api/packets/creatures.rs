@@ -500,6 +500,31 @@ pub struct ReleasePoolInput {
     pub reason: String,
 }
 
+// Live incremental debit against the shared pool. Unlike reservePool/settlePool
+// (which reserve a per-run slice up front and settle actual ≤ slice), debitPool
+// spends directly from the pool's shared `remaining` as a run accrues cost —
+// with NO per-run ceiling. The pool's `remaining` is the single live counter all
+// of a payer's concurrent runs (across every space) draw down together; when a
+// debit would exceed it, the op returns `{applied:false, exhausted:true}` so the
+// meter can stop the run peacefully. Meter-signed (settlement authority).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct DebitPoolInput {
+    #[serde(rename = "poolId", default)]
+    pub pool_id: String,
+    #[serde(rename = "payerUserId", default)]
+    pub payer_user_id: String,
+    #[serde(rename = "quoteId", default)]
+    pub quote_id: String,
+    #[serde(rename = "runId", default)]
+    pub run_id: String,
+    #[serde(rename = "debitId", default)]
+    pub debit_id: String,
+    #[serde(rename = "usageHash", default)]
+    pub usage_hash: String,
+    #[serde(default)]
+    pub lines: Vec<SettlementLineInput>,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct GetHoldInput {
     #[serde(rename = "holdId", default)]
