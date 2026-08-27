@@ -1585,15 +1585,24 @@ impl Vmm {
             return (r#"{"error":1}"#.into(), req_id);
         }
         let data = check_str(input, "input", "");
+        // The entity of `machine_id` to re-run on wake. Creatures deploy their
+        // module under a named entity ("main"), so the alarm must name it — the
+        // program's default module path is not the wasm file. Defaults to "main".
+        let mut entity_id = check_str(input, "entityId", "main");
+        if entity_id.is_empty() {
+            entity_id = "main".to_string();
+        }
         if tag == "alarm" {
             let app = self.app.clone();
             let machine_id_owned = machine_id.clone();
             let store_id_owned = store_id.clone();
             let data_owned = data.clone();
+            let entity_id_owned = entity_id.clone();
             thread::spawn(move || {
                 let machine_id_inner = machine_id_owned.clone();
                 let store_id_inner = store_id_owned.clone();
                 let data_inner = data_owned.clone();
+                let entity_id_inner = entity_id_owned.clone();
                 let now_ms = super::driver::now_unix_ms();
                 let alarm_time = now_ms + count * 1000;
                 app.modify_state(
@@ -1601,6 +1610,7 @@ impl Vmm {
                     Box::new(move |t: &dyn ITrx| {
                         t.put_link(&format!("vmAlarmStoreId::{}", machine_id_inner), &store_id_inner);
                         t.put_link(&format!("vmAlarmData::{}", machine_id_inner), &data_inner);
+                        t.put_link(&format!("vmAlarmEntity::{}", machine_id_inner), &entity_id_inner);
                         t.put_link(&format!("vmAlarmTime::{}", machine_id_inner), &format!("{}", alarm_time));
                         Ok(())
                     }),
@@ -1612,6 +1622,7 @@ impl Vmm {
                     Box::new(move |t: &dyn ITrx| {
                         t.del_key(&format!("link::vmAlarmStoreId::{}", machine_id_drain));
                         t.del_key(&format!("link::vmAlarmData::{}", machine_id_drain));
+                        t.del_key(&format!("link::vmAlarmEntity::{}", machine_id_drain));
                         t.del_key(&format!("link::vmAlarmTime::{}", machine_id_drain));
                         Ok(())
                     }),
@@ -1622,10 +1633,14 @@ impl Vmm {
                     .has_access_to_store(&machine_id_owned, &store_id_owned)
                 {
                     // Run via the IVmm trait so other implementations are not
-                    // mandatory; this matches how Go re-entered itself.
-                    app.tools()
-                        .vmm()
-                        .run_vm(&machine_id_owned, &store_id_owned, &data_owned);
+                    // mandatory; this matches how Go re-entered itself. The entity
+                    // is named so the creature's real module is resolved.
+                    app.tools().vmm().run_vm_entity(
+                        &machine_id_owned,
+                        &store_id_owned,
+                        &data_owned,
+                        &entity_id_owned,
+                    );
                 }
             });
         } else {

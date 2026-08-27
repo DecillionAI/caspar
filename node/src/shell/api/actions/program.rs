@@ -1619,6 +1619,13 @@ fn install_program_bootstrap(app: Arc<dyn ICore>) {
                         let store_id_clone = store_id.clone();
                         let alarm_time_raw = trx.get_link(&format!("vmAlarmTime::{}", machine_id));
                         let alarm_data = trx.get_link(&format!("vmAlarmData::{}", machine_id));
+                        // The entity to re-run ("main" for creatures); older alarms
+                        // without the link fall back to "main" so a wasm creature's
+                        // module still resolves after a restart.
+                        let mut alarm_entity = trx.get_link(&format!("vmAlarmEntity::{}", machine_id));
+                        if alarm_entity.is_empty() {
+                            alarm_entity = "main".to_string();
+                        }
                         let _ = async_once(move || {
                             let t = alarm_time_raw.parse::<i64>().unwrap_or(0);
                             let ct = chrono::Utc::now().timestamp_millis();
@@ -1636,10 +1643,11 @@ fn install_program_bootstrap(app: Arc<dyn ICore>) {
                                 .security()
                                 .has_access_to_store(&machine_id, &store_id_clone)
                             {
-                                app_async.tools().vmm().run_vm(
+                                app_async.tools().vmm().run_vm_entity(
                                     &machine_id,
                                     &store_id_clone,
                                     &alarm_data,
+                                    &alarm_entity,
                                 );
                             }
                         });

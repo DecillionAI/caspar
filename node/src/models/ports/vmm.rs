@@ -12,6 +12,17 @@ pub trait IVmm: Send + Sync {
     // ── VM deployment & execution ─────────────────────────────────────────
     fn assign(&self, machine_id: &str);
     fn run_vm(&self, machine_id: &str, store_id: &str, data: &str);
+    /// Re-run a specific *entity* of `machine_id` (e.g. `"main"`) with `data`.
+    ///
+    /// `run_vm` resolves the program's default module path, which for creatures
+    /// deployed under a named entity (`Program.path` = `/api/main`, real module
+    /// under `entities/<entityId>`) is not the wasm file. A scheduled self-wake
+    /// (the `plantTrigger` alarm) must therefore name the entity so the correct
+    /// module is loaded. The default preserves the old behaviour for impls that
+    /// do not distinguish entities.
+    fn run_vm_entity(&self, machine_id: &str, store_id: &str, data: &str, _entity_id: &str) {
+        self.run_vm(machine_id, store_id, data);
+    }
     fn terminate_vm(&self, machine_id: &str);
     fn build_vm_image(
         &self,
