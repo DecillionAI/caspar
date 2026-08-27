@@ -427,13 +427,16 @@ fn signal(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
                 if store_id.is_empty() {
                     return Err(anyhow!("storeId is required for broadcast"));
                 }
-                if trx.get_link(&format!(
-                    "onaccess::{}::{}",
-                    store_id,
-                    state.info().user_id()
-                )) != "true"
+                // Posting into a store is a permission, not mere membership:
+                // a viewer holds `read` without `signal` and is refused here.
+                if !crate::shell::api::model::read_permissions(
+                    &*trx,
+                    &store_id,
+                    &state.info().user_id(),
+                )
+                .signal
                 {
-                    return Err(anyhow!("access denied"));
+                    return Err(anyhow!("not allowed to signal in this store"));
                 }
                 let packet = StoresSend {
                     action: "broadcast".to_string(),

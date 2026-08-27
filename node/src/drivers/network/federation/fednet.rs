@@ -26,6 +26,7 @@ use crate::models::ports::storage::IStorage;
 use crate::models::core::ICore;
 use crate::models::packet::{build_error_json, OriginPacket};
 use crate::models::transaction::ITrx;
+use crate::shell::api::model::StorePermissions;
 use crate::shell::api::packets::{invites, stores};
 use crate::shell::utils::crypto::secure_unique_string;
 use crate::util::GoError;
@@ -204,7 +205,7 @@ impl FedNet {
                         Box::new(move |trx: &dyn ITrx| {
                             trx.put_link(
                                 &format!("onaccess::{}::{}", store_id_clone, user_id),
-                                "true",
+                                &StorePermissions::member().encode(),
                             );
                             trx.put_link(
                                 &format!("hasaccess::{}::{}", user_id, store_id_clone),
@@ -231,7 +232,8 @@ impl FedNet {
                             store.clone().pull(trx);
                             trx.put_link(
                                 &format!("onaccess::{}::{}", store_id, user_id),
-                                "true",
+                                // The creator of a store administers it.
+                                &StorePermissions::owner().encode(),
                             );
                             trx.put_link(
                                 &format!("hasaccess::{}::{}", user_id, store_id),
@@ -296,7 +298,10 @@ impl FedNet {
                     self.app.modify_state(
                         false,
                         Box::new(move |trx: &dyn ITrx| {
-                            trx.put_link(&format!("onaccess::{}::{}", store_id, user_id), "true");
+                            trx.put_link(
+                                &format!("onaccess::{}::{}", store_id, user_id),
+                                &StorePermissions::member().encode(),
+                            );
                             trx.put_link(&format!("hasaccess::{}::{}", user_id, store_id), "true");
                             Ok(())
                         }),

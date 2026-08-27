@@ -3,6 +3,7 @@
 //! that writes its columns/indices through the `ITrx`, and a `pull` /
 //! `all` / `list` family that reads them back.
 
+pub mod access;
 pub mod chain;
 pub mod creature;
 pub mod entity;
@@ -11,6 +12,7 @@ pub mod machine_program;
 pub mod session;
 pub mod store;
 
+pub use access::{access_link_key, read_permissions, StorePermissions};
 pub use chain::{Chain, ChainShard};
 pub use creature::Creature;
 pub use entity::Entity;

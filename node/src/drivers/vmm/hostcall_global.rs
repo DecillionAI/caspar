@@ -84,9 +84,11 @@ impl Vmm {
                 self.handle_vm_chain_request(&key, &input, req_id)
             }
             "execShellAction" => self.handle_exec_shell_action(&input, req_id),
-            "genId" | "getLink" | "delKey" | "createAccess" | "deleteAccess" | "getJson"
-            | "putJson" | "getByPrefix" | "hasAccessToStore" | "signalUser" | "signalGroup"
-            | "joinGroup" => self.handle_micro_host_action(&key, &input, req_id),
+            "genId" | "getLink" | "delKey" | "createAccess" | "updateAccess" | "deleteAccess"
+            | "getJson" | "putJson" | "getByPrefix" | "hasAccessToStore" | "readSignals"
+            | "signalUser" | "signalGroup" | "joinGroup" => {
+                self.handle_micro_host_action(&key, &input, req_id)
+            }
             "log" | "vmLog" | "buildLog" | "output" | "vmOutput" => {
                 self.handle_vm_log_event(&input, req_id)
             }
