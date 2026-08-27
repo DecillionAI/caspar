@@ -34,7 +34,9 @@ pub const DEFAULT_ICE_USERNAME: &str = "";
 pub const DEFAULT_ICE_PASSWORD: &str = "";
 
 fn default_heartbeat_timeout() -> Duration {
-    Duration::from_millis(200)
+    // Gossip period: how often the babble loop dispatches a gossip cycle when
+    // the node is busy. Reduced 20x (from 200ms) to tighten propagation latency.
+    Duration::from_millis(10)
 }
 fn default_slow_heartbeat_timeout() -> Duration {
     Duration::from_millis(1000)
