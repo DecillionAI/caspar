@@ -398,6 +398,15 @@ impl IVmm for Vmm {
         trans.run_vm(machine_id, store_id, data);
     }
 
+    fn run_vm_entity(&self, machine_id: &str, store_id: &str, data: &str, entity_id: &str) {
+        let trans = Arc::new(VmmShim {
+            app: self.app.clone(),
+            storage_root: self.storage_root.clone(),
+            storage: self.storage.clone(),
+        });
+        trans.run_vm_entity(machine_id, store_id, data, entity_id);
+    }
+
     fn terminate_vm(&self, machine_id: &str) {
         self.send_to_engine(json!({
             "type": "terminateVm",
@@ -880,7 +889,15 @@ struct VmmShim {
 
 impl VmmShim {
     fn run_vm(self: &Arc<Self>, machine_id: &str, store_id: &str, data: &str) {
-        // Inline of Vmm::run_vm_inner against the shim's handles.
+        self.run_vm_entity(machine_id, store_id, data, "");
+    }
+
+    /// Entity-aware re-run: resolves the module path of `entity_id` (via the
+    /// `vmEntityPath::<machine>::<entity>` link) instead of the program's
+    /// default module path. Used by the `plantTrigger` alarm wake so a wasm
+    /// creature deployed under a named entity ("main") is actually re-loaded.
+    fn run_vm_entity(self: &Arc<Self>, machine_id: &str, store_id: &str, data: &str, entity_id: &str) {
+        // Inline of Vmm::run_vm_entity_inner against the shim's handles.
         let store_id_owned = store_id.to_string();
         let machine_id_owned = machine_id.to_string();
         let store_slot = Arc::new(Mutex::new(Store::default()));
@@ -910,7 +927,7 @@ impl VmmShim {
         }
         let store = store_slot.lock().unwrap().clone();
         let (ast_path, vm_type) =
-            resolve_vm_execution_target(&self.app, &self.storage, machine_id, "");
+            resolve_vm_execution_target(&self.app, &self.storage, machine_id, entity_id);
         let send_payload = stores::Send {
             user: Creature::default(),
             store,
