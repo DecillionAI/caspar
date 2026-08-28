@@ -81,8 +81,8 @@ impl IStorage for StubStorage {
         _: &str,
         _: &[String],
         _: i64,
-    ) -> crate::models::packet::LogPacket {
-        Default::default()
+    ) -> anyhow::Result<crate::models::packet::LogPacket> {
+        Ok(Default::default())
     }
     fn update_log(
         &self,
@@ -98,8 +98,8 @@ impl IStorage for StubStorage {
         &self,
         _: &str,
         _: &crate::models::packet::LogQuery,
-    ) -> Vec<crate::models::packet::LogPacket> {
-        Vec::new()
+    ) -> anyhow::Result<Vec<crate::models::packet::LogPacket>> {
+        Ok(Vec::new())
     }
     fn pick_store_logs(&self, _: &str, _: Vec<String>) -> Vec<crate::models::packet::LogPacket> {
         Vec::new()
@@ -399,7 +399,7 @@ impl IStorage for RootedStorage {
         c: &str,
         tags: &[String],
         d: i64,
-    ) -> crate::models::packet::LogPacket {
+    ) -> anyhow::Result<crate::models::packet::LogPacket> {
         self.inner.log_time_sieries(a, b, c, tags, d)
     }
     fn update_log(
@@ -416,7 +416,7 @@ impl IStorage for RootedStorage {
         &self,
         a: &str,
         q: &crate::models::packet::LogQuery,
-    ) -> Vec<crate::models::packet::LogPacket> {
+    ) -> anyhow::Result<Vec<crate::models::packet::LogPacket>> {
         self.inner.read_store_logs(a, q)
     }
     fn pick_store_logs(&self, a: &str, b: Vec<String>) -> Vec<crate::models::packet::LogPacket> {

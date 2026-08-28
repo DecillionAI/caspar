@@ -5,6 +5,8 @@
 
 use std::sync::Arc;
 
+use anyhow::Result;
+
 use crate::models::packet::{BuildPacket, LogPacket, LogQuery};
 use crate::models::transaction::ITrx;
 
@@ -23,6 +25,10 @@ pub trait IStorage: Send + Sync {
     /// Append one signal packet to the store's time-series log. `tags` are the
     /// sender's labels, already validated by the caller; they are stored with
     /// the packet so [`IStorage::read_store_logs`] can filter on them.
+    ///
+    /// Errors rather than reporting a packet it did not write: this row is the
+    /// message, so a caller must be able to tell the sender their message did
+    /// not land instead of watching it vanish on the next read.
     fn log_time_sieries(
         &self,
         store_id: &str,
@@ -30,7 +36,7 @@ pub trait IStorage: Send + Sync {
         data: &str,
         tags: &[String],
         time_val: i64,
-    ) -> LogPacket;
+    ) -> Result<LogPacket>;
     fn update_log(
         &self,
         store_id: &str,
@@ -41,7 +47,10 @@ pub trait IStorage: Send + Sync {
     ) -> LogPacket;
     /// Read a store's persisted signals, newest first, filtered by the
     /// query's tags and time bounds.
-    fn read_store_logs(&self, store_id: &str, query: &LogQuery) -> Vec<LogPacket>;
+    ///
+    /// Errors rather than returning an empty page: "the log is unreachable" and
+    /// "this store has nothing to say" must not look the same to a reader.
+    fn read_store_logs(&self, store_id: &str, query: &LogQuery) -> Result<Vec<LogPacket>>;
     fn pick_store_logs(&self, store_id: &str, ids: Vec<String>) -> Vec<LogPacket>;
     fn log_vm(
         &self,

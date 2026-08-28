@@ -73,7 +73,15 @@ impl Storage {
                 .map_err(|e| anyhow!("parse pg config: {}", e))?,
             NoTls,
         );
-        let tsdb = r2d2::Pool::new(manager).map_err(|e| anyhow!("pool: {}", e))?;
+        // Bound the wait for a connection. Signal persistence runs INSIDE a state
+        // modification (a store signal must be recorded before it is fanned out),
+        // so a sick or overloaded QuestDB must fail the one request quickly
+        // rather than hold the node's state lock for r2d2's 30-second default —
+        // which would stall every other action on the node behind it.
+        let tsdb = r2d2::Pool::builder()
+            .connection_timeout(Duration::from_secs(3))
+            .build(manager)
+            .map_err(|e| anyhow!("pool: {}", e))?;
 
         // Mirror Go's "retry until storage table is creatable" loop.
         loop {
@@ -97,14 +105,30 @@ impl Storage {
         }
         {
             // A node created before signal tags existed has a `storage` table
-            // without the column; add it so the insert below always has a
-            // target. Idempotent, and the create above already includes it on a
-            // fresh node.
+            // without the column; add it so every insert below has a target.
+            // Idempotent, and the create above already includes it on a fresh
+            // node.
+            //
+            // The ALTER is allowed to fail (the column may already exist, and
+            // not every QuestDB build words that the same way), but the RESULT
+            // is not taken on faith: the column is then read back, and a node
+            // that would silently drop every signal it is asked to persist
+            // refuses to start instead.
             let mut client = tsdb.get().map_err(|e| anyhow!("pool get: {}", e))?;
             let _ = client.execute(
                 "alter table storage add column if not exists tags text;",
                 &[],
             );
+            client
+                .query("select tags from storage limit 1", &[])
+                .map_err(|e| {
+                    anyhow!(
+                        "storage table has no usable `tags` column ({e}). Signal \
+                         persistence would silently drop every message, so the node \
+                         will not start. Add it by hand: \
+                         `alter table storage add column tags text;`"
+                    )
+                })?;
         }
         {
             let mut client = tsdb.get().map_err(|e| anyhow!("pool get: {}", e))?;
@@ -195,18 +219,27 @@ impl IStorage for Storage {
         data: &str,
         tags: &[String],
         time_val: i64,
-    ) -> LogPacket {
+    ) -> Result<LogPacket> {
         // No storage.lock here: the tsdb pool is thread-safe and QuestDB handles
         // concurrent inserts; the lock is reserved for gen_id's counter (see there).
+        //
+        // A failed insert is returned, never swallowed. This row IS the message:
+        // reporting success for a write that did not happen would show the sender
+        // a message that quietly disappears on their next reload, which is far
+        // worse than telling them the send failed.
         let id = Uuid::new_v4().to_string();
         let encoded = encode_tags(tags);
-        if let Ok(mut client) = self.tsdb.get() {
-            let _ = client.execute(
+        let mut client = self
+            .tsdb
+            .get()
+            .map_err(|e| anyhow!("signal log unavailable: {}", e))?;
+        client
+            .execute(
                 "INSERT INTO storage (id, store_id, user_id, data, tags, time, edited) VALUES ($1, $2, $3, $4, $5, $6, $7)",
                 &[&id, &store_id, &user_id, &data, &encoded, &time_val, &false],
-            );
-        }
-        LogPacket {
+            )
+            .map_err(|e| anyhow!("signal log write failed: {}", e))?;
+        Ok(LogPacket {
             id,
             user_id: user_id.to_string(),
             data: data.to_string(),
@@ -214,7 +247,7 @@ impl IStorage for Storage {
             tags: tags.to_vec(),
             time: time_val,
             edited: false,
-        }
+        })
     }
 
     fn update_log(
@@ -245,12 +278,16 @@ impl IStorage for Storage {
         }
     }
 
-    fn read_store_logs(&self, store_id: &str, query: &LogQuery) -> Vec<LogPacket> {
+    fn read_store_logs(&self, store_id: &str, query: &LogQuery) -> Result<Vec<LogPacket>> {
         // No storage.lock (tsdb pool is thread-safe; lock is gen_id-only).
-        let mut client = match self.tsdb.get() {
-            Ok(c) => c,
-            Err(_) => return Vec::new(),
-        };
+        //
+        // An unreachable or failing log is an ERROR, not an empty conversation.
+        // Returning `[]` here would render a space that has plenty of history as
+        // a blank chat, which reads as data loss and hides the real fault.
+        let mut client = self
+            .tsdb
+            .get()
+            .map_err(|e| anyhow!("signal log unavailable: {}", e))?;
         let count = if query.count <= 0 || query.count > MAX_LOG_ROWS {
             MAX_LOG_ROWS
         } else {
@@ -262,17 +299,13 @@ impl IStorage for Storage {
         // wildcard — see signal_tags), so reject the whole read if one is not.
         let mut clauses: Vec<String> = vec!["store_id = $1".to_string()];
         for tag in &query.tags_all {
-            if crate::models::packet::validate_tag(tag).is_err() {
-                return Vec::new();
-            }
+            crate::models::packet::validate_tag(tag)?;
             clauses.push(format!("tags LIKE '%|{}|%'", tag));
         }
         if !query.tags_any.is_empty() {
             let mut anys: Vec<String> = Vec::with_capacity(query.tags_any.len());
             for tag in &query.tags_any {
-                if crate::models::packet::validate_tag(tag).is_err() {
-                    return Vec::new();
-                }
+                crate::models::packet::validate_tag(tag)?;
                 anys.push(format!("tags LIKE '%|{}|%'", tag));
             }
             clauses.push(format!("({})", anys.join(" OR ")));
@@ -290,11 +323,11 @@ impl IStorage for Storage {
             clauses.join(" AND "),
             count
         );
-        let rows = match client.query(&sql, &[&store_id]) {
-            Ok(r) => r,
-            Err(_) => return Vec::new(),
-        };
-        rows.into_iter()
+        let rows = client
+            .query(&sql, &[&store_id])
+            .map_err(|e| anyhow!("signal log read failed: {}", e))?;
+        Ok(rows
+            .into_iter()
             .map(|row| {
                 let tags: Option<String> = row.get(3);
                 LogPacket {
@@ -307,7 +340,7 @@ impl IStorage for Storage {
                     edited: row.get(5),
                 }
             })
-            .collect()
+            .collect())
     }
 
     fn pick_store_logs(&self, store_id: &str, ids: Vec<String>) -> Vec<LogPacket> {

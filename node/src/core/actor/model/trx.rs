@@ -766,13 +766,13 @@ mod tests {
         fn gen_id(&self, _t: &dyn ITrx, _: &str) -> String { String::new() }
         fn log_time_sieries(
             &self, _: &str, _: &str, _: &str, _: &[String], _: i64,
-        ) -> crate::models::packet::LogPacket { Default::default() }
+        ) -> anyhow::Result<crate::models::packet::LogPacket> { Ok(Default::default()) }
         fn update_log(
             &self, _: &str, _: &str, _: &str, _: &str, _: i64,
         ) -> crate::models::packet::LogPacket { Default::default() }
         fn read_store_logs(
             &self, _: &str, _: &crate::models::packet::LogQuery,
-        ) -> Vec<crate::models::packet::LogPacket> { Vec::new() }
+        ) -> anyhow::Result<Vec<crate::models::packet::LogPacket>> { Ok(Vec::new()) }
         fn pick_store_logs(&self, _: &str, _: Vec<String>) -> Vec<crate::models::packet::LogPacket> { Vec::new() }
         fn log_vm(&self, _: &str, _: &str, _: &str, _: i64) -> crate::models::packet::BuildPacket { Default::default() }
         fn read_vm_logs(&self, _: &str, _: &str, _: i64, _: i64) -> Vec<crate::models::packet::BuildPacket> { Vec::new() }
