@@ -261,7 +261,12 @@ impl FedNet {
             } else {
                 let value =
                     serde_json::from_slice::<Value>(&pack.binary).unwrap_or(Value::Null);
-                sig.signal_group(&pack.key, &pack.store_id, value, false, pack.exceptions);
+                // Resolve this node's members of the store from state, the same
+                // way the originating node did — never from the group registry,
+                // which only knows the stores a member had when they connected.
+                // `federate: false`: this packet already came over federation,
+                // and pushing it onward would bounce it around the network.
+                sig.signal_store(&pack.key, &pack.store_id, value, pack.exceptions, false);
             }
         }
     }

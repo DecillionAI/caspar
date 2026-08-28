@@ -54,66 +54,29 @@ fn store_guard() -> Guard {
 /// Default page size for a history read when the caller names none.
 const DEFAULT_HISTORY_COUNT: i64 = 100;
 
-/// Fan a store signal out to every connected member of the store except the
-/// sender, and to the federation peers holding remote members.
+/// Fan a store signal out to every member of the store except the sender.
 ///
 /// The live packet carries the persisted row's `signalId`, `time` and `tags`,
 /// so a client applies the same filter to a live signal that it applies to
 /// history, and recognises the replayed row as one it has already rendered.
 ///
-/// `remote_orgs` is read by the caller off the transaction it already holds: the
-/// action body runs inside a state modification, so opening a second one here
-/// would nest them.
-fn fan_out(
-    app: Arc<dyn ICore>,
-    store_id: String,
-    sender_id: String,
-    packet: StoresSend,
-    remote_orgs: Vec<String>,
-) {
+/// Delivery goes through the signaler's store fan-out, which resolves the
+/// store's members from `onaccess::` at the moment it delivers. That matters:
+/// the signaler's group registry is built when a connection authenticates, so a
+/// space created (or joined) *during* a client's session is absent from it, and
+/// a group fan-out on that space reaches nobody until the client reconnects.
+/// Reading membership from state has no such window.
+fn fan_out(app: Arc<dyn ICore>, store_id: String, sender_id: String, packet: StoresSend) {
     let value = serde_json::to_value(&packet).unwrap_or(Value::Null);
     let _ = async_once(move || {
-        app.tools().signaler().signal_group(
+        app.tools().signaler().signal_store(
             "stores/signal",
             &store_id,
-            value.clone(),
+            value,
+            vec![sender_id],
             true,
-            vec![sender_id.clone()],
         );
-        // Members on another node are not in this node's signal groups, so the
-        // local fan-out never reaches them. Push the same packet to each peer
-        // that holds one; the receiving node re-emits it to its own group
-        // (`FedNet::handle_update`).
-        for org in &remote_orgs {
-            app.tools().network().federation().send_fed_update(
-                org,
-                "stores/signal",
-                value.clone(),
-                "store",
-                &store_id,
-                vec![sender_id.clone()],
-            );
-        }
     });
-}
-
-/// Distinct foreign origins among a store's members, read off the caller's own
-/// transaction. A member id is `<counter>@<origin>`; anything whose origin is not
-/// this node's id lives on a peer that has to be pushed to explicitly.
-fn remote_member_orgs(trx: &dyn ITrx, self_id: &str, store_id: &str) -> Vec<String> {
-    let prefix = format!("onaccess::{}::", store_id);
-    let mut out: Vec<String> = Vec::new();
-    for key in trx.get_links_list(&prefix, -1, -1, &[]).unwrap_or_default() {
-        let member = key.strip_prefix(&prefix).unwrap_or(&key);
-        let Some((_, org)) = member.rsplit_once('@') else {
-            continue;
-        };
-        if org.is_empty() || org == self_id || out.iter().any(|o| o == org) {
-            continue;
-        }
-        out.push(org.to_string());
-    }
-    out
 }
 
 /// `/stores/signal` — send one signal into a store.
@@ -204,8 +167,7 @@ fn signal(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
                 time: now,
                 ..Default::default()
             };
-            let remote_orgs = remote_member_orgs(&*trx, &app_for_handler.id(), &store_id);
-            fan_out(app_for_handler.clone(), store_id, sender_id, out, remote_orgs);
+            fan_out(app_for_handler.clone(), store_id, sender_id, out);
 
             Ok(json!({
                 "passed": true,
@@ -382,27 +344,6 @@ mod tests {
         };
         assert_eq!(history.get_store_id(), "7@peer");
         assert_eq!(history.origin(), "", "no origin means this node serves it");
-    }
-
-    /// A member id is `<counter>@<origin>`. Only genuinely foreign origins need a
-    /// federation push; local members are already reached by the local fan-out,
-    /// and duplicates would push the same packet to a peer twice.
-    #[test]
-    fn remote_orgs_exclude_local_members_and_duplicates() {
-        // Exercised through the same parsing the reader uses.
-        let self_id = "global";
-        let members = ["1@global", "2@peer-a", "3@peer-a", "4@peer-b", "malformed"];
-        let mut out: Vec<String> = Vec::new();
-        for member in members {
-            let Some((_, org)) = member.rsplit_once('@') else {
-                continue;
-            };
-            if org.is_empty() || org == self_id || out.iter().any(|o| o == org) {
-                continue;
-            }
-            out.push(org.to_string());
-        }
-        assert_eq!(out, vec!["peer-a".to_string(), "peer-b".to_string()]);
     }
 
     /// A history read with no count must not mean "every row ever": the driver
