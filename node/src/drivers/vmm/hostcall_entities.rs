@@ -1771,10 +1771,19 @@ impl Vmm {
         ("{}".into(), req_id)
     }
 
+    /// Post one signal into a store on behalf of the calling VM.
+    ///
+    /// The signaller is the node-stamped `machineId` — the identity the gateway
+    /// resolved for this container, which is also what `/stores/signal` checks
+    /// the `signal` permission against. A caller-supplied `userId` is NOT
+    /// required and NOT used for identity: a creature never declares who it is.
     pub(crate) fn handle_signal_store(&self, input: &Value, req_id: i64) -> (String, i64) {
         let machine_id = check_str(input, "machineId", "");
         if machine_id.is_empty() {
-            return (r#"{"error":1}"#.into(), req_id);
+            return (
+                r#"{"ok":false,"error":"machineId is required (the node stamps it)"}"#.into(),
+                req_id,
+            );
         }
         let typ_and_temp = check_str(input, "type", "");
         let mut typ = typ_and_temp.clone();
@@ -1792,12 +1801,13 @@ impl Vmm {
         }
         let store_id = check_str(input, "storeId", "");
         if store_id.is_empty() {
-            return (r#"{"error":1}"#.into(), req_id);
+            return (r#"{"ok":false,"error":"storeId is required"}"#.into(), req_id);
         }
-        let user_id = check_str(input, "userId", "");
-        if user_id.is_empty() {
-            return (r#"{"error":1}"#.into(), req_id);
-        }
+        // The signaller is the calling VM, which the node already knows. Anything
+        // the caller puts in `userId` is carried on the packet as authorship
+        // metadata only — it can never be the identity a permission is checked
+        // against, and its absence must never reject the signal.
+        let user_id = check_str(input, "userId", &machine_id);
         let data = check_str(input, "data", "");
         // Tags the calling creature attaches to the packet — the labels
         // `stores/history` later filters on. Malformed tags fail the signal in
@@ -1824,14 +1834,45 @@ impl Vmm {
         };
         let info: Arc<dyn IInfo> = Arc::new(BaseInfo::new(&machine_id, &store_id));
         let app_for_closure = self.app.clone();
+        // Carry the action's own answer back to the caller. Returning a bare
+        // `{}` regardless of what happened is how a creature whose signals are
+        // ALL being refused — no `signal` permission on the store, a log that
+        // cannot be written — goes on believing every turn it posted landed.
+        let outcome: Arc<Mutex<Result<Value, String>>> =
+            Arc::new(Mutex::new(Err("/stores/signal is not registered".to_string())));
+        let outcome_clone = outcome.clone();
         let closure: StateClosure = Box::new(move |state: Arc<dyn IState>| {
             if let Some(action) = app_for_closure.actor().fetch_action("/stores/signal") {
-                let _ = action.act(state, Arc::new(signal_input.clone()));
+                *outcome_clone.lock().unwrap() = match action.act(state, Arc::new(signal_input.clone())) {
+                    Ok((_code, v)) => Ok(v),
+                    Err(e) => Err(format!("{}", e)),
+                };
             }
             Ok(())
         });
         self.app.modify_state_securly(false, info, closure);
-        ("{}".into(), req_id)
+        let settled = outcome.lock().unwrap().clone();
+        match settled {
+            Ok(value) => {
+                let mut out = match value {
+                    Value::Object(map) => map,
+                    other => {
+                        let mut m = Map::new();
+                        m.insert("result".to_string(), other);
+                        m
+                    }
+                };
+                out.insert("ok".to_string(), Value::Bool(true));
+                (
+                    serde_json::to_string(&Value::Object(out)).unwrap_or_default(),
+                    req_id,
+                )
+            }
+            Err(err) => {
+                let out = json!({"ok": false, "error": err});
+                (serde_json::to_string(&out).unwrap_or_default(), req_id)
+            }
+        }
     }
 
     pub(crate) fn handle_send_message_on_chain(
@@ -2005,5 +2046,45 @@ mod exec_shell_action_tests {
         let input = json!({"path": "/creatures/login"});
         let (user, _) = acting_identity("42@global", &input, "1@global").unwrap();
         assert_eq!(user, "1@global", "unchanged for callers that name no identity");
+    }
+}
+
+#[cfg(test)]
+mod signal_store_tests {
+    use serde_json::json;
+
+    /// Who a store signal is attributed to, expressed the way
+    /// `handle_signal_store` resolves it.
+    ///
+    /// This is the rule that shipped wrong: the hostcall REQUIRED a `userId` the
+    /// docker gateway never stamps and no creature sends, so every signal the
+    /// agent backbone posted — every step, every tool call, every answer — was
+    /// refused before it reached the action.
+    fn signaller(input: &serde_json::Value) -> Option<String> {
+        let machine_id = input.get("machineId").and_then(|v| v.as_str()).unwrap_or("");
+        if machine_id.is_empty() {
+            return None;
+        }
+        Some(machine_id.to_string())
+    }
+
+    #[test]
+    fn a_caller_that_declares_no_user_is_still_accepted() {
+        // Exactly what the backbone sends: the node's own stamp, nothing else.
+        let input = json!({"machineId": "170@global", "storeId": "7@global", "type": "all"});
+        assert_eq!(signaller(&input).as_deref(), Some("170@global"));
+    }
+
+    #[test]
+    fn the_signaller_is_the_stamped_machine_not_a_declared_user() {
+        // A creature naming somebody else does not become them: the permission
+        // check runs against the identity the node stamped.
+        let input = json!({"machineId": "170@global", "userId": "1@global", "storeId": "7@global"});
+        assert_eq!(signaller(&input).as_deref(), Some("170@global"));
+    }
+
+    #[test]
+    fn an_unstamped_call_is_refused() {
+        assert!(signaller(&json!({"storeId": "7@global"})).is_none());
     }
 }
