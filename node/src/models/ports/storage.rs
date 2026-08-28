@@ -5,7 +5,7 @@
 
 use std::sync::Arc;
 
-use crate::models::packet::{BuildPacket, LogPacket};
+use crate::models::packet::{BuildPacket, LogPacket, LogQuery};
 use crate::models::transaction::ITrx;
 
 /// Key/value database handle — RocksDB transactional DB.
@@ -20,11 +20,15 @@ pub trait IStorage: Send + Sync {
     fn kv_db(&self) -> KvDb;
     fn ts_db(&self) -> TsDb;
     fn gen_id(&self, t: &dyn ITrx, origin: &str) -> String;
+    /// Append one signal packet to the store's time-series log. `tags` are the
+    /// sender's labels, already validated by the caller; they are stored with
+    /// the packet so [`IStorage::read_store_logs`] can filter on them.
     fn log_time_sieries(
         &self,
         store_id: &str,
         user_id: &str,
         data: &str,
+        tags: &[String],
         time_val: i64,
     ) -> LogPacket;
     fn update_log(
@@ -35,7 +39,9 @@ pub trait IStorage: Send + Sync {
         data: &str,
         time_val: i64,
     ) -> LogPacket;
-    fn read_store_logs(&self, store_id: &str, before_time: i64, count: i64) -> Vec<LogPacket>;
+    /// Read a store's persisted signals, newest first, filtered by the
+    /// query's tags and time bounds.
+    fn read_store_logs(&self, store_id: &str, query: &LogQuery) -> Vec<LogPacket>;
     fn pick_store_logs(&self, store_id: &str, ids: Vec<String>) -> Vec<LogPacket>;
     fn log_vm(
         &self,

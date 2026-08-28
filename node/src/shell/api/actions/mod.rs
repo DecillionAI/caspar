@@ -4,4 +4,5 @@ pub mod auth;
 pub mod creature;
 pub mod dummy;
 pub mod program;
+pub mod store;
 pub mod util;

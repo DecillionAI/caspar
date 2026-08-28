@@ -695,6 +695,10 @@ impl IVmm for Vmm {
         self.handle_micro_host_action(op, input, req_id)
     }
 
+    fn exec_shell_action(&self, caller: &str, input: &serde_json::Value) -> String {
+        self.handle_exec_shell_action(caller, input, 0).0
+    }
+
     fn host_action_resource_store(&self, op: &str, input: &serde_json::Value, req_id: i64) -> (String, i64) {
         self.handle_resource_store_crud(op, input, req_id)
     }

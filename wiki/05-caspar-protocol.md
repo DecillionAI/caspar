@@ -106,9 +106,54 @@ input's `origin` field, **not** by the route name:
 ### Stores
 - `POST /stores/addMachine`, `/stores/listMachines`, `/stores/updateProgram`, `/stores/removeMachine`
 - `POST /stores/addProgram`, `/stores/removeProgram`, `/stores/addMember`, `/stores/updateMember`
-- `POST /stores/updateMemberAccess`, `/stores/updateProgramAccess`, `/stores/getDefaultAccess`, `/stores/readMembers`, `/stores/removeMember`
+- `POST /stores/setAccess`, `/stores/getAccess`, `/stores/readMembers`, `/stores/removeMember`
 - `POST /stores/create`, `/stores/join`, `/stores/leave`, `/stores/signal`, `/stores/history`
 - `PUT /stores/update`, `DELETE /stores/delete`, `GET /stores/meta`, `/stores/get`, `/stores/read`, `/stores/list`
+
+#### Store signals: the messaging layer
+
+`/stores/signal` and `/stores/history` are the node's own messaging. A signal is
+addressed to a store; the node fans it out live to every connected member and,
+when the store was created with `persHist`, writes it to the time-series signal
+log. `/stores/history` reads that log back. Together they are enough to build a
+conversation — the sender keeps no transcript of its own.
+
+```
+POST /stores/signal   { storeId, data, tags: ["kind=message", "thread=main"], temp? }
+   → { passed, persisted, signalId, time, tags }        // + live fan-out on `stores/signal`
+POST /stores/history  { storeId, tagsAll?, tagsAny?, beforeTime?, afterTime?, count? }
+   → { storeId, signals: [{ id, userId, data, tags, time, edited }] }
+```
+
+**Tags** are the sender's labels, stored with the packet and the only thing
+`/stores/history` filters on: `tagsAll` must all be present, `tagsAny` needs at
+least one. A tag is a short `key=value` (or bare) label limited to alphanumerics
+and `= @ . : - / + #` — a tag carrying the column separator, a quote or a SQL
+wildcard is **rejected**, so a malformed tag fails its signal instead of quietly
+widening someone else's filter. `temp: true` delivers a signal live without
+recording it, for traffic that is meaningless once seen.
+
+**Permissions.** `onaccess::<storeId>::<memberId>` holds a permission set —
+`read`, `signal`, `manage`. `/stores/signal` requires `signal`, `/stores/history`
+requires `read`, and `/stores/setAccess` requires `manage`. An absent or
+unparseable grant means **no permissions**: there is no implicit default, so a
+member whose grant was never written is refused rather than silently allowed. A
+grant is stated when access is created (`createAccess`/`updateAccess` take an
+explicit `permissions` list) — which is how a viewer is given `read` alone and
+cannot post.
+
+**Federation.** Every input carries an `origin`; a store owned by another node has
+the whole action routed there and served against that node's log, so a
+federation's stores are readable and writable through the same two calls without
+replicating their signals into chain state. Members on a peer node also receive
+the live fan-out (the persisting node pushes it to each peer holding a member).
+
+**Creatures and VMs** reach the same log through the `signal` and `readSignals`
+host calls, so an agent runtime reconstructs a conversation from exactly the rows
+a client sees. To perform an action that is genuinely its own — storing media it
+produced, say — a creature calls `execShellAction` with `asSelf: true`: the node
+runs the named action under the creature identity it resolved for that VM, never
+one the guest names, and refuses the call outright when it cannot resolve one.
 
 ### Invites
 - `POST /invites/create`, `/invites/listStoreInvites`, `/invites/listUserInvites`, `/invites/cancel`, `/invites/accept`, `/invites/decline`

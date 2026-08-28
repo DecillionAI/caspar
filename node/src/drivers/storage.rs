@@ -20,8 +20,14 @@ use uuid::Uuid;
 
 use crate::models::ports::storage::{IStorage, KvDb, TsDb};
 use crate::models::core::ICore;
-use crate::models::packet::{BuildPacket, LogPacket};
+use crate::models::packet::signal_tags::{decode_tags, encode_tags};
+use crate::models::packet::{BuildPacket, LogPacket, LogQuery};
 use crate::models::transaction::ITrx;
+
+/// Hard cap on rows one `read_store_logs` call may return. A store's log is
+/// unbounded, so an unclamped page size would let one request pull the whole
+/// history into memory.
+const MAX_LOG_ROWS: i64 = 500;
 
 /// Concrete [`IStorage`] implementation.
 pub struct Storage {
@@ -79,7 +85,7 @@ impl Storage {
                 }
             };
             match client.execute(
-                "create table if not exists storage(id text, store_id text, user_id text, data text, time bigint, edited boolean);",
+                "create table if not exists storage(id text, store_id text, user_id text, data text, tags text, time bigint, edited boolean);",
                 &[],
             ) {
                 Ok(_) => break,
@@ -88,6 +94,17 @@ impl Storage {
                     thread::sleep(Duration::from_secs(2));
                 }
             }
+        }
+        {
+            // A node created before signal tags existed has a `storage` table
+            // without the column; add it so the insert below always has a
+            // target. Idempotent, and the create above already includes it on a
+            // fresh node.
+            let mut client = tsdb.get().map_err(|e| anyhow!("pool get: {}", e))?;
+            let _ = client.execute(
+                "alter table storage add column if not exists tags text;",
+                &[],
+            );
         }
         {
             let mut client = tsdb.get().map_err(|e| anyhow!("pool get: {}", e))?;
@@ -176,15 +193,17 @@ impl IStorage for Storage {
         store_id: &str,
         user_id: &str,
         data: &str,
+        tags: &[String],
         time_val: i64,
     ) -> LogPacket {
         // No storage.lock here: the tsdb pool is thread-safe and QuestDB handles
         // concurrent inserts; the lock is reserved for gen_id's counter (see there).
         let id = Uuid::new_v4().to_string();
+        let encoded = encode_tags(tags);
         if let Ok(mut client) = self.tsdb.get() {
             let _ = client.execute(
-                "INSERT INTO storage (id, store_id, user_id, data, time, edited) VALUES ($1, $2, $3, $4, $5, $6)",
-                &[&id, &store_id, &user_id, &data, &time_val, &false],
+                "INSERT INTO storage (id, store_id, user_id, data, tags, time, edited) VALUES ($1, $2, $3, $4, $5, $6, $7)",
+                &[&id, &store_id, &user_id, &data, &encoded, &time_val, &false],
             );
         }
         LogPacket {
@@ -192,6 +211,7 @@ impl IStorage for Storage {
             user_id: user_id.to_string(),
             data: data.to_string(),
             store_id: store_id.to_string(),
+            tags: tags.to_vec(),
             time: time_val,
             edited: false,
         }
@@ -217,40 +237,75 @@ impl IStorage for Storage {
             user_id: user_id.to_string(),
             data: data.to_string(),
             store_id: store_id.to_string(),
+            // Tags are immutable: an edit rewrites the payload, never the labels
+            // a reader filtered on to find the packet in the first place.
+            tags: Vec::new(),
             time: time_val,
             edited: true,
         }
     }
 
-    fn read_store_logs(&self, store_id: &str, before_time: i64, count: i64) -> Vec<LogPacket> {
+    fn read_store_logs(&self, store_id: &str, query: &LogQuery) -> Vec<LogPacket> {
         // No storage.lock (tsdb pool is thread-safe; lock is gen_id-only).
         let mut client = match self.tsdb.get() {
             Ok(c) => c,
             Err(_) => return Vec::new(),
         };
-        let rows = if before_time == 0 {
-            client.query(
-                "SELECT id, user_id, data, time, edited FROM storage WHERE store_id = $1 order by time desc limit $2",
-                &[&store_id, &count],
-            )
+        let count = if query.count <= 0 || query.count > MAX_LOG_ROWS {
+            MAX_LOG_ROWS
         } else {
-            client.query(
-                "SELECT id, user_id, data, time, edited FROM storage WHERE store_id = $1 and time < $2 order by time desc limit $3",
-                &[&store_id, &before_time, &count],
-            )
+            query.count
         };
-        let rows = match rows {
+        // Tag predicates are inlined rather than bound, because they are
+        // composed into a variable-length `LIKE` list. That is injection-safe
+        // only because every tag is validated first (no quote, no separator, no
+        // wildcard — see signal_tags), so reject the whole read if one is not.
+        let mut clauses: Vec<String> = vec!["store_id = $1".to_string()];
+        for tag in &query.tags_all {
+            if crate::models::packet::validate_tag(tag).is_err() {
+                return Vec::new();
+            }
+            clauses.push(format!("tags LIKE '%|{}|%'", tag));
+        }
+        if !query.tags_any.is_empty() {
+            let mut anys: Vec<String> = Vec::with_capacity(query.tags_any.len());
+            for tag in &query.tags_any {
+                if crate::models::packet::validate_tag(tag).is_err() {
+                    return Vec::new();
+                }
+                anys.push(format!("tags LIKE '%|{}|%'", tag));
+            }
+            clauses.push(format!("({})", anys.join(" OR ")));
+        }
+        if query.before_time > 0 {
+            clauses.push(format!("time < {}", query.before_time));
+        }
+        if query.after_time > 0 {
+            clauses.push(format!("time > {}", query.after_time));
+        }
+        // QuestDB takes no bound parameter in LIMIT, so the (validated i64)
+        // count is inlined the same way read_vm_logs does it.
+        let sql = format!(
+            "SELECT id, user_id, data, tags, time, edited FROM storage WHERE {} order by time desc limit {}",
+            clauses.join(" AND "),
+            count
+        );
+        let rows = match client.query(&sql, &[&store_id]) {
             Ok(r) => r,
             Err(_) => return Vec::new(),
         };
         rows.into_iter()
-            .map(|row| LogPacket {
-                id: row.get(0),
-                user_id: row.get(1),
-                data: row.get(2),
-                store_id: store_id.to_string(),
-                time: row.get(3),
-                edited: row.get(4),
+            .map(|row| {
+                let tags: Option<String> = row.get(3);
+                LogPacket {
+                    id: row.get(0),
+                    user_id: row.get(1),
+                    data: row.get(2),
+                    store_id: store_id.to_string(),
+                    tags: decode_tags(tags.as_deref().unwrap_or("")),
+                    time: row.get(4),
+                    edited: row.get(5),
+                }
             })
             .collect()
     }
@@ -271,7 +326,7 @@ impl IStorage for Storage {
             .collect::<Vec<_>>()
             .join(",");
         let query = format!(
-            "SELECT id, user_id, data, time, edited FROM storage WHERE store_id = $1 and id in ({})",
+            "SELECT id, user_id, data, tags, time, edited FROM storage WHERE store_id = $1 and id in ({})",
             quoted
         );
         let rows = match client.query(&query, &[&store_id]) {
@@ -279,13 +334,17 @@ impl IStorage for Storage {
             Err(_) => return Vec::new(),
         };
         rows.into_iter()
-            .map(|row| LogPacket {
-                id: row.get(0),
-                user_id: row.get(1),
-                data: row.get(2),
-                store_id: store_id.to_string(),
-                time: row.get(3),
-                edited: row.get(4),
+            .map(|row| {
+                let tags: Option<String> = row.get(3);
+                LogPacket {
+                    id: row.get(0),
+                    user_id: row.get(1),
+                    data: row.get(2),
+                    store_id: store_id.to_string(),
+                    tags: decode_tags(tags.as_deref().unwrap_or("")),
+                    time: row.get(4),
+                    edited: row.get(5),
+                }
             })
             .collect()
     }

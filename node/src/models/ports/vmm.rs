@@ -129,6 +129,10 @@ pub trait IVmm: Send + Sync {
     // ── Host-call dispatch bridge ────────────────────────────────────────
     /// Dispatch a micro host action (genId, getLink, putJson, …).
     fn host_action_micro(&self, op: &str, input: &JsonValue, req_id: i64) -> (String, i64);
+    /// Run a registered shell action for a VM. `caller` is the node-resolved
+    /// creature behind the call — the identity an `asSelf` request acts as, and
+    /// the reason a guest cannot nominate its own.
+    fn exec_shell_action(&self, caller: &str, input: &JsonValue) -> String;
     /// Dispatch a resource-store CRUD host action.
     fn host_action_resource_store(&self, op: &str, input: &JsonValue, req_id: i64) -> (String, i64);
     /// Dispatch a resource-entity create/delete host action.

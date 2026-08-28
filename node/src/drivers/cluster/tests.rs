@@ -79,6 +79,7 @@ impl IStorage for StubStorage {
         _: &str,
         _: &str,
         _: &str,
+        _: &[String],
         _: i64,
     ) -> crate::models::packet::LogPacket {
         Default::default()
@@ -93,7 +94,11 @@ impl IStorage for StubStorage {
     ) -> crate::models::packet::LogPacket {
         Default::default()
     }
-    fn read_store_logs(&self, _: &str, _: i64, _: i64) -> Vec<crate::models::packet::LogPacket> {
+    fn read_store_logs(
+        &self,
+        _: &str,
+        _: &crate::models::packet::LogQuery,
+    ) -> Vec<crate::models::packet::LogPacket> {
         Vec::new()
     }
     fn pick_store_logs(&self, _: &str, _: Vec<String>) -> Vec<crate::models::packet::LogPacket> {
@@ -248,6 +253,9 @@ impl crate::models::ports::vmm::IVmm for StubVmm {
     fn host_action_micro(&self, _: &str, _: &Value, _: i64) -> (String, i64) {
         (String::new(), 0)
     }
+    fn exec_shell_action(&self, _: &str, _: &Value) -> String {
+        String::new()
+    }
     fn host_action_resource_store(&self, _: &str, _: &Value, _: i64) -> (String, i64) {
         (String::new(), 0)
     }
@@ -389,9 +397,10 @@ impl IStorage for RootedStorage {
         a: &str,
         b: &str,
         c: &str,
+        tags: &[String],
         d: i64,
     ) -> crate::models::packet::LogPacket {
-        self.inner.log_time_sieries(a, b, c, d)
+        self.inner.log_time_sieries(a, b, c, tags, d)
     }
     fn update_log(
         &self,
@@ -403,8 +412,12 @@ impl IStorage for RootedStorage {
     ) -> crate::models::packet::LogPacket {
         self.inner.update_log(a, b, c, d, e)
     }
-    fn read_store_logs(&self, a: &str, b: i64, c: i64) -> Vec<crate::models::packet::LogPacket> {
-        self.inner.read_store_logs(a, b, c)
+    fn read_store_logs(
+        &self,
+        a: &str,
+        q: &crate::models::packet::LogQuery,
+    ) -> Vec<crate::models::packet::LogPacket> {
+        self.inner.read_store_logs(a, q)
     }
     fn pick_store_logs(&self, a: &str, b: Vec<String>) -> Vec<crate::models::packet::LogPacket> {
         self.inner.pick_store_logs(a, b)

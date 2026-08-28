@@ -18,6 +18,11 @@ pub struct LogPacket {
     pub user_id: String,
     #[serde(rename = "data")]
     pub data: String,
+    /// Sender-supplied labels stored with the packet. See
+    /// [`crate::models::packet::signal_tags`] — these are what `stores/history`
+    /// filters on.
+    #[serde(rename = "tags", default)]
+    pub tags: Vec<String>,
     #[serde(rename = "time")]
     pub time: i64,
     #[serde(rename = "edited")]
@@ -80,6 +85,7 @@ mod tests {
             store_id: "store-7".to_string(),
             user_id: "u".to_string(),
             data: "msg".to_string(),
+            tags: vec!["kind=message".to_string()],
             time: 17,
             edited: true,
         };
@@ -93,6 +99,7 @@ mod tests {
         assert_eq!(parsed.store_id, p.store_id);
         assert_eq!(parsed.time, p.time);
         assert_eq!(parsed.edited, p.edited);
+        assert_eq!(parsed.tags, p.tags);
     }
 
     #[test]

@@ -14,7 +14,7 @@ use crate::models::info::IInfo;
 use crate::models::transaction::ITrx;
 use crate::models::state::IState;
 use crate::core::actor::model::base::info::Info as BaseInfo;
-use crate::shell::api::model::{Creature, Entity, Program, Store};
+use crate::shell::api::model::{Creature, Entity, Program, Store, StorePermissions};
 
 use super::driver::{check_bool, check_i64, check_str, normalize_runtime, Vmm};
 
@@ -1019,15 +1019,56 @@ impl Vmm {
         }
     }
 
-    pub(crate) fn handle_exec_shell_action(&self, input: &Value, req_id: i64) -> (String, i64) {
+    /// Run a registered shell action on behalf of a VM.
+    ///
+    /// `caller` is the node's own answer to "which creature is calling" —
+    /// resolved from the VM context the docker gateway verifies (or the id an
+    /// in-process runtime stamps on the packet), never from anything the guest
+    /// can write. It is the ONLY identity a creature may act as.
+    ///
+    /// Two modes, and the difference matters:
+    ///   * `asSelf: true` — act as the calling creature, through the applet
+    ///     signature path. This is how a container performs an action that is
+    ///     genuinely its own (uploading media it produced), with the record
+    ///     showing the creature that did it.
+    ///   * otherwise — the caller names the identity, which for an anonymous
+    ///     action (`/creatures/login`) is deliberately empty. A creature cannot
+    ///     reach a *user's* authenticated action this way: without a real
+    ///     signature the guard refuses it.
+    pub(crate) fn handle_exec_shell_action(
+        &self,
+        caller: &str,
+        input: &Value,
+        req_id: i64,
+    ) -> (String, i64) {
         let path = check_str(input, "path", "");
         if path.is_empty() {
             return (r#"{"ok":false,"error":"path is required"}"#.into(), req_id);
         }
+        let as_self = input
+            .get("asSelf")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
         let owner = self.app.owner_id();
-        let user_id = check_str(input, "userId", &owner);
+        let (user_id, signature) = if as_self {
+            let caller = caller.trim();
+            if caller.is_empty() {
+                // Acting as an unidentifiable creature would mean acting as
+                // nobody in particular — refuse instead of falling back to an
+                // identity the caller did not earn.
+                return (
+                    r#"{"ok":false,"error":"caller identity unavailable"}"#.into(),
+                    req_id,
+                );
+            }
+            (caller.to_string(), "#appletsign".to_string())
+        } else {
+            (
+                check_str(input, "userId", &owner),
+                check_str(input, "signature", ""),
+            )
+        };
         let store_id = check_str(input, "storeId", "");
-        let signature = check_str(input, "signature", "");
         let packet_id = check_str(input, "packetId", "");
 
         let secure = match self.app.actor().fetch_secure_action(&path) {
@@ -1138,7 +1179,7 @@ impl Vmm {
                 );
                 (r#"{"ok":true}"#.into(), req_id)
             }
-            "createAccess" => {
+            "createAccess" | "updateAccess" => {
                 let user_id = check_str(input, "userId", "");
                 if user_id.is_empty() {
                     return (r#"{"ok":false,"error":"userId is required"}"#.into(), req_id);
@@ -1147,17 +1188,46 @@ impl Vmm {
                 if store_id.is_empty() {
                     return (r#"{"ok":false,"error":"storeId is required"}"#.into(), req_id);
                 }
+                // A grant states what the member may do. It is required, not
+                // defaulted: a caller that forgets it would otherwise mint a
+                // member who can do nothing (and look like a bug in signalling)
+                // or, worse under a different default, a viewer who can post.
+                let permissions: Vec<String> = input
+                    .get("permissions")
+                    .and_then(Value::as_array)
+                    .map(|a| {
+                        a.iter()
+                            .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                if permissions.is_empty() {
+                    return (
+                        r#"{"ok":false,"error":"permissions is required (e.g. [\"read\",\"signal\"])"}"#
+                            .into(),
+                        req_id,
+                    );
+                }
+                let perms = StorePermissions::from_list(&permissions);
+                if perms.is_empty() {
+                    return (
+                        r#"{"ok":false,"error":"permissions names no known flag"}"#.into(),
+                        req_id,
+                    );
+                }
                 let user_id_owned = user_id.clone();
                 let store_id_owned = store_id.clone();
+                let encoded = perms.encode();
                 self.app.modify_state(
                     false,
                     Box::new(move |t: &dyn ITrx| {
-                        t.put_link(&format!("onaccess::{}::{}", store_id_owned, user_id_owned), "true");
+                        t.put_link(&format!("onaccess::{}::{}", store_id_owned, user_id_owned), &encoded);
                         t.put_link(&format!("hasaccess::{}::{}", user_id_owned, store_id_owned), "true");
                         Ok(())
                     }),
                 );
-                (r#"{"ok":true}"#.into(), req_id)
+                let out = json!({"ok": true, "permissions": perms});
+                (serde_json::to_string(&out).unwrap_or_default(), req_id)
             }
             "deleteAccess" => {
                 let user_id = check_str(input, "userId", "");
@@ -1245,6 +1315,44 @@ impl Vmm {
                 );
                 let data = slot.lock().unwrap().clone();
                 let out = json!({"ok": true, "data": data});
+                (serde_json::to_string(&out).unwrap_or_default(), req_id)
+            }
+            "readSignals" => {
+                // The store-log read, for creatures and connected containers:
+                // the same tag-filtered query `/stores/history` serves the app,
+                // so an agent backbone reconstructs a conversation from exactly
+                // the rows the client sees, with no second transcript anywhere.
+                let store_id = check_str(input, "storeId", "");
+                if store_id.is_empty() {
+                    return (r#"{"ok":false,"error":"storeId is required"}"#.into(), req_id);
+                }
+                let str_list = |key: &str| -> Vec<String> {
+                    input
+                        .get(key)
+                        .and_then(Value::as_array)
+                        .map(|a| {
+                            a.iter()
+                                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                                .collect()
+                        })
+                        .unwrap_or_default()
+                };
+                let query = crate::models::packet::LogQuery {
+                    tags_all: str_list("tagsAll"),
+                    tags_any: str_list("tagsAny"),
+                    before_time: check_i64(input, "beforeTime", 0),
+                    after_time: check_i64(input, "afterTime", 0),
+                    count: check_i64(input, "count", 100),
+                };
+                let query = match query.validated() {
+                    Ok(q) => q,
+                    Err(e) => {
+                        let out = json!({"ok": false, "error": format!("{}", e)});
+                        return (serde_json::to_string(&out).unwrap_or_default(), req_id);
+                    }
+                };
+                let packets = self.app.tools().storage().read_store_logs(&store_id, &query);
+                let out = json!({"ok": true, "storeId": store_id, "signals": packets});
                 (serde_json::to_string(&out).unwrap_or_default(), req_id)
             }
             "hasAccessToStore" => {
@@ -1344,7 +1452,11 @@ impl Vmm {
                         if !creator_id_owned.is_empty() {
                             t.put_link(&format!("hasaccess::{}::{}", creator_id_owned, store_id_owned), "true");
                             t.put_link(&format!("creatorof::{}::{}", creator_id_owned, store_id_owned), "true");
-                            t.put_link(&format!("onaccess::{}::{}", store_id_owned, creator_id_owned), "true");
+                            // The creator administers the store they just made.
+                            t.put_link(
+                                &format!("onaccess::{}::{}", store_id_owned, creator_id_owned),
+                                &StorePermissions::owner().encode(),
+                            );
                         }
                         Ok(())
                     }),
@@ -1678,6 +1790,18 @@ impl Vmm {
             return (r#"{"error":1}"#.into(), req_id);
         }
         let data = check_str(input, "data", "");
+        // Tags the calling creature attaches to the packet — the labels
+        // `stores/history` later filters on. Malformed tags fail the signal in
+        // the action body rather than being dropped here.
+        let tags: Vec<String> = input
+            .get("tags")
+            .and_then(Value::as_array)
+            .map(|a| {
+                a.iter()
+                    .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                    .collect()
+            })
+            .unwrap_or_default();
         // Build the SignalInput action call.
         use crate::shell::api::packets::stores::SignalInput;
         let signal_input = SignalInput {
@@ -1685,7 +1809,9 @@ impl Vmm {
             data,
             store_id: store_id.clone(),
             user_id,
+            tags,
             temp,
+            origin: String::new(),
         };
         let info: Arc<dyn IInfo> = Arc::new(BaseInfo::new(&machine_id, &store_id));
         let app_for_closure = self.app.clone();
@@ -1806,3 +1932,69 @@ fn parse_chain_pay_packet(
     Some(pay)
 }
 
+
+#[cfg(test)]
+mod exec_shell_action_tests {
+    use serde_json::json;
+
+    /// The identity rule, expressed the way `handle_exec_shell_action` applies
+    /// it. `asSelf` acts as the node-resolved caller and nothing else — a guest
+    /// naming a `userId` alongside it cannot redirect who it acts as, and an
+    /// unresolvable caller is refused rather than falling back to the node owner
+    /// (which would hand a container the platform's own authority).
+    fn acting_identity(caller: &str, input: &serde_json::Value, owner: &str) -> Option<(String, String)> {
+        let as_self = input.get("asSelf").and_then(serde_json::Value::as_bool).unwrap_or(false);
+        if as_self {
+            let caller = caller.trim();
+            if caller.is_empty() {
+                return None;
+            }
+            return Some((caller.to_string(), "#appletsign".to_string()));
+        }
+        let user_id = input
+            .get("userId")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_string)
+            .unwrap_or_else(|| owner.to_string());
+        let signature = input
+            .get("signature")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("")
+            .to_string();
+        Some((user_id, signature))
+    }
+
+    #[test]
+    fn as_self_acts_as_the_resolved_caller_only() {
+        let input = json!({"asSelf": true, "userId": "1@global", "signature": "forged"});
+        let (user, sig) = acting_identity("42@global", &input, "1@global").unwrap();
+        assert_eq!(user, "42@global", "the guest-named userId is ignored");
+        assert_eq!(sig, "#appletsign", "a creature authenticates through the applet path");
+    }
+
+    #[test]
+    fn as_self_without_a_resolved_caller_is_refused() {
+        let input = json!({"asSelf": true});
+        assert!(
+            acting_identity("", &input, "1@global").is_none(),
+            "an unidentifiable caller must not fall back to the node owner",
+        );
+    }
+
+    #[test]
+    fn an_explicitly_empty_user_stays_anonymous() {
+        // How the auth creature reaches /creatures/login: no identity, no
+        // signature, an anon-guarded action.
+        let input = json!({"userId": ""});
+        let (user, sig) = acting_identity("42@global", &input, "1@global").unwrap();
+        assert_eq!(user, "");
+        assert_eq!(sig, "");
+    }
+
+    #[test]
+    fn an_omitted_user_still_defaults_to_the_owner() {
+        let input = json!({"path": "/creatures/login"});
+        let (user, _) = acting_identity("42@global", &input, "1@global").unwrap();
+        assert_eq!(user, "1@global", "unchanged for callers that name no identity");
+    }
+}
