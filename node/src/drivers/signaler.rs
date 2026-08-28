@@ -143,6 +143,16 @@ impl ISignaler for Signaler {
         }
         let username = self.read_user_username(listener_id);
         if username.is_empty() {
+            // Nothing is listening on this id, and it is not a creature whose
+            // origin could route it onward — so the target is a program that
+            // should have registered a listener when it was deployed (and had it
+            // restored at startup). Dropping that in silence is how a signal to a
+            // stale or dead program id becomes "the agent just never answers":
+            // no error to the sender, no trace on the node, nothing to grep.
+            eprintln!(
+                "[signal] dropped key={} target={} reason=no-listener-and-no-creature",
+                key, listener_id
+            );
             return;
         }
         let Some(origin) = username.rsplit_once('@').map(|(_, s)| s.to_string()) else {

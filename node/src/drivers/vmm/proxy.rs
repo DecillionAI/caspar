@@ -633,6 +633,16 @@ pub fn try_forward_through_proxy(
             Ok(())
         }),
     );
+    // Say where this goes. A proxy relay is otherwise completely invisible: the
+    // requester sees only silence if the configured target no longer exists (a
+    // backbone redeployed under a new program id leaves every proxy pointing at
+    // a dead one), and nothing in any log ties the prompt to the id it was
+    // actually sent to. One line per relay makes that a grep instead of a
+    // deduction.
+    crate::drivers::vmm::bridge::runtime_io::log(format!(
+        "proxy {}::{} -> {}::{} corr={}",
+        machine_id, entity_id, config.target_program_id, config.target_entity_id, correlation_id
+    ));
     let forwarded = StoresSend {
         user: proxy_identity(app, machine_id),
         action: "single".to_string(),
