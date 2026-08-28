@@ -150,7 +150,10 @@ the live fan-out (the persisting node pushes it to each peer holding a member).
 
 **Creatures and VMs** reach the same log through the `signal` and `readSignals`
 host calls, so an agent runtime reconstructs a conversation from exactly the rows
-a client sees.
+a client sees. To perform an action that is genuinely its own — storing media it
+produced, say — a creature calls `execShellAction` with `asSelf: true`: the node
+runs the named action under the creature identity it resolved for that VM, never
+one the guest names, and refuses the call outright when it cannot resolve one.
 
 ### Invites
 - `POST /invites/create`, `/invites/listStoreInvites`, `/invites/listUserInvites`, `/invites/cancel`, `/invites/accept`, `/invites/decline`

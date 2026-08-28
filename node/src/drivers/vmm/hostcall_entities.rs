@@ -1019,15 +1019,56 @@ impl Vmm {
         }
     }
 
-    pub(crate) fn handle_exec_shell_action(&self, input: &Value, req_id: i64) -> (String, i64) {
+    /// Run a registered shell action on behalf of a VM.
+    ///
+    /// `caller` is the node's own answer to "which creature is calling" —
+    /// resolved from the VM context the docker gateway verifies (or the id an
+    /// in-process runtime stamps on the packet), never from anything the guest
+    /// can write. It is the ONLY identity a creature may act as.
+    ///
+    /// Two modes, and the difference matters:
+    ///   * `asSelf: true` — act as the calling creature, through the applet
+    ///     signature path. This is how a container performs an action that is
+    ///     genuinely its own (uploading media it produced), with the record
+    ///     showing the creature that did it.
+    ///   * otherwise — the caller names the identity, which for an anonymous
+    ///     action (`/creatures/login`) is deliberately empty. A creature cannot
+    ///     reach a *user's* authenticated action this way: without a real
+    ///     signature the guard refuses it.
+    pub(crate) fn handle_exec_shell_action(
+        &self,
+        caller: &str,
+        input: &Value,
+        req_id: i64,
+    ) -> (String, i64) {
         let path = check_str(input, "path", "");
         if path.is_empty() {
             return (r#"{"ok":false,"error":"path is required"}"#.into(), req_id);
         }
+        let as_self = input
+            .get("asSelf")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
         let owner = self.app.owner_id();
-        let user_id = check_str(input, "userId", &owner);
+        let (user_id, signature) = if as_self {
+            let caller = caller.trim();
+            if caller.is_empty() {
+                // Acting as an unidentifiable creature would mean acting as
+                // nobody in particular — refuse instead of falling back to an
+                // identity the caller did not earn.
+                return (
+                    r#"{"ok":false,"error":"caller identity unavailable"}"#.into(),
+                    req_id,
+                );
+            }
+            (caller.to_string(), "#appletsign".to_string())
+        } else {
+            (
+                check_str(input, "userId", &owner),
+                check_str(input, "signature", ""),
+            )
+        };
         let store_id = check_str(input, "storeId", "");
-        let signature = check_str(input, "signature", "");
         let packet_id = check_str(input, "packetId", "");
 
         let secure = match self.app.actor().fetch_secure_action(&path) {
@@ -1891,3 +1932,69 @@ fn parse_chain_pay_packet(
     Some(pay)
 }
 
+
+#[cfg(test)]
+mod exec_shell_action_tests {
+    use serde_json::json;
+
+    /// The identity rule, expressed the way `handle_exec_shell_action` applies
+    /// it. `asSelf` acts as the node-resolved caller and nothing else — a guest
+    /// naming a `userId` alongside it cannot redirect who it acts as, and an
+    /// unresolvable caller is refused rather than falling back to the node owner
+    /// (which would hand a container the platform's own authority).
+    fn acting_identity(caller: &str, input: &serde_json::Value, owner: &str) -> Option<(String, String)> {
+        let as_self = input.get("asSelf").and_then(serde_json::Value::as_bool).unwrap_or(false);
+        if as_self {
+            let caller = caller.trim();
+            if caller.is_empty() {
+                return None;
+            }
+            return Some((caller.to_string(), "#appletsign".to_string()));
+        }
+        let user_id = input
+            .get("userId")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_string)
+            .unwrap_or_else(|| owner.to_string());
+        let signature = input
+            .get("signature")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("")
+            .to_string();
+        Some((user_id, signature))
+    }
+
+    #[test]
+    fn as_self_acts_as_the_resolved_caller_only() {
+        let input = json!({"asSelf": true, "userId": "1@global", "signature": "forged"});
+        let (user, sig) = acting_identity("42@global", &input, "1@global").unwrap();
+        assert_eq!(user, "42@global", "the guest-named userId is ignored");
+        assert_eq!(sig, "#appletsign", "a creature authenticates through the applet path");
+    }
+
+    #[test]
+    fn as_self_without_a_resolved_caller_is_refused() {
+        let input = json!({"asSelf": true});
+        assert!(
+            acting_identity("", &input, "1@global").is_none(),
+            "an unidentifiable caller must not fall back to the node owner",
+        );
+    }
+
+    #[test]
+    fn an_explicitly_empty_user_stays_anonymous() {
+        // How the auth creature reaches /creatures/login: no identity, no
+        // signature, an anon-guarded action.
+        let input = json!({"userId": ""});
+        let (user, sig) = acting_identity("42@global", &input, "1@global").unwrap();
+        assert_eq!(user, "");
+        assert_eq!(sig, "");
+    }
+
+    #[test]
+    fn an_omitted_user_still_defaults_to_the_owner() {
+        let input = json!({"path": "/creatures/login"});
+        let (user, _) = acting_identity("42@global", &input, "1@global").unwrap();
+        assert_eq!(user, "1@global", "unchanged for callers that name no identity");
+    }
+}

@@ -253,6 +253,9 @@ impl crate::models::ports::vmm::IVmm for StubVmm {
     fn host_action_micro(&self, _: &str, _: &Value, _: i64) -> (String, i64) {
         (String::new(), 0)
     }
+    fn exec_shell_action(&self, _: &str, _: &Value) -> String {
+        String::new()
+    }
     fn host_action_resource_store(&self, _: &str, _: &Value, _: i64) -> (String, i64) {
         (String::new(), 0)
     }

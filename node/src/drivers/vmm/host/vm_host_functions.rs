@@ -345,6 +345,13 @@ pub(crate) fn handle_unified_host_call(packet: &JsonValue) -> String {
             let caller = resolve_cached_vm_hierarchy(packet, &input).creature_id;
             host_fn_secret_get(&caller, &input)
         }
+        // Running a shell action as the calling creature (`asSelf`) — same
+        // node-authoritative caller resolution as `secretGet`, so a guest can
+        // never nominate whose identity it acts under.
+        "execShellAction" => {
+            let caller = resolve_cached_vm_hierarchy(packet, &input).creature_id;
+            host_fn_exec_shell_action(&caller, &input)
+        }
         "secretListGranted" => {
             let caller = resolve_cached_vm_hierarchy(packet, &input).creature_id;
             host_fn_secret_list_granted(&caller)
@@ -446,6 +453,15 @@ pub(crate) fn handle_unified_host_call(packet: &JsonValue) -> String {
             });
             wasm_send(packet)
         }
+    }
+}
+
+/// Run a registered shell action for the calling creature. `caller` is resolved
+/// by the node from the VM context, and is what an `asSelf` call acts as.
+pub(crate) fn host_fn_exec_shell_action(caller: &str, input: &JsonValue) -> String {
+    match with_global_app(|app| app.tools().vmm().exec_shell_action(caller, input)) {
+        Some(out) => out,
+        None => json!({"ok": false, "error": "vmm not initialised"}).to_string(),
     }
 }
 
