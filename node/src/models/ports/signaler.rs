@@ -63,6 +63,32 @@ pub trait ISignaler: Send + Sync {
         pack: bool,
         exceptions: Vec<String>,
     );
+    /// Fan a signal out to every current member of a store.
+    ///
+    /// Membership is resolved from the state's `onaccess::<store>::<member>`
+    /// grants at the moment of delivery — NOT from the in-memory group
+    /// registry. The registry is populated when a connection authenticates (and
+    /// when a program boots), so a store a member gained access to *after* that
+    /// point is not in it, and a signal on that store would reach nobody until
+    /// the member reconnected. A store's membership is state; reading it from
+    /// state is the only way the fan-out cannot go stale.
+    ///
+    /// Only members whose grant carries `read` are delivered to — the same flag
+    /// `stores/history` requires — so what a member is pushed live and what they
+    /// may replay never diverge.
+    ///
+    /// `exceptions` are member ids to skip (the sender). `federate` pushes the
+    /// same packet to each peer origin holding a member; pass `false` when
+    /// re-emitting a packet that already arrived over federation, so it is not
+    /// bounced back around the network.
+    fn signal_store(
+        &self,
+        key: &str,
+        store_id: &str,
+        data: Value,
+        exceptions: Vec<String>,
+        federate: bool,
+    );
     fn join_group(&self, group_id: &str, user_id: &str);
     fn leave_group(&self, group_id: &str, user_id: &str);
     /// Remove `user_id` from every group it is a member of, reaping any group

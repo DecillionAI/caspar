@@ -16,6 +16,7 @@ use crate::models::ports::signaler::{
 };
 use crate::models::core::ICore;
 use crate::models::transaction::ITrx;
+use crate::shell::api::model::access::StorePermissions;
 
 /// Concrete [`ISignaler`] implementation. Owns per-listener / per-group
 /// `DashMap`s and a coarse-grained `Mutex` matching `Signaler.lock` from Go.
@@ -72,6 +73,42 @@ impl Signaler {
         });
     }
 
+    /// The members of a store that may receive its signals, read from state.
+    ///
+    /// A store's membership lives in `onaccess::<store>::<member>`, whose value
+    /// is the member's permission set. Only a member holding `read` is
+    /// returned: that is the same flag `stores/history` demands, so a member is
+    /// never pushed live what they could not replay.
+    fn store_members(&self, store_id: &str) -> Vec<String> {
+        let prefix = format!("onaccess::{}::", store_id);
+        let out = Arc::new(Mutex::new(Vec::<String>::new()));
+        let out_clone = out.clone();
+        let prefix_owned = prefix.clone();
+        self.app.modify_state(
+            true,
+            Box::new(move |trx: &dyn ITrx| {
+                let keys = trx.get_links_list(&prefix_owned, -1, -1, &[]).unwrap_or_default();
+                let mut members = Vec::with_capacity(keys.len());
+                for key in keys {
+                    let member = key
+                        .strip_prefix(&prefix_owned)
+                        .unwrap_or(key.as_str())
+                        .to_string();
+                    if member.is_empty() {
+                        continue;
+                    }
+                    if StorePermissions::parse(&trx.get_link(&key)).read {
+                        members.push(member);
+                    }
+                }
+                *out_clone.lock().unwrap() = members;
+                Ok(())
+            }),
+        );
+        let members = out.lock().unwrap().clone();
+        members
+    }
+
     /// Read `User.<id>.username` inside a read-only state modification.
     fn read_user_username(&self, user_id: &str) -> String {
         let slot = Arc::new(Mutex::new(String::new()));
@@ -88,6 +125,42 @@ impl Signaler {
         let out = slot.lock().unwrap().clone();
         out
     }
+}
+
+/// Split a store's members into the ones this node delivers to itself and the
+/// peer origins that have to be pushed to.
+///
+/// A member id is `<counter>@<origin>`. An origin that is this node's (or the
+/// well-known `global`) is served from this node's own listener table; anything
+/// else lives on a peer, which is pushed the packet once and skips the members
+/// named in the exceptions it is handed. Excepted local members — the sender —
+/// are simply dropped.
+fn split_store_members(
+    self_id: &str,
+    members: Vec<String>,
+    exceptions: &[String],
+) -> (Vec<String>, std::collections::HashMap<String, Vec<String>>) {
+    let exc: std::collections::HashSet<&str> = exceptions.iter().map(String::as_str).collect();
+    let mut local: Vec<String> = Vec::new();
+    let mut foreigners: std::collections::HashMap<String, Vec<String>> =
+        std::collections::HashMap::new();
+    for member in members {
+        let origin = member
+            .rsplit_once('@')
+            .map(|(_, o)| o.to_string())
+            .unwrap_or_default();
+        if origin.is_empty() || origin == self_id || origin == "global" {
+            if !exc.contains(member.as_str()) {
+                local.push(member);
+            }
+            continue;
+        }
+        let entry = foreigners.entry(origin).or_default();
+        if exc.contains(member.as_str()) {
+            entry.push(member);
+        }
+    }
+    (local, foreigners)
 }
 
 impl ISignaler for Signaler {
@@ -253,6 +326,47 @@ impl ISignaler for Signaler {
         }
     }
 
+    fn signal_store(
+        &self,
+        key: &str,
+        store_id: &str,
+        data: Value,
+        exceptions: Vec<String>,
+        federate: bool,
+    ) {
+        // Global-bridge mode replaces per-member delivery entirely — the bridge
+        // is the single sink for every signal — exactly as in `signal_group`.
+        if *self.l_group_disabled.lock().unwrap() {
+            if let Some(bridge) = self.global_bridge.lock().unwrap().clone() {
+                (bridge.signal)(store_id.to_string(), data);
+            }
+            return;
+        }
+
+        let (local, foreigners) =
+            split_store_members(&self.app.id(), self.store_members(store_id), &exceptions);
+
+        for member in local {
+            if let Some(listener) = self.listeners.get(&member).map(|e| e.value().clone()) {
+                (listener.signal)(key.to_string(), data.clone());
+            }
+        }
+
+        if !federate {
+            return;
+        }
+        for (origin, exceptions_for_origin) in foreigners {
+            self.federation.send_fed_update(
+                &origin,
+                key,
+                data.clone(),
+                "store",
+                store_id,
+                exceptions_for_origin,
+            );
+        }
+    }
+
     fn join_group(&self, group_id: &str, user_id: &str) {
         let Some(g) = self.retrive_group(group_id) else {
             return;
@@ -356,7 +470,9 @@ mod tests {
         fn plant_chain_trigger(&self, count: i64, user_id: &str, tag: &str, machine_id: &str, store_id: &str, input: &str) { unimplemented!() }
         fn app_pending_trxs(&self) { unimplemented!() }
         fn ip_addr(&self) -> String { unimplemented!() }
-        fn modify_state(&self, readonly: bool, fn_: crate::models::action::TrxClosure) { unimplemented!() }
+        // An empty state: the closure needs a transaction this stub has no
+        // store behind, so a member read simply yields nothing.
+        fn modify_state(&self, readonly: bool, fn_: crate::models::action::TrxClosure) {}
         fn modify_state_securly_with_source(&self, readonly: bool, info: Arc<dyn crate::models::info::IInfo>, src: &str, fn_: crate::models::core::StateClosure) { unimplemented!() }
         fn modify_state_securly(&self, readonly: bool, info: Arc<dyn crate::models::info::IInfo>, fn_: crate::models::core::StateClosure) { unimplemented!() }
         fn sign_packet(&self, data: &[u8]) -> String { unimplemented!() }
@@ -413,6 +529,44 @@ mod tests {
         let s1 = groups.get("space1").unwrap();
         assert_eq!(s1.stores.len(), 1);
         assert!(s1.stores.contains_key("userB"));
+    }
+
+    /// A store fan-out must reach every LOCAL member except the sender, and
+    /// must push each foreign origin exactly once, carrying that origin's own
+    /// exceptions so the peer skips the same member this node would.
+    #[test]
+    fn store_fan_out_splits_local_members_from_peer_origins() {
+        let members = vec![
+            "1@global".to_string(),
+            "2@global".to_string(),
+            "3@peer-a".to_string(),
+            "4@peer-a".to_string(),
+            "5@peer-b".to_string(),
+            "legacy".to_string(),
+        ];
+        let (local, foreign) =
+            split_store_members("global", members, &["2@global".to_string(), "4@peer-a".to_string()]);
+
+        // The sender is dropped; an id with no origin is this node's own.
+        assert_eq!(local, vec!["1@global".to_string(), "legacy".to_string()]);
+
+        // Each peer is pushed once, whether or not it holds an excepted member.
+        let mut origins: Vec<&String> = foreign.keys().collect();
+        origins.sort();
+        assert_eq!(origins, vec![&"peer-a".to_string(), &"peer-b".to_string()]);
+        assert_eq!(foreign["peer-a"], vec!["4@peer-a".to_string()]);
+        assert!(foreign["peer-b"].is_empty());
+    }
+
+    /// The whole point of resolving members from state: a store fan-out must
+    /// not consult the group registry, so a store nobody has "joined" (because
+    /// it was created after every current connection authenticated) still
+    /// delivers — and signalling it never materialises a group.
+    #[test]
+    fn store_fan_out_needs_no_group_membership() {
+        let sig = new_signaler();
+        sig.signal_store("stores/signal", "space-created-just-now", serde_json::json!({"n": 1}), Vec::new(), false);
+        assert_eq!(sig.groups().len(), 0, "a store fan-out must not touch the group registry");
     }
 
     #[test]
