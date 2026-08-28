@@ -1351,7 +1351,16 @@ impl Vmm {
                         return (serde_json::to_string(&out).unwrap_or_default(), req_id);
                     }
                 };
-                let packets = self.app.tools().storage().read_store_logs(&store_id, &query);
+                let packets = match self.app.tools().storage().read_store_logs(&store_id, &query) {
+                    Ok(p) => p,
+                    Err(e) => {
+                        // A creature must be able to tell "no history" from "the
+                        // log is unreachable"; an empty list for both would have
+                        // an agent reason over a conversation it never read.
+                        let out = json!({"ok": false, "error": format!("{}", e)});
+                        return (serde_json::to_string(&out).unwrap_or_default(), req_id);
+                    }
+                };
                 let out = json!({"ok": true, "storeId": store_id, "signals": packets});
                 (serde_json::to_string(&out).unwrap_or_default(), req_id)
             }

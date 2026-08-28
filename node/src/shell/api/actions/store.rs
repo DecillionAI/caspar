@@ -141,14 +141,18 @@ fn signal(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
             }
             let tags = validate_tags(&input.tags)?;
 
+            // `Store::pull` keeps the id it was handed whether or not the object
+            // exists, so absence has to be read off the columns themselves — an
+            // unknown store would otherwise look like a store that simply does
+            // not keep history, and its messages would be dropped in silence.
+            if trx.get_obj(Store::type_(), &store_id).is_empty() {
+                return Err(anyhow!("store not found"));
+            }
             let store = Store {
                 id: store_id.clone(),
                 ..Default::default()
             }
             .pull(&*trx);
-            if store.id.is_empty() {
-                return Err(anyhow!("store not found"));
-            }
 
             let mut sender = Creature {
                 id: sender_id.clone(),
@@ -160,6 +164,10 @@ fn signal(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
 
             let now = chrono::Utc::now().timestamp_millis();
             let persist = store.pers_hist && !input.temp;
+            // Recording comes FIRST, and its failure fails the whole call. A
+            // signal fanned out to everyone's screen but missing from the log is
+            // the worst outcome available: it looks delivered, and it is gone by
+            // the next read. Better to tell the sender it did not send.
             let logged: Option<LogPacket> = if persist {
                 let packet = app_for_handler.tools().storage().log_time_sieries(
                     &store_id,
@@ -167,7 +175,7 @@ fn signal(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
                     &input.data,
                     &tags,
                     now,
-                );
+                )?;
                 // Keep the store's own counter true to the log so a reader can
                 // tell an empty store from an unreachable one.
                 let mut counted = store.clone();
@@ -243,7 +251,7 @@ fn history(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
             let packets = app_for_handler
                 .tools()
                 .storage()
-                .read_store_logs(&store_id, &query);
+                .read_store_logs(&store_id, &query)?;
             Ok(json!({
                 "storeId": store_id,
                 "signals": packets,
