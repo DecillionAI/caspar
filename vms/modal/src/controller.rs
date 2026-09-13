@@ -17,7 +17,7 @@ use serde_json::{json, Map, Value as JsonValue};
 use caspar_vm_sdk::host::{host, log_vm, KvOp};
 use caspar_vm_sdk::{parse_vm_resource_limits, VmPlugin, VmPluginMeta};
 
-use crate::client::{block_on, connect, is_configured, ModalConn};
+use crate::client::{block_on, connect, is_configured, public_status, ModalConn};
 use crate::models::{
     app_link_key, image_link_key, modal_app_name, modal_volume_name, sandbox_link_key,
     shared_app_link_key, volume_link_key, ModalIdentity,
@@ -278,34 +278,28 @@ impl ModalVmPlugin {
         connect()
     }
 
-    /// Resolve (creating on first use) the Modal app that owns a machine's
-    /// sandboxes. Modal groups resources under an app; one app per Caspar
-    /// machine keeps a creature's sandboxes, volumes and images together and
-    /// makes them findable in Modal's dashboard by the machine they belong to.
     /// Resolve the Modal app that owns this node's sandboxes.
     ///
-    /// One app for the node. A machine that already has a per-project app
-    /// (the old naming) keeps it so its volume stays mountable; everything
-    /// new shares `modal_app_name()`.
+    /// Resolve it through Modal on every sandbox start. App ids are not durable:
+    /// an operator can stop an app in Modal's dashboard and a later
+    /// AppGetOrCreate for the stable name will return its live replacement. A
+    /// cached id cannot make that distinction and used to strand every wake on
+    /// the disabled app until node state was deleted by hand.
+    ///
+    /// The state links remain a last-known-id index for compatibility and
+    /// diagnostics, but they are outputs of resolution, never its authority.
+    /// Volumes are resolved independently by their stable names, so moving a
+    /// sleeping VM to the current app does not lose its persistent `/data`.
     fn app_id(&self, conn: &mut ModalConn, machine_id: &str) -> Result<String, String> {
         let legacy_key = app_link_key(machine_id);
-        let legacy = state_get(&legacy_key);
-        if !legacy.is_empty() {
-            return Ok(legacy);
-        }
         let shared_key = shared_app_link_key();
-        let shared = state_get(&shared_key);
-        if !shared.is_empty() {
-            state_put(&legacy_key, &shared);
-            return Ok(shared);
-        }
         let request = proto::AppGetOrCreateRequest {
             app_name: modal_app_name(),
             environment_name: conn.environment.clone(),
             object_creation_type: proto::ObjectCreationType::CreateIfMissing as i32,
         };
         let response = block_on(conn.stub.app_get_or_create(request))?
-            .map_err(|e| format!("modal AppGetOrCreate failed: {}", e))?
+            .map_err(|e| rpc_error("AppGetOrCreate", e))?
             .into_inner();
         if response.app_id.is_empty() {
             return Err("modal returned an empty app id".to_string());
@@ -362,7 +356,7 @@ impl ModalVmPlugin {
             ..Default::default()
         };
         let response = block_on(conn.stub.image_get_or_create(request))?
-            .map_err(|e| format!("modal ImageGetOrCreate failed: {}", e))?
+            .map_err(|e| rpc_error("ImageGetOrCreate", e))?
             .into_inner();
         if response.image_id.is_empty() {
             return Err("modal returned an empty image id".to_string());
@@ -411,15 +405,14 @@ impl ModalVmPlugin {
                 include_logs_for_finished: true,
             };
             let mut stream = block_on(conn.stub.image_join_streaming(request))?
-                .map_err(|e| format!("modal ImageJoinStreaming failed: {}", e))?
+                .map_err(|e| rpc_error("ImageJoinStreaming", e))?
                 .into_inner();
 
             let mut finished: Option<proto::GenericResult> = None;
             loop {
                 let next = block_on(stream.next())?;
                 let Some(message) = next else { break };
-                let message =
-                    message.map_err(|e| format!("modal image build stream failed: {}", e))?;
+                let message = message.map_err(|e| rpc_error("image build stream", e))?;
                 if !message.entry_id.is_empty() {
                     last_entry_id = message.entry_id.clone();
                 }
@@ -458,7 +451,7 @@ impl ModalVmPlugin {
             ..Default::default()
         };
         let response = block_on(conn.stub.volume_get_or_create(request))?
-            .map_err(|e| format!("modal VolumeGetOrCreate failed: {}", e))?
+            .map_err(|e| rpc_error("VolumeGetOrCreate", e))?
             .into_inner();
         if response.volume_id.is_empty() {
             return Err("modal returned an empty volume id".to_string());
@@ -531,7 +524,7 @@ impl ModalVmPlugin {
             wait_until_ready: true,
         };
         let response = block_on(conn.stub.sandbox_get_task_id(request))?
-            .map_err(|e| format!("modal SandboxGetTaskId failed: {}", e))?
+            .map_err(|e| rpc_error("SandboxGetTaskId", e))?
             .into_inner();
         if let Some(result) = response.task_result.as_ref() {
             check_generic_result(result, "sandbox task")?;
@@ -570,7 +563,7 @@ impl ModalVmPlugin {
             wait_until_ready: true,
         };
         let response = block_on(conn.stub.sandbox_get_task_id(request))?
-            .map_err(|e| format!("modal SandboxGetTaskId failed: {}", e))?
+            .map_err(|e| rpc_error("SandboxGetTaskId", e))?
             .into_inner();
         // No task was ever scheduled: the sandbox was terminated before it ran.
         let Some(task_id) = response.task_id.filter(|id| !id.trim().is_empty()) else {
@@ -602,6 +595,10 @@ fn check_generic_result(result: &proto::GenericResult, what: &str) -> Result<(),
             Err(message)
         }
     }
+}
+
+fn rpc_error(what: &str, status: tonic::Status) -> String {
+    format!("modal {} failed: {}", what, public_status(&status))
 }
 
 // ── Lifecycle ─────────────────────────────────────────────────────────────
@@ -869,7 +866,7 @@ impl ModalVmPlugin {
             environment_name: conn.environment.clone(),
             tags,
         }))?
-        .map_err(|e| format!("modal SandboxCreate failed: {}", e))?
+        .map_err(|e| rpc_error("SandboxCreate", e))?
         .into_inner();
 
         if response.sandbox_id.is_empty() {
@@ -934,7 +931,7 @@ impl ModalVmPlugin {
             block_on(conn.stub.sandbox_terminate(proto::SandboxTerminateRequest {
                 sandbox_id: sandbox_id.clone(),
             }))?
-            .map_err(|e| format!("modal SandboxTerminate failed: {}", e))?;
+            .map_err(|e| rpc_error("SandboxTerminate", e))?;
             terminated = true;
         }
 
@@ -952,7 +949,7 @@ impl ModalVmPlugin {
                     volume_id,
                     ..Default::default()
                 }))?
-                .map_err(|e| format!("modal VolumeDelete failed: {}", e))?;
+                .map_err(|e| rpc_error("VolumeDelete", e))?;
                 purged = true;
             }
             state_del(&[
@@ -1091,7 +1088,7 @@ impl ModalVmPlugin {
             workdir: packet["workdir"].as_str().map(|s| s.to_string()),
             ..Default::default()
         }))?
-        .map_err(|e| format!("modal ContainerExec failed: {}", e))?
+        .map_err(|e| rpc_error("ContainerExec", e))?
         .into_inner();
 
         let stdout = self.collect_exec_output(
@@ -1111,7 +1108,7 @@ impl ModalVmPlugin {
             exec_id: exec.exec_id.clone(),
             timeout: timeout_secs as f32,
         }))?
-        .map_err(|e| format!("modal ContainerExecWait failed: {}", e))?
+        .map_err(|e| rpc_error("ContainerExecWait", e))?
         .into_inner();
 
         let exit_code = wait.exit_code.unwrap_or(0);
@@ -1145,14 +1142,14 @@ impl ModalVmPlugin {
                 get_raw_bytes: true,
             },
         ))?
-        .map_err(|e| format!("modal ContainerExecGetOutput failed: {}", e))?
+        .map_err(|e| rpc_error("ContainerExecGetOutput", e))?
         .into_inner();
 
         let mut out = String::new();
         loop {
             let next = block_on(stream.next())?;
             let Some(batch) = next else { break };
-            let batch = batch.map_err(|e| format!("modal exec output stream failed: {}", e))?;
+            let batch = batch.map_err(|e| rpc_error("exec output stream", e))?;
             for item in batch
                 .items
                 .iter()
@@ -1332,7 +1329,7 @@ impl ModalVmPlugin {
                 task_id: task_id.to_string(),
             },
         ))?
-        .map_err(|e| format!("modal ContainerFilesystemExec failed: {}", e))?
+        .map_err(|e| rpc_error("ContainerFilesystemExec", e))?
         .into_inner();
         Ok(response)
     }
@@ -1348,15 +1345,14 @@ impl ModalVmPlugin {
                 timeout: 60.0,
             },
         ))?
-        .map_err(|e| format!("modal ContainerFilesystemExecGetOutput failed: {}", e))?
+        .map_err(|e| rpc_error("ContainerFilesystemExecGetOutput", e))?
         .into_inner();
 
         let mut out: Vec<u8> = Vec::new();
         loop {
             let next = block_on(stream.next())?;
             let Some(batch) = next else { break };
-            let batch =
-                batch.map_err(|e| format!("modal filesystem output stream failed: {}", e))?;
+            let batch = batch.map_err(|e| rpc_error("filesystem output stream", e))?;
             if let Some(error) = batch.error.as_ref() {
                 return Err(format!(
                     "modal filesystem operation failed: {}",
@@ -1395,7 +1391,7 @@ impl ModalVmPlugin {
             sandbox_id: sandbox_id.clone(),
             timeout: 30.0,
         }))?
-        .map_err(|e| format!("modal SandboxGetTunnels failed: {}", e))?
+        .map_err(|e| rpc_error("SandboxGetTunnels", e))?
         .into_inner();
 
         let http_port = vm_http_port();
@@ -1571,7 +1567,7 @@ impl VmPlugin for ModalVmPlugin {
             sandbox_id: sandbox_id.clone(),
             timeout: packet["timeout"].as_f64().unwrap_or(30.0) as f32,
         }))?
-        .map_err(|e| format!("modal SandboxGetTunnels failed: {}", e))?
+        .map_err(|e| rpc_error("SandboxGetTunnels", e))?
         .into_inner();
 
         let endpoints: Vec<JsonValue> = tunnels

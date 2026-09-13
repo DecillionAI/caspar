@@ -368,6 +368,45 @@ fn a_forced_run_replaces_the_machine() {
     }
 }
 
+/// A Modal app id is a cache value, not a durable resource identity. Operators
+/// can stop an app in Modal's dashboard; the next wake must resolve the stable
+/// app name again instead of sending every future sandbox to that disabled id.
+#[test]
+#[ignore]
+fn a_stale_cached_app_id_is_replaced() {
+    if !have_credentials() {
+        eprintln!("skipping: MODAL_TOKEN_ID / MODAL_TOKEN_SECRET are not set");
+        return;
+    }
+    let plugin = plugin();
+    let machine_id = format!("caspar-live-stale-app-{}", uuid::Uuid::new_v4().simple());
+    let vm_id = scratch_vm_id("stale-app");
+    let stale_app_id = "ap-disabled-cache";
+    let state = caspar_vm_sdk::host::host().expect("test host");
+    state
+        .state_apply_ops(&[
+            KvOp {
+                op: "put".to_string(),
+                key: crate::models::shared_app_link_key(),
+                val: stale_app_id.to_string(),
+            },
+            KvOp {
+                op: "put".to_string(),
+                key: crate::models::app_link_key(&machine_id),
+                val: stale_app_id.to_string(),
+            },
+        ])
+        .expect("seed stale app cache");
+
+    let started = plugin.run_vm(&run_packet(&machine_id, &vm_id));
+    if let Ok(ref out) = started {
+        let _ = plugin.delete_vm(&delete_packet(&machine_id, &vm_id));
+        assert_ne!(out["appId"], json!(stale_app_id));
+        assert!(!out["sandboxId"].as_str().unwrap_or("").is_empty());
+    }
+    started.unwrap_or_else(|error| panic!("stale app cache was not recovered: {}", error));
+}
+
 /// Modal must accept the client version this plugin sends.
 ///
 /// `x-modal-client-version` is parsed by Modal, not just logged: a name-and-
