@@ -848,7 +848,7 @@ impl ModalVmPlugin {
 
         let definition = proto::Sandbox {
             entrypoint_args: entrypoint,
-            image_id,
+            image_id: image_id.clone(),
             resources: Some(sandbox_resources(packet, &limits)),
             timeout_secs: sandbox_timeout_secs(packet, limits.max_exec_time_secs),
             workdir: packet["workdir"].as_str().map(|s| s.to_string()),
