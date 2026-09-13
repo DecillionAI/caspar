@@ -917,6 +917,7 @@ impl ModalVmPlugin {
             "vmId": identity.vm_id,
             "sandboxId": response.sandbox_id,
             "appId": app_id,
+            "imageId": image_id,
             "status": "running",
         }))
     }
@@ -1066,12 +1067,17 @@ impl ModalVmPlugin {
         }
         let mut conn = self.conn()?;
         let running = self.is_running(&mut conn, &sandbox_id)?;
+        let image_id = state_get(&image_link_key(
+            &identity.machine_id,
+            &identity.entity_id,
+        ));
         Ok(json!({
             "ok": true,
             "runtime": "modal",
             "machineId": identity.machine_id,
             "vmId": identity.vm_id,
             "sandboxId": sandbox_id,
+            "imageId": image_id,
             "status": if running { "running" } else { "stopped" },
             "running": running,
         }))
