@@ -52,6 +52,9 @@ SEEDS = [
     "ImageJoinStreamingRequest", "ImageJoinStreamingResponse",
     "VolumeGetOrCreateRequest", "VolumeGetOrCreateResponse",
     "VolumeDeleteRequest",
+    "VolumeGetFile2Request", "VolumeGetFile2Response",
+    "VolumeListFiles2Request", "VolumeListFiles2Response",
+    "FileEntry",
     # sandbox lifecycle
     "SandboxCreateRequest", "SandboxCreateResponse",
     "SandboxWaitRequest", "SandboxWaitResponse",
@@ -95,6 +98,8 @@ RPCS = """  rpc AppGetOrCreate(AppGetOrCreateRequest) returns (AppGetOrCreateRes
   rpc ImageJoinStreaming(ImageJoinStreamingRequest) returns (stream ImageJoinStreamingResponse);
   rpc VolumeGetOrCreate(VolumeGetOrCreateRequest) returns (VolumeGetOrCreateResponse);
   rpc VolumeDelete(VolumeDeleteRequest) returns (google.protobuf.Empty);
+  rpc VolumeGetFile2(VolumeGetFile2Request) returns (VolumeGetFile2Response);
+  rpc VolumeListFiles2(VolumeListFiles2Request) returns (stream VolumeListFiles2Response);
   rpc SandboxCreate(SandboxCreateRequest) returns (SandboxCreateResponse);
   rpc SandboxWait(SandboxWaitRequest) returns (SandboxWaitResponse);
   rpc SandboxWaitUntilReady(SandboxWaitUntilReadyRequest) returns (SandboxWaitUntilReadyResponse);

@@ -598,6 +598,7 @@ pub(crate) fn handle_unified_host_call(packet: &JsonValue) -> String {
         "publishUpdate" => host_fn_publish_update(&ctx.program_id, &input),
         "execVm" | "execDocker" => host_fn_exec_vm(&input),
         "copyToVm" | "copyToDocker" => host_fn_copy_to_vm(&input),
+        "copyFromVm" => host_fn_copy_from_vm(&input),
         "buildVmImage" | "buildDockerImage" => host_fn_build_vm_image(&input),
         "httpPost" | "httpRequest" => host_fn_http_request(&input),
         "elpifyProof" | "verifyProgramExecution" => host_fn_verify_program(&input),

@@ -1053,6 +1053,49 @@ message VolumeMount {
   optional string sub_path = 5;
 }
 
+// A file entry when listing files in a volume. Field numbers match Modal's
+// api.proto so this stays wire-compatible.
+message FileEntry {
+  enum FileType {
+    UNSPECIFIED = 0;
+    FILE = 1;
+    DIRECTORY = 2;
+    SYMLINK = 3;
+    FIFO = 4;
+    SOCKET = 5;
+  }
+  string path = 1;
+  FileType type = 2;
+  uint64 mtime = 3;
+  uint64 size = 4;
+}
+
+message VolumeGetFile2Request {
+  string volume_id = 1;
+  string path = 2;
+  uint64 start = 3;
+  uint64 len = 4;
+  bool client_pads_blocks = 5;
+}
+
+message VolumeGetFile2Response {
+  repeated string get_urls = 1;
+  uint64 size = 2;
+  uint64 start = 3;
+  uint64 len = 4;
+}
+
+message VolumeListFiles2Request {
+  string volume_id = 1;
+  string path = 2;
+  optional uint32 max_entries = 3;
+  bool recursive = 4;
+}
+
+message VolumeListFiles2Response {
+  repeated FileEntry entries = 1;
+}
+
 service ModalClient {
   rpc AppGetOrCreate(AppGetOrCreateRequest) returns (AppGetOrCreateResponse);
   rpc AppStop(AppStopRequest) returns (google.protobuf.Empty);
@@ -1060,6 +1103,8 @@ service ModalClient {
   rpc ImageJoinStreaming(ImageJoinStreamingRequest) returns (stream ImageJoinStreamingResponse);
   rpc VolumeGetOrCreate(VolumeGetOrCreateRequest) returns (VolumeGetOrCreateResponse);
   rpc VolumeDelete(VolumeDeleteRequest) returns (google.protobuf.Empty);
+  rpc VolumeGetFile2(VolumeGetFile2Request) returns (VolumeGetFile2Response);
+  rpc VolumeListFiles2(VolumeListFiles2Request) returns (stream VolumeListFiles2Response);
   rpc SandboxCreate(SandboxCreateRequest) returns (SandboxCreateResponse);
   rpc SandboxWait(SandboxWaitRequest) returns (SandboxWaitResponse);
   rpc SandboxWaitUntilReady(SandboxWaitUntilReadyRequest) returns (SandboxWaitUntilReadyResponse);

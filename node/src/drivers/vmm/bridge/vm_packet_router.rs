@@ -26,6 +26,7 @@ pub fn route_vm_packet(packet: &JsonValue) -> String {
             VmPacketKind::DeleteVm => dispatch_delete_vm_packet(&owned, &env),
             VmPacketKind::ExecVm => dispatch_exec_packet(&owned, |p, pkt| p.exec_vm(pkt)),
             VmPacketKind::CopyToVm => dispatch_exec_packet(&owned, |p, pkt| p.copy_to_vm(pkt)),
+            VmPacketKind::CopyFromVm => dispatch_exec_packet(&owned, |p, pkt| p.copy_from_vm(pkt)),
             VmPacketKind::BuildVmImage => {
                 dispatch_exec_packet(&owned, |p, pkt| p.build_image(pkt))
             }

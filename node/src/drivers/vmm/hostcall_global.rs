@@ -24,7 +24,7 @@ impl Vmm {
             // under "input" with the op in "key"; translate to a typed packet
             // (fields hoisted to top level, key->type) and dispatch it so docker
             // and firecracker creatures actually start/exec/copy.
-            "runVm" | "execVm" | "execDocker" | "copyToVm" | "copyToDocker" => {
+            "runVm" | "execVm" | "execDocker" | "copyToVm" | "copyToDocker" | "copyFromVm" => {
                 let typed = match key.as_str() {
                     "execDocker" => "execVm",
                     "copyToDocker" => "copyToVm",

@@ -52,8 +52,25 @@ fn default_image_tag() -> String {
         .unwrap_or_else(|| "ubuntu:24.04".to_string())
 }
 
-/// Where a VM's persistent Modal Volume is mounted inside the sandbox. Same
-/// contract as the docker runtime's per-VM bind mount.
+/// Path on the Modal Volume (the `/data` mount), for list/read while the
+/// sandbox is asleep. Modal's volume APIs take a volume-relative path, not
+/// the container path.
+fn volume_rel_path(path: &str) -> String {
+    let trimmed = path.trim();
+    let stripped = trimmed
+        .strip_prefix("/data/")
+        .or_else(|| trimmed.strip_prefix("/data"))
+        .unwrap_or(trimmed)
+        .trim_start_matches('/');
+    if stripped.is_empty() || stripped == "." {
+        "/".to_string()
+    } else {
+        format!("/{}", stripped)
+    }
+}
+
+const VOLUME_READ_CAP: u64 = 200_000;
+
 fn volume_mount_path() -> String {
     std::env::var("MODAL_VOLUME_MOUNT_PATH")
         .ok()
@@ -1250,8 +1267,11 @@ impl ModalVmPlugin {
         }))
     }
 
-    /// Read a file out of the sandbox, base64-encoded so binary content
-    /// survives the JSON packet.
+    /// Read a file (or list a directory) from the persistent volume.
+    ///
+    /// Modal volumes outlive the sandbox. Listing and reading them does not
+    /// start a sandbox, which is what lets Files stay free while the project
+    /// machine is asleep. Writes still go through the running container.
     fn copy_from_vm_inner(&self, packet: &JsonValue) -> Result<JsonValue, String> {
         let identity = ModalIdentity::from_packet(packet);
         let path = packet["path"]
@@ -1263,10 +1283,25 @@ impl ModalVmPlugin {
         if path.is_empty() {
             return Err("path is required".to_string());
         }
+        let list = packet["list"].as_bool().unwrap_or(false)
+            || packet["operation"].as_str() == Some("list");
+        let rel = volume_rel_path(&path);
+        let mut conn = self.conn()?;
+        let volume_id = self.volume_id(&mut conn, &identity.vm_id)?;
+        if list {
+            return self.volume_list(&mut conn, &identity.vm_id, &volume_id, &rel);
+        }
+        if !self.sandbox_is_running(&identity.vm_id) {
+            return self.volume_read(&mut conn, &identity.vm_id, &volume_id, &rel);
+        }
 
         let sandbox_id = self.sandbox_id(&identity.vm_id)?;
-        let mut conn = self.conn()?;
         let task_id = self.task_id(&mut conn, &sandbox_id)?;
+        let container_path = if path.starts_with('/') {
+            path.clone()
+        } else {
+            format!("{}/{}", volume_mount_path().trim_end_matches('/'), path.trim_start_matches('/'))
+        };
 
         let open = self.filesystem_exec(
             &mut conn,
@@ -1274,7 +1309,7 @@ impl ModalVmPlugin {
             proto::container_filesystem_exec_request::FileExecRequestOneof::FileOpenRequest(
                 proto::ContainerFileOpenRequest {
                     file_descriptor: None,
-                    path: path.clone(),
+                    path: container_path.clone(),
                     mode: "r".to_string(),
                 },
             ),
@@ -1282,7 +1317,7 @@ impl ModalVmPlugin {
         let descriptor = open
             .file_descriptor
             .clone()
-            .ok_or_else(|| format!("modal did not return a file descriptor for {}", path))?;
+            .ok_or_else(|| format!("modal did not return a file descriptor for {}", container_path))?;
 
         let read = self.filesystem_exec(
             &mut conn,
@@ -1311,9 +1346,116 @@ impl ModalVmPlugin {
             "runtime": "modal",
             "vmId": identity.vm_id,
             "sandboxId": sandbox_id,
+            "path": container_path,
+            "size": bytes.len(),
+            "dataBase64": BASE64.encode(&bytes),
+            "content": String::from_utf8_lossy(&bytes).chars().take(VOLUME_READ_CAP as usize).collect::<String>(),
+        }))
+    }
+
+    fn sandbox_is_running(&self, vm_id: &str) -> bool {
+        let packet = json!({
+            "runtime": "modal",
+            "vmId": vm_id,
+            "machineId": "",
+            "entityId": "space",
+        });
+        match self.status_vm_inner(&packet) {
+            Ok(status) => status["running"].as_bool().unwrap_or(false),
+            Err(_) => false,
+        }
+    }
+
+    fn volume_list(
+        &self,
+        conn: &mut ModalConn,
+        vm_id: &str,
+        volume_id: &str,
+        path: &str,
+    ) -> Result<JsonValue, String> {
+        let mut stream = block_on(conn.stub.volume_list_files2(proto::VolumeListFiles2Request {
+            volume_id: volume_id.to_string(),
+            path: path.to_string(),
+            recursive: false,
+            max_entries: Some(500),
+        }))?
+        .map_err(|e| format!("modal VolumeListFiles2 failed: {}", e))?
+        .into_inner();
+
+        let mut entries = Vec::new();
+        loop {
+            let next = block_on(stream.next())?;
+            let Some(batch) = next else { break };
+            let batch = batch.map_err(|e| format!("modal volume list stream failed: {}", e))?;
+            for entry in batch.entries {
+                let raw = entry.path.trim().trim_end_matches('/');
+                let name = raw.rsplit('/').next().unwrap_or(raw).to_string();
+                if name.is_empty() || name == "." || name == ".." {
+                    continue;
+                }
+                let is_dir = entry.r#type == proto::file_entry::FileType::Directory as i32;
+                entries.push(json!({
+                    "name": name,
+                    "path": raw,
+                    "type": if is_dir { "dir" } else { "file" },
+                    "size": entry.size,
+                }));
+            }
+        }
+        Ok(json!({
+            "ok": true,
+            "runtime": "modal",
+            "vmId": vm_id,
+            "path": path,
+            "entries": entries,
+        }))
+    }
+
+    fn volume_read(
+        &self,
+        conn: &mut ModalConn,
+        vm_id: &str,
+        volume_id: &str,
+        path: &str,
+    ) -> Result<JsonValue, String> {
+        let response = block_on(conn.stub.volume_get_file2(proto::VolumeGetFile2Request {
+            volume_id: volume_id.to_string(),
+            path: path.to_string(),
+            start: 0,
+            len: VOLUME_READ_CAP,
+            client_pads_blocks: false,
+        }))?
+        .map_err(|e| format!("modal VolumeGetFile2 failed: {}", e))?
+        .into_inner();
+
+        let mut bytes = Vec::new();
+        if !response.get_urls.is_empty() {
+            let client = reqwest::blocking::Client::builder()
+                .timeout(std::time::Duration::from_secs(30))
+                .build()
+                .map_err(|e| format!("http client init failed: {}", e))?;
+            for url in &response.get_urls {
+                let chunk = client
+                    .get(url)
+                    .send()
+                    .map_err(|e| format!("modal volume download failed: {}", e))?
+                    .bytes()
+                    .map_err(|e| format!("modal volume download body failed: {}", e))?;
+                bytes.extend_from_slice(&chunk);
+                if bytes.len() as u64 >= VOLUME_READ_CAP {
+                    bytes.truncate(VOLUME_READ_CAP as usize);
+                    break;
+                }
+            }
+        }
+        Ok(json!({
+            "ok": true,
+            "runtime": "modal",
+            "vmId": vm_id,
             "path": path,
             "size": bytes.len(),
             "dataBase64": BASE64.encode(&bytes),
+            "content": String::from_utf8_lossy(&bytes).to_string(),
         }))
     }
 
@@ -1790,6 +1932,14 @@ mod tests {
         let ports = exposed_ports(&packet);
         assert!(ports.contains(&5900));
         assert!(ports.contains(&vm_http_port()));
+    }
+
+    #[test]
+    fn volume_paths_strip_the_data_mount() {
+        assert_eq!(volume_rel_path("/data"), "/");
+        assert_eq!(volume_rel_path("/data/website/index.html"), "/website/index.html");
+        assert_eq!(volume_rel_path("website"), "/website");
+        assert_eq!(volume_rel_path("."), "/");
     }
 
     #[test]
