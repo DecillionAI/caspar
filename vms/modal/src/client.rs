@@ -178,6 +178,17 @@ pub(crate) fn block_on<F: std::future::Future>(fut: F) -> Result<F::Output, Stri
     Ok(rt.block_on(fut))
 }
 
+/// Render a control-plane failure without tonic's response metadata.
+///
+/// `Status`'s `Display` implementation includes metadata. Modal puts a
+/// short-lived control-plane authentication token there, so interpolating a
+/// status directly into an error string can leak that token into VM state,
+/// logs, and API responses. The code and public message are sufficient for an
+/// operator; metadata and binary details are never part of a public error.
+pub(crate) fn public_status(status: &tonic::Status) -> String {
+    format!("code: {:?}, message: {}", status.code(), status.message())
+}
+
 /// A connected, authenticated Modal client plus the context its requests carry.
 pub(crate) struct ModalConn {
     pub(crate) stub: ModalStub,
@@ -251,6 +262,20 @@ pub(crate) fn is_configured() -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn public_status_omits_control_plane_metadata() {
+        let mut status = tonic::Status::failed_precondition("app stopped");
+        status.metadata_mut().insert(
+            "x-modal-auth-token",
+            "short-lived-secret".parse().expect("valid metadata"),
+        );
+        let visible = public_status(&status);
+        assert!(visible.contains("FailedPrecondition"));
+        assert!(visible.contains("app stopped"));
+        assert!(!visible.contains("x-modal-auth-token"));
+        assert!(!visible.contains("short-lived-secret"));
+    }
 
     /// Building the Modal channel must not need a Tokio runtime on the CALLER's
     /// thread.
