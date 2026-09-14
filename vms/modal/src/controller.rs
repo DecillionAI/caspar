@@ -1021,6 +1021,31 @@ impl ModalVmPlugin {
 
     fn status_vm_inner(&self, packet: &JsonValue) -> Result<JsonValue, String> {
         let identity = ModalIdentity::from_packet(packet);
+        // A recorded sandbox that is actually alive is the truth, whatever an
+        // earlier provisioning attempt left behind. Report it as running and
+        // clear the stale marker and error, so a machine that started is never
+        // shown as still starting — or, twenty minutes later, as failed.
+        let recorded = state_get(&sandbox_link_key(&identity.vm_id));
+        if !recorded.is_empty() {
+            let mut conn = self.conn()?;
+            if self.is_running(&mut conn, &recorded).unwrap_or(false) {
+                state_del(&[
+                    provisioning_key(&identity.vm_id),
+                    provisioning_error_key(&identity.vm_id),
+                ]);
+                let image_id = state_get(&image_link_key(&identity.machine_id, &identity.entity_id));
+                return Ok(json!({
+                    "ok": true,
+                    "runtime": "modal",
+                    "machineId": identity.machine_id,
+                    "vmId": identity.vm_id,
+                    "sandboxId": recorded,
+                    "imageId": image_id,
+                    "status": "running",
+                    "running": true,
+                }));
+            }
+        }
         if fresh_provisioning_marker(&identity.vm_id).is_some() {
             return Ok(json!({
                 "ok": true,

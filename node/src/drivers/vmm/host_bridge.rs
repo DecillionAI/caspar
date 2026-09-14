@@ -167,7 +167,12 @@ impl VmHost for VmmHostBridge {
                         if op.op == "put" {
                             trx.put_link(&op.key, &op.val);
                         } else if op.op == "del" {
-                            trx.del_key(&op.key);
+                            // A put is stored as a link (`link::<key>`). Deleting the
+                            // bare key removed nothing, so plugin state could never be
+                            // cleared — the Modal provisioning marker outlived every
+                            // successful start and made a running machine read as
+                            // "provisioning", then "failed".
+                            trx.del_key(&format!("link::{}", op.key));
                         }
                     }
                     Ok(())
