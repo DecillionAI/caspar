@@ -63,7 +63,7 @@ fn dispatch_owned(rt: &WasmMac, op: &str, input: &JsonValue) -> String {
 /// Ensure the VM's per-lifecycle JSON transaction exists and run one op on it.
 fn vm_json_op(rt: &mut WasmMac, op: &str, input: &JsonValue) -> String {
     match host() {
-        Some(h) => match h.vm_json_trx_op(&rt.vm_id, op, input) {
+        Some(h) => match h.vm_json_trx_op(&rt.trx_key, op, input) {
             Ok(v) => {
                 rt.vm_trx_open = true;
                 v.to_string()
@@ -137,7 +137,7 @@ pub fn host_call(
             // then reset so the next use starts a fresh transaction.
             if rt.vm_trx_open {
                 if let Some(h) = host() {
-                    h.end_vm_json_trx(&rt.vm_id);
+                    h.end_vm_json_trx(&rt.trx_key);
                 }
                 rt.vm_trx_open = false;
             }

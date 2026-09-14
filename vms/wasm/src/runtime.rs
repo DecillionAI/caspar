@@ -225,6 +225,9 @@ pub struct WasmMac {
     /// and closed (committing) either on an explicit `commitTrx` host call or
     /// at VM teardown inside [`WasmMac::finalize`].
     pub vm_trx_open: bool,
+    /// This execution's own key for the host JSON transaction. Never the bare
+    /// `vm_id`: concurrent runs share that, and sharing a transaction loses writes.
+    pub trx_key: String,
     pub mod_path: String,
     pub cost: u64,
     pub ram_limit_mb: u64,
@@ -381,6 +384,7 @@ impl WasmMac {
         ram_limit_mb: u64,
         cb: Box<dyn (Fn(JsonValue) -> String) + Send + Sync>,
     ) -> Self {
+        let trx_key = caspar_vm_sdk::util::execution_trx_key(&vm_id);
         WasmMac {
             callback: cb,
             machine_id,
@@ -388,6 +392,7 @@ impl WasmMac {
             store_id,
             trx: Box::new(Trx::new()),
             vm_trx_open: false,
+            trx_key,
             mod_path,
             execution_result: "".to_string(),
             has_output: false,
@@ -411,7 +416,7 @@ impl WasmMac {
         // commitTrx.
         if self.vm_trx_open {
             if let Some(h) = host() {
-                h.end_vm_json_trx(&self.vm_id);
+                h.end_vm_json_trx(&self.trx_key);
             }
             self.vm_trx_open = false;
         }

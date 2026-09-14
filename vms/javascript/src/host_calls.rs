@@ -75,7 +75,7 @@ fn dispatch_owned(state: &JsState, op: &str, input: &JsonValue) -> String {
 /// Ensure the VM's per-lifecycle JSON transaction exists and run one op on it.
 fn vm_json_op(state: &mut JsState, op: &str, input: &JsonValue) -> String {
     match host() {
-        Some(h) => match h.vm_json_trx_op(&state.vm_id, op, input) {
+        Some(h) => match h.vm_json_trx_op(&state.trx_key, op, input) {
             Ok(v) => {
                 state.vm_trx_open = true;
                 v.to_string()
@@ -156,7 +156,7 @@ pub fn dispatch(cell: &Rc<RefCell<JsState>>, raw: &str) -> String {
             // then reset so the next use starts a fresh transaction.
             if state.vm_trx_open {
                 if let Some(h) = host() {
-                    h.end_vm_json_trx(&state.vm_id);
+                    h.end_vm_json_trx(&state.trx_key);
                 }
                 state.vm_trx_open = false;
             }

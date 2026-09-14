@@ -597,6 +597,16 @@ pub(crate) fn handle_unified_host_call(packet: &JsonValue) -> String {
         "revokeBridgeToken" => host_fn_revoke_bridge_token(&ctx.program_id, &input),
         "publishUpdate" => host_fn_publish_update(&ctx.program_id, &input),
         "execVm" | "execDocker" => host_fn_exec_vm(&input),
+        // Read-only: what the runtime says about a VM — provisioning, running,
+        // stopped, or failed with the build/boot error. Without it a creature
+        // could start a machine but never learn that it had failed to come up.
+        "statusVm" => {
+            let mut packet = input.clone();
+            if let JsonValue::Object(map) = &mut packet {
+                map.insert("type".to_string(), JsonValue::String("statusVm".to_string()));
+            }
+            crate::drivers::vmm::dispatch_packet(&packet)
+        }
         "copyToVm" | "copyToDocker" => host_fn_copy_to_vm(&input),
         "copyFromVm" => host_fn_copy_from_vm(&input),
         "buildVmImage" | "buildDockerImage" => host_fn_build_vm_image(&input),
