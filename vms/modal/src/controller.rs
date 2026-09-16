@@ -1322,79 +1322,13 @@ impl ModalVmPlugin {
         if list {
             return self.volume_list(&mut conn, &identity.vm_id, &volume_id, &rel);
         }
-        if !self.sandbox_is_running(&identity.vm_id) {
-            return self.volume_read(&mut conn, &identity.vm_id, &volume_id, &rel);
-        }
-
-        let sandbox_id = self.sandbox_id(&identity.vm_id)?;
-        let task_id = self.task_id(&mut conn, &sandbox_id)?;
-        let container_path = if path.starts_with('/') {
-            path.clone()
-        } else {
-            format!("{}/{}", volume_mount_path().trim_end_matches('/'), path.trim_start_matches('/'))
-        };
-
-        let open = self.filesystem_exec(
-            &mut conn,
-            &task_id,
-            proto::container_filesystem_exec_request::FileExecRequestOneof::FileOpenRequest(
-                proto::ContainerFileOpenRequest {
-                    file_descriptor: None,
-                    path: container_path.clone(),
-                    mode: "r".to_string(),
-                },
-            ),
-        )?;
-        let descriptor = open
-            .file_descriptor
-            .clone()
-            .ok_or_else(|| format!("modal did not return a file descriptor for {}", container_path))?;
-
-        let read = self.filesystem_exec(
-            &mut conn,
-            &task_id,
-            proto::container_filesystem_exec_request::FileExecRequestOneof::FileReadRequest(
-                proto::ContainerFileReadRequest {
-                    file_descriptor: descriptor.clone(),
-                    n: None,
-                },
-            ),
-        )?;
-        let bytes = self.collect_filesystem_output(&mut conn, &read.exec_id)?;
-
-        let _ = self.filesystem_exec(
-            &mut conn,
-            &task_id,
-            proto::container_filesystem_exec_request::FileExecRequestOneof::FileCloseRequest(
-                proto::ContainerFileCloseRequest {
-                    file_descriptor: descriptor,
-                },
-            ),
-        );
-
-        Ok(json!({
-            "ok": true,
-            "runtime": "modal",
-            "vmId": identity.vm_id,
-            "sandboxId": sandbox_id,
-            "path": container_path,
-            "size": bytes.len(),
-            "dataBase64": BASE64.encode(&bytes),
-            "content": String::from_utf8_lossy(&bytes).chars().take(VOLUME_READ_CAP as usize).collect::<String>(),
-        }))
-    }
-
-    fn sandbox_is_running(&self, vm_id: &str) -> bool {
-        let packet = json!({
-            "runtime": "modal",
-            "vmId": vm_id,
-            "machineId": "",
-            "entityId": "space",
-        });
-        match self.status_vm_inner(&packet) {
-            Ok(status) => status["running"].as_bool().unwrap_or(false),
-            Err(_) => false,
-        }
+        // Read from the volume whether or not the sandbox is running. Modal has
+        // retired the container filesystem API this used for a live sandbox
+        // ("The legacy Sandbox filesystem API is no longer supported"), so every
+        // read of a running machine's file failed. The volume is mounted with
+        // background commits, so it carries what the machine wrote, and a read
+        // never has to reach, or wait on, the machine itself.
+        self.volume_read(&mut conn, &identity.vm_id, &volume_id, &rel)
     }
 
     fn volume_list(
@@ -1404,35 +1338,34 @@ impl ModalVmPlugin {
         volume_id: &str,
         path: &str,
     ) -> Result<JsonValue, String> {
-        let mut stream = block_on(conn.stub.volume_list_files2(proto::VolumeListFiles2Request {
-            volume_id: volume_id.to_string(),
-            path: path.to_string(),
-            recursive: false,
-            max_entries: Some(500),
-        }))?
-        .map_err(|e| format!("modal VolumeListFiles2 failed: {}", e))?
-        .into_inner();
-
-        let mut entries = Vec::new();
-        loop {
-            let next = block_on(stream.next())?;
-            let Some(batch) = next else { break };
-            let batch = batch.map_err(|e| format!("modal volume list stream failed: {}", e))?;
-            for entry in batch.entries {
+        let entries = match self.volume_list_v2(conn, volume_id, path) {
+            // A volume created without an explicit filesystem version is a v1
+            // volume, and Modal answers the v2 listing for it with
+            // `Unimplemented: operation not supported for v1 volume` — which
+            // is every volume this plugin has created. v1 has its own call.
+            Err(status) if status.code() == tonic::Code::Unimplemented => {
+                self.volume_list_v1(conn, volume_id, path)?
+            }
+            Err(status) => return Err(rpc_error("VolumeListFiles2", status)),
+            Ok(entries) => entries,
+        };
+        let entries: Vec<JsonValue> = entries
+            .into_iter()
+            .filter_map(|entry| {
                 let raw = entry.path.trim().trim_end_matches('/');
                 let name = raw.rsplit('/').next().unwrap_or(raw).to_string();
                 if name.is_empty() || name == "." || name == ".." {
-                    continue;
+                    return None;
                 }
                 let is_dir = entry.r#type == proto::file_entry::FileType::Directory as i32;
-                entries.push(json!({
+                Some(json!({
                     "name": name,
                     "path": raw,
                     "type": if is_dir { "dir" } else { "file" },
                     "size": entry.size,
-                }));
-            }
-        }
+                }))
+            })
+            .collect();
         Ok(json!({
             "ok": true,
             "runtime": "modal",
@@ -1440,6 +1373,51 @@ impl ModalVmPlugin {
             "path": path,
             "entries": entries,
         }))
+    }
+
+    fn volume_list_v2(
+        &self,
+        conn: &mut ModalConn,
+        volume_id: &str,
+        path: &str,
+    ) -> Result<Vec<proto::FileEntry>, tonic::Status> {
+        let request = proto::VolumeListFiles2Request {
+            volume_id: volume_id.to_string(),
+            path: path.to_string(),
+            recursive: false,
+            max_entries: Some(500),
+        };
+        let mut stream = block_on(conn.stub.volume_list_files2(request))
+            .map_err(tonic::Status::unknown)??
+            .into_inner();
+        let mut entries = Vec::new();
+        while let Some(batch) = block_on(stream.next()).map_err(tonic::Status::unknown)? {
+            entries.extend(batch?.entries);
+        }
+        Ok(entries)
+    }
+
+    fn volume_list_v1(
+        &self,
+        conn: &mut ModalConn,
+        volume_id: &str,
+        path: &str,
+    ) -> Result<Vec<proto::FileEntry>, String> {
+        let request = proto::VolumeListFilesRequest {
+            volume_id: volume_id.to_string(),
+            path: path.to_string(),
+            recursive: false,
+            max_entries: Some(500),
+        };
+        let mut stream = block_on(conn.stub.volume_list_files(request))?
+            .map_err(|e| format!("modal VolumeListFiles failed: {}", e))?
+            .into_inner();
+        let mut entries = Vec::new();
+        while let Some(batch) = block_on(stream.next())? {
+            let batch = batch.map_err(|e| format!("modal volume list stream failed: {}", e))?;
+            entries.extend(batch.entries);
+        }
+        Ok(entries)
     }
 
     fn volume_read(
@@ -1505,41 +1483,6 @@ impl ModalVmPlugin {
         .map_err(|e| rpc_error("ContainerFilesystemExec", e))?
         .into_inner();
         Ok(response)
-    }
-
-    fn collect_filesystem_output(
-        &self,
-        conn: &mut ModalConn,
-        exec_id: &str,
-    ) -> Result<Vec<u8>, String> {
-        let mut stream = block_on(conn.stub.container_filesystem_exec_get_output(
-            proto::ContainerFilesystemExecGetOutputRequest {
-                exec_id: exec_id.to_string(),
-                timeout: 60.0,
-            },
-        ))?
-        .map_err(|e| rpc_error("ContainerFilesystemExecGetOutput", e))?
-        .into_inner();
-
-        let mut out: Vec<u8> = Vec::new();
-        loop {
-            let next = block_on(stream.next())?;
-            let Some(batch) = next else { break };
-            let batch = batch.map_err(|e| rpc_error("filesystem output stream", e))?;
-            if let Some(error) = batch.error.as_ref() {
-                return Err(format!(
-                    "modal filesystem operation failed: {}",
-                    error.error_message
-                ));
-            }
-            for chunk in &batch.output {
-                out.extend_from_slice(chunk);
-            }
-            if batch.eof {
-                break;
-            }
-        }
-        Ok(out)
     }
 
     /// Proxy an inbound HTTP request to the sandbox's tunnel.
