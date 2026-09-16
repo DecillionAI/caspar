@@ -567,8 +567,11 @@ pub(crate) fn handle_unified_host_call(packet: &JsonValue) -> String {
         }
     }
     // After identity is resolved, never before: `vmId` is what identity is
-    // resolved FROM.
+    // resolved FROM, and `programId` is where the caller's identity is stamped.
     if let Err(denied) = apply_vm_target(op, &ctx.program_id, &mut input) {
+        return denied;
+    }
+    if let Err(denied) = apply_program_target(op, &ctx.program_id, &mut input) {
         return denied;
     }
     match op {
