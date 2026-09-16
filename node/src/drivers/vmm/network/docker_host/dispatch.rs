@@ -15,6 +15,7 @@
 //! wasm/elpian runtimes use. The result is returned verbatim as the `RESPONSE`
 //! payload.
 
+use crate::drivers::vmm::host::functions::program_target::{PROGRAM_TARGET_OPS, TARGET_PROGRAM_ID_KEY};
 use crate::drivers::vmm::host::functions::vm_ownership::{TARGET_VM_ID_KEY, VM_TARGET_OPS};
 use crate::drivers::vmm::host::vm_host_functions::handle_unified_host_call;
 use crate::drivers::vmm::network::docker_host::connection::ContainerIdentity;
@@ -50,33 +51,45 @@ pub(crate) fn dispatch_host_call(identity: &ContainerIdentity, request: &JsonVal
     handle_unified_host_call(&packet).into_bytes()
 }
 
-/// The VM a lifecycle op addresses, when it is not the calling container.
+/// What a host op addresses, when it is not the calling container itself.
 ///
-/// `vmId` is overloaded: the node resolves the CALLER's identity from it, and
-/// the VM ops read their TARGET from it. Stamping identity over it therefore
-/// pointed every `runVm` a creature made at the creature's own container id, so
-/// every sandbox one creature launched shared a single vm id — one sandbox, one
-/// volume, and a delete of one was a delete of all. The target is split out
-/// here instead of being overwritten, and identity stamping stays exactly as it
-/// was.
-fn target_vm_id(op: &str, input: &JsonValue, identity: &ContainerIdentity) -> Option<String> {
-    if !VM_TARGET_OPS.contains(&op) {
-        return None;
+/// `vmId` and `programId` are overloaded: the node resolves and namespaces the
+/// CALLER by them, and the VM and program ops read their TARGET from them.
+/// Stamping identity over them pointed every `runVm` a creature made at its own
+/// container, and every `deployEntity`/`deleteProgram` at its own program. The
+/// target is split out here instead of being overwritten, and identity stamping
+/// stays exactly as it was.
+fn targets(op: &str, input: &JsonValue, identity: &ContainerIdentity) -> Vec<(&'static str, String)> {
+    let named_other = |field: &str, own: &str| -> Option<String> {
+        let requested = input[field].as_str().unwrap_or("").trim();
+        if requested.is_empty() || requested == own {
+            return None;
+        }
+        Some(requested.to_string())
+    };
+    let mut out = Vec::new();
+    if VM_TARGET_OPS.contains(&op) {
+        if let Some(target) = named_other("vmId", &identity.vm_id) {
+            out.push((TARGET_VM_ID_KEY, target));
+        }
     }
-    let requested = input["vmId"].as_str().unwrap_or("").trim();
-    if requested.is_empty() || requested == identity.vm_id {
-        return None;
+    if PROGRAM_TARGET_OPS.contains(&op) {
+        if let Some(target) = named_other("programId", &identity.program_id) {
+            out.push((TARGET_PROGRAM_ID_KEY, target));
+        }
     }
-    Some(requested.to_string())
+    out
 }
 
-/// Stamp identity onto a request, keeping a VM op's target out of its way.
+/// Stamp identity onto a request, keeping an op's target out of its way.
 fn stamp_request(op: &str, input: &mut JsonValue, identity: &ContainerIdentity) {
-    // Read BEFORE stamping: stamping overwrites `vmId` with the caller's own.
-    let target = target_vm_id(op, input, identity);
+    // Read BEFORE stamping: stamping overwrites these with the caller's own.
+    let targets = targets(op, input, identity);
     stamp_identity(input, identity);
-    if let (Some(target), Some(obj)) = (target, input.as_object_mut()) {
-        obj.insert(TARGET_VM_ID_KEY.to_string(), JsonValue::String(target));
+    if let Some(obj) = input.as_object_mut() {
+        for (key, target) in targets {
+            obj.insert(key.to_string(), JsonValue::String(target));
+        }
     }
 }
 
@@ -155,5 +168,20 @@ mod tests {
         let input = stamped("getJson", json!({"vmId": "someone-else"}));
         assert_eq!(input["vmId"], "container-vm");
         assert!(input.get(TARGET_VM_ID_KEY).is_none());
+    }
+
+    #[test]
+    fn a_program_op_keeps_its_target_apart_from_the_callers_identity() {
+        let input = stamped("deployEntity", json!({"programId": "proxy-program", "entityId": "main"}));
+        assert_eq!(input["programId"], "10@global");
+        assert_eq!(input[TARGET_PROGRAM_ID_KEY], "proxy-program");
+        let input = stamped("deleteProgram", json!({"programId": "proxy-program"}));
+        assert_eq!(input[TARGET_PROGRAM_ID_KEY], "proxy-program");
+    }
+
+    #[test]
+    fn a_program_op_naming_the_caller_itself_needs_no_target() {
+        let input = stamped("deployEntity", json!({"programId": "10@global"}));
+        assert!(input.get(TARGET_PROGRAM_ID_KEY).is_none());
     }
 }
