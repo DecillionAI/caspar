@@ -140,6 +140,83 @@ pub(crate) fn owns_vm_instance(program_id: &str, vm_id: &str) -> bool {
     hit
 }
 
+/// Host ops whose `vmId` names the VM being operated ON, not the caller.
+pub(crate) const VM_TARGET_OPS: &[&str] = &[
+    "runVm",
+    "execVm",
+    "execDocker",
+    "statusVm",
+    "terminateVm",
+    "deleteVm",
+    "destroyVm",
+    "copyToVm",
+    "copyToDocker",
+    "copyFromVm",
+    "vmEndpoints",
+];
+
+/// Where a VM op's target travels while `vmId` carries the caller's identity.
+///
+/// The node resolves the CALLER from `vmId` (a docker container's is stamped by
+/// the gateway), and the VM ops read their TARGET from the same field. A caller
+/// naming another VM therefore sends it here, and
+/// [`apply_vm_target`] moves it into `vmId` only after the caller has been
+/// resolved and authorized against it.
+pub(crate) const TARGET_VM_ID_KEY: &str = "targetVmId";
+
+/// Whether `caller_program_id` may act on `vm_id`: the program that launched
+/// it, a sibling program of the same owner, or the program `/programs/runEntity`
+/// launched it for. The rule `deleteVm` and `vmEndpoints` enforce.
+pub(crate) fn caller_owns_vm(caller_program_id: &str, vm_id: &str) -> bool {
+    let caller = caller_program_id.trim();
+    let vm_id = vm_id.trim();
+    if caller.is_empty() || vm_id.is_empty() {
+        return false;
+    }
+    let owner = vm_owner_program(vm_id);
+    if !owner.is_empty() {
+        return owner == caller || {
+            let owner_user = program_owner_user(&owner);
+            !owner_user.is_empty() && owner_user == program_owner_user(caller)
+        };
+    }
+    owns_vm_instance(caller, vm_id)
+}
+
+/// Point a VM op at the VM its caller named, once the caller is known.
+///
+/// Returns the error response to send when the caller may not address that VM.
+/// Addressing another creature's VM is refused; launching a VM nobody has
+/// claimed is allowed, and `runVm` records the caller as its owner.
+pub(crate) fn apply_vm_target(
+    op: &str,
+    caller_program_id: &str,
+    input: &mut serde_json::Value,
+) -> Result<(), String> {
+    let Some(obj) = input.as_object_mut() else {
+        return Ok(());
+    };
+    // Removed for every op, so a stray key never reaches a runtime.
+    let Some(target) = obj.remove(TARGET_VM_ID_KEY) else {
+        return Ok(());
+    };
+    let target = target.as_str().unwrap_or("").trim().to_string();
+    if target.is_empty() || !VM_TARGET_OPS.contains(&op) {
+        return Ok(());
+    }
+    let allowed = caller_owns_vm(caller_program_id, &target)
+        || (op == "runVm" && vm_owner_program(&target).is_empty());
+    if !allowed {
+        return Err(serde_json::json!({
+            "ok": false,
+            "error": "you are not the owner of this vm",
+        })
+        .to_string());
+    }
+    obj.insert("vmId".to_string(), serde_json::Value::String(target));
+    Ok(())
+}
+
 /// Drop every state link a deleted VM leaves behind. Called after the runtime
 /// has actually destroyed the instance, so a failed delete does not orphan a
 /// still-running VM by forgetting who owns it.
