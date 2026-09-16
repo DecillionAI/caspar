@@ -1338,35 +1338,34 @@ impl ModalVmPlugin {
         volume_id: &str,
         path: &str,
     ) -> Result<JsonValue, String> {
-        let mut stream = block_on(conn.stub.volume_list_files2(proto::VolumeListFiles2Request {
-            volume_id: volume_id.to_string(),
-            path: path.to_string(),
-            recursive: false,
-            max_entries: Some(500),
-        }))?
-        .map_err(|e| format!("modal VolumeListFiles2 failed: {}", e))?
-        .into_inner();
-
-        let mut entries = Vec::new();
-        loop {
-            let next = block_on(stream.next())?;
-            let Some(batch) = next else { break };
-            let batch = batch.map_err(|e| format!("modal volume list stream failed: {}", e))?;
-            for entry in batch.entries {
+        let entries = match self.volume_list_v2(conn, volume_id, path) {
+            // A volume created without an explicit filesystem version is a v1
+            // volume, and Modal answers the v2 listing for it with
+            // `Unimplemented: operation not supported for v1 volume` — which
+            // is every volume this plugin has created. v1 has its own call.
+            Err(status) if status.code() == tonic::Code::Unimplemented => {
+                self.volume_list_v1(conn, volume_id, path)?
+            }
+            Err(status) => return Err(rpc_error("VolumeListFiles2", status)),
+            Ok(entries) => entries,
+        };
+        let entries: Vec<JsonValue> = entries
+            .into_iter()
+            .filter_map(|entry| {
                 let raw = entry.path.trim().trim_end_matches('/');
                 let name = raw.rsplit('/').next().unwrap_or(raw).to_string();
                 if name.is_empty() || name == "." || name == ".." {
-                    continue;
+                    return None;
                 }
                 let is_dir = entry.r#type == proto::file_entry::FileType::Directory as i32;
-                entries.push(json!({
+                Some(json!({
                     "name": name,
                     "path": raw,
                     "type": if is_dir { "dir" } else { "file" },
                     "size": entry.size,
-                }));
-            }
-        }
+                }))
+            })
+            .collect();
         Ok(json!({
             "ok": true,
             "runtime": "modal",
@@ -1374,6 +1373,51 @@ impl ModalVmPlugin {
             "path": path,
             "entries": entries,
         }))
+    }
+
+    fn volume_list_v2(
+        &self,
+        conn: &mut ModalConn,
+        volume_id: &str,
+        path: &str,
+    ) -> Result<Vec<proto::FileEntry>, tonic::Status> {
+        let request = proto::VolumeListFiles2Request {
+            volume_id: volume_id.to_string(),
+            path: path.to_string(),
+            recursive: false,
+            max_entries: Some(500),
+        };
+        let mut stream = block_on(conn.stub.volume_list_files2(request))
+            .map_err(tonic::Status::unknown)??
+            .into_inner();
+        let mut entries = Vec::new();
+        while let Some(batch) = block_on(stream.next()).map_err(tonic::Status::unknown)? {
+            entries.extend(batch?.entries);
+        }
+        Ok(entries)
+    }
+
+    fn volume_list_v1(
+        &self,
+        conn: &mut ModalConn,
+        volume_id: &str,
+        path: &str,
+    ) -> Result<Vec<proto::FileEntry>, String> {
+        let request = proto::VolumeListFilesRequest {
+            volume_id: volume_id.to_string(),
+            path: path.to_string(),
+            recursive: false,
+            max_entries: Some(500),
+        };
+        let mut stream = block_on(conn.stub.volume_list_files(request))?
+            .map_err(|e| format!("modal VolumeListFiles failed: {}", e))?
+            .into_inner();
+        let mut entries = Vec::new();
+        while let Some(batch) = block_on(stream.next())? {
+            let batch = batch.map_err(|e| format!("modal volume list stream failed: {}", e))?;
+            entries.extend(batch.entries);
+        }
+        Ok(entries)
     }
 
     fn volume_read(

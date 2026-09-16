@@ -1096,6 +1096,17 @@ message VolumeListFiles2Response {
   repeated FileEntry entries = 1;
 }
 
+message VolumeListFilesRequest {
+  string volume_id = 1;
+  string path = 2;
+  bool recursive = 4;
+  optional uint32 max_entries = 3;
+}
+
+message VolumeListFilesResponse {
+  repeated FileEntry entries = 1;
+}
+
 service ModalClient {
   rpc AppGetOrCreate(AppGetOrCreateRequest) returns (AppGetOrCreateResponse);
   rpc AppStop(AppStopRequest) returns (google.protobuf.Empty);
@@ -1105,6 +1116,7 @@ service ModalClient {
   rpc VolumeDelete(VolumeDeleteRequest) returns (google.protobuf.Empty);
   rpc VolumeGetFile2(VolumeGetFile2Request) returns (VolumeGetFile2Response);
   rpc VolumeListFiles2(VolumeListFiles2Request) returns (stream VolumeListFiles2Response);
+  rpc VolumeListFiles(VolumeListFilesRequest) returns (stream VolumeListFilesResponse);
   rpc SandboxCreate(SandboxCreateRequest) returns (SandboxCreateResponse);
   rpc SandboxWait(SandboxWaitRequest) returns (SandboxWaitResponse);
   rpc SandboxWaitUntilReady(SandboxWaitUntilReadyRequest) returns (SandboxWaitUntilReadyResponse);
