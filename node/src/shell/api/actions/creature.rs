@@ -4847,15 +4847,28 @@ fn login(app: Arc<dyn ICore>) -> Arc<dyn ISecureAction> {
             // port short-circuits straight to the DEV path. Treat the token as
             // the raw email or fall back to a synthetic `username@dev.local`.
             let mut email = input.email_token.trim().to_string();
-            if email.is_empty() || !email.contains('@') {
-                email = format!("{}@dev.local", input.username);
-            }
-            log::info!(
-                "[DEV] firebase disabled; accepting login for email: {}",
-                email
-            );
-
             let trx = state.trx();
+            if crate::drivers::vmm::host::functions::login_grant::grant_mode() {
+                // An email alone proves nothing, and for an existing account
+                // this path answers with its private key. In grant mode the
+                // caller must present a single-use grant a node-owner program
+                // issued after verifying the person (password, mail, Google).
+                email = email.to_lowercase();
+                crate::drivers::vmm::host::functions::login_grant::consume(
+                    &*trx,
+                    &input.login_grant,
+                    &email,
+                )?;
+            } else {
+                if email.is_empty() || !email.contains('@') {
+                    email = format!("{}@dev.local", input.username);
+                }
+                log::info!(
+                    "[DEV] firebase disabled; accepting login for email: {}",
+                    email
+                );
+            }
+
             let user_id = trx.get_link(&format!("UserEmailToId::{}", email));
             if !user_id.is_empty() {
                 let user = Creature {

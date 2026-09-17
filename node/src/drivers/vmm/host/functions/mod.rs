@@ -14,6 +14,7 @@ pub mod exec_vm;
 pub mod http_request;
 pub mod lock_resource;
 pub mod lock_token;
+pub mod login_grant;
 pub mod program_target;
 pub mod protocol_api;
 pub mod run_vm;

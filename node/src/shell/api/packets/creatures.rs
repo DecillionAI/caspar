@@ -633,6 +633,10 @@ pub struct LoginInput {
     pub email_token: String,
     #[serde(default)]
     pub metadata: Value,
+    /// A single-use grant from `grantLogin`, required when the node runs with
+    /// `CASPAR_LOGIN_MODE=grant`.
+    #[serde(rename = "loginGrant", default)]
+    pub login_grant: String,
 }
 
 input_impls! {
