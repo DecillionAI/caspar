@@ -119,14 +119,25 @@ impl Storage {
                 "alter table storage add column if not exists tags text;",
                 &[],
             );
+            // QuestDB can report CREATE IF NOT EXISTS as success (or "already
+            // exists") for a ghost table that SELECT then cannot see. ALTER
+            // cannot fix that. Drop and create for real, then require SELECT.
+            if client.query("select tags from storage limit 1", &[]).is_err() {
+                let _ = client.execute("drop table if exists storage;", &[]);
+                client
+                    .execute(
+                        "create table storage(id text, store_id text, user_id text, data text, tags text, time bigint, edited boolean);",
+                        &[],
+                    )
+                    .map_err(|e| anyhow!("recreate storage table: {e}"))?;
+            }
             client
                 .query("select tags from storage limit 1", &[])
                 .map_err(|e| {
                     anyhow!(
                         "storage table has no usable `tags` column ({e}). Signal \
                          persistence would silently drop every message, so the node \
-                         will not start. Add it by hand: \
-                         `alter table storage add column tags text;`"
+                         will not start."
                     )
                 })?;
         }
