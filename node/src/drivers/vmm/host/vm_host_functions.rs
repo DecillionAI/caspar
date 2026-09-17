@@ -566,6 +566,14 @@ pub(crate) fn handle_unified_host_call(packet: &JsonValue) -> String {
             );
         }
     }
+    // After identity is resolved, never before: `vmId` is what identity is
+    // resolved FROM, and `programId` is where the caller's identity is stamped.
+    if let Err(denied) = apply_vm_target(op, &ctx.program_id, &mut input) {
+        return denied;
+    }
+    if let Err(denied) = apply_program_target(op, &ctx.program_id, &mut input) {
+        return denied;
+    }
     match op {
         "commitTrx" => {
             let vm_id = input["vmId"]
@@ -597,6 +605,16 @@ pub(crate) fn handle_unified_host_call(packet: &JsonValue) -> String {
         "revokeBridgeToken" => host_fn_revoke_bridge_token(&ctx.program_id, &input),
         "publishUpdate" => host_fn_publish_update(&ctx.program_id, &input),
         "execVm" | "execDocker" => host_fn_exec_vm(&input),
+        // Read-only: what the runtime says about a VM — provisioning, running,
+        // stopped, or failed with the build/boot error. Without it a creature
+        // could start a machine but never learn that it had failed to come up.
+        "statusVm" => {
+            let mut packet = input.clone();
+            if let JsonValue::Object(map) = &mut packet {
+                map.insert("type".to_string(), JsonValue::String("statusVm".to_string()));
+            }
+            crate::drivers::vmm::dispatch_packet(&packet)
+        }
         "copyToVm" | "copyToDocker" => host_fn_copy_to_vm(&input),
         "copyFromVm" => host_fn_copy_from_vm(&input),
         "buildVmImage" | "buildDockerImage" => host_fn_build_vm_image(&input),
@@ -615,6 +633,8 @@ pub(crate) fn handle_unified_host_call(packet: &JsonValue) -> String {
         // a guest can ask about a program id but cannot claim a node owner or
         // make a remote program appear locally hosted.
         "nodeIdentity" => host_fn_node_identity(&ctx.program_id, &input),
+        // Issues a single-use login grant; node-owner programs only.
+        "grantLogin" => crate::drivers::vmm::host::functions::login_grant::host_fn_grant_login(&ctx.program_id, &input),
         // Federated finance writes are deliberately not ordinary `putJson`
         // calls. Only a node-owned control program may ask the host to sign
         // them, and the resulting packet is committed on the global chain.

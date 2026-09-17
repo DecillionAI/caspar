@@ -167,7 +167,12 @@ impl VmHost for VmmHostBridge {
                         if op.op == "put" {
                             trx.put_link(&op.key, &op.val);
                         } else if op.op == "del" {
-                            trx.del_key(&op.key);
+                            // A put is stored as a link (`link::<key>`). Deleting the
+                            // bare key removed nothing, so plugin state could never be
+                            // cleared — the Modal provisioning marker outlived every
+                            // successful start and made a running machine read as
+                            // "provisioning", then "failed".
+                            trx.del_key(&format!("link::{}", op.key));
                         }
                     }
                     Ok(())
@@ -214,7 +219,16 @@ impl VmHost for VmmHostBridge {
             }
             "delKey" => {
                 let key = input["key"].as_str().unwrap_or("");
-                trx.del_key(key);
+                let path = input["path"].as_str().unwrap_or("");
+                // A document written with putJson lives at `json::<key>::<path>`.
+                // Deleting only the raw key tombstoned a key nothing reads and left
+                // the document in place, so "deleted" continuations, questions and
+                // index rows all survived their deletion.
+                if path.is_empty() {
+                    trx.del_key(key);
+                } else {
+                    trx.del_json(key, path);
+                }
                 Ok(json!({"ok": true}))
             }
             _ => Err(format!("unsupported vm json trx op: {}", op)),

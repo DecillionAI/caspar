@@ -40,8 +40,18 @@ struct InmemStoreInner {
 /// pinned hundreds of MB to GBs of ever-growing snapshots in RAM — the bulk of
 /// the node's daylong memory climb (heaptrack traced it to `set_frame`'s frame
 /// clone). Frames are persisted to RocksDB and re-read on a miss (see
-/// `RocksDbStore::get_frame`), so only a small hot set needs to stay resident.
-const MAX_FRAME_CACHE: usize = 256;
+/// `RocksDbStore::get_frame`), so only a small hot set needs to stay resident:
+/// the last 25 consensus rounds' frames by default, env-tunable through
+/// `CASPAR_BABBLE_FRAME_CACHE`.
+const DEFAULT_MAX_FRAME_CACHE: usize = 25;
+
+fn max_frame_cache() -> usize {
+    std::env::var("CASPAR_BABBLE_FRAME_CACHE")
+        .ok()
+        .and_then(|v| v.trim().parse::<usize>().ok())
+        .filter(|&n| n > 0)
+        .unwrap_or(DEFAULT_MAX_FRAME_CACHE)
+}
 
 impl InmemStoreInner {
     fn new(cache_size: i64) -> InmemStoreInner {
@@ -51,7 +61,7 @@ impl InmemStoreInner {
             event_cache: LRU::new(cs, None),
             round_cache: LRU::new(cs, None),
             block_cache: LRU::new(cs, None),
-            frame_cache: LRU::new(cs.min(MAX_FRAME_CACHE), None),
+            frame_cache: LRU::new(cs.min(max_frame_cache()), None),
             consensus_cache: RollingIndex::new("ConsensusCache", cs),
             tot_consensus_events: 0,
             peer_set_cache: PeerSetCache::new(),
@@ -197,7 +207,7 @@ impl InmemStoreInner {
         self.event_cache = LRU::new(cs, None);
         self.round_cache = LRU::new(cs, None);
         self.block_cache = LRU::new(cs, None);
-        self.frame_cache = LRU::new(cs.min(MAX_FRAME_CACHE), None);
+        self.frame_cache = LRU::new(cs.min(max_frame_cache()), None);
         self.participant_events_cache = ParticipantEventsCache::new(cs);
         self.roots = HashMap::new();
         self.last_round = -1;

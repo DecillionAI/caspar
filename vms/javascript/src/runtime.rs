@@ -125,6 +125,9 @@ pub struct JsState {
     /// closed (committing) either on an explicit `commitTrx` host call or at VM
     /// teardown inside [`JsMac::finalize`].
     pub vm_trx_open: bool,
+    /// This execution's own key for the host JSON transaction. Never the bare
+    /// `vm_id`: concurrent runs share that, and sharing a transaction loses writes.
+    pub trx_key: String,
     /// Set by the `output` host op. Takes precedence over update()'s return
     /// value, so a creature ported from wasm behaves identically.
     pub execution_result: String,
@@ -171,6 +174,7 @@ impl JsMac {
         ram_limit_mb: u64,
         max_exec: Duration,
     ) -> Self {
+        let trx_key = caspar_vm_sdk::util::execution_trx_key(&vm_id);
         JsMac {
             state: Rc::new(RefCell::new(JsState {
                 machine_id,
@@ -178,6 +182,7 @@ impl JsMac {
                 store_id,
                 trx: Trx::new(),
                 vm_trx_open: false,
+                trx_key,
                 execution_result: String::new(),
                 has_output: false,
             })),
@@ -206,7 +211,7 @@ impl JsMac {
         let mut state = self.state.borrow_mut();
         if state.vm_trx_open {
             if let Some(h) = host() {
-                h.end_vm_json_trx(&state.vm_id);
+                h.end_vm_json_trx(&state.trx_key);
             }
             state.vm_trx_open = false;
         }

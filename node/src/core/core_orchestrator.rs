@@ -720,7 +720,10 @@ impl ICore for Core {
             // Only VMs launched from a distributed deployment propagate
             // their state through the cluster consensus; local-mode VMs
             // commit on this instance only.
-            let distributed = t.get_link(&format!("vmDistributed::{}", vm_id)) == "true";
+            // Runtimes key the transaction per execution (`<vmId>#exec-…`); the
+            // distribution marker belongs to the VM itself.
+            let base_vm_id = caspar_vm_sdk::util::trx_key_vm_id(vm_id);
+            let distributed = t.get_link(&format!("vmDistributed::{}", base_vm_id)) == "true";
             crate::drivers::cluster::with_replication_scope(distributed, || t.commit());
         }
     }

@@ -2,6 +2,8 @@
 
 use base64::Engine;
 use serde_json::{json, Value};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Canonical runtime-name normalisation (`strings.ToLower(TrimSpace(.))`).
 pub fn normalize_runtime(runtime: &str) -> String {
@@ -62,6 +64,31 @@ pub fn parse_u8_array_field(packet: &Value, field_name: &str) -> Vec<u8> {
             .collect(),
         _ => Vec::new(),
     }
+}
+
+/// The host JSON-transaction key for ONE execution of a VM.
+///
+/// A signal-driven run carries no `vmId`, so every concurrent execution of every
+/// program resolves to `"main"` — and the host keys its per-VM JSON transaction
+/// by that id. Sharing it let one run's teardown commit and retire a transaction
+/// other runs were still writing into, and their later writes landed in a
+/// finalized transaction and were silently dropped (a suspended continuation
+/// vanished, so the answer to it resumed nothing). Each execution therefore gets
+/// its own key. The part before `#` is still the VM id, which is what the host
+/// uses for anything identity-shaped — see [`trx_key_vm_id`].
+pub fn execution_trx_key(vm_id: &str) -> String {
+    static SEQ: AtomicU64 = AtomicU64::new(0);
+    let seq = SEQ.fetch_add(1, Ordering::Relaxed);
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    format!("{}#exec-{:x}-{:x}", vm_id, nanos, seq)
+}
+
+/// The VM id an [`execution_trx_key`] belongs to (a plain VM id maps to itself).
+pub fn trx_key_vm_id(key: &str) -> &str {
+    key.split('#').next().unwrap_or(key)
 }
 
 /// Extract a human-readable message from a `catch_unwind` payload.

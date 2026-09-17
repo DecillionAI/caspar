@@ -21,7 +21,7 @@
 //! Mutex) without the lifetime gymnastics required to embed a real RocksDB
 //! transaction in a self-referential struct.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::{Arc, Mutex};
 
 use anyhow::{anyhow, Result};
@@ -51,6 +51,35 @@ struct Inner {
     /// Mark the wrapper as already committed/discarded so a second call is
     /// a no-op rather than re-applying writes.
     finalized: bool,
+    /// Every JSON document write, in order. Replayed against the latest
+    /// committed state at commit — see [`TrxWrapper::rebase_json_writes`].
+    json_ops: Vec<JsonOp>,
+    /// The storage keys those writes produced, so a replay rebuilds exactly them.
+    json_keys: BTreeSet<Vec<u8>>,
+    /// Set while a JSON op is writing, so the keys it touches are tracked.
+    in_json_op: bool,
+    /// Set while replaying, so the rebuild is neither re-logged nor re-tracked.
+    replaying: bool,
+}
+
+/// One JSON document write, kept so it can be re-applied at commit.
+enum JsonOp {
+    Put {
+        key: String,
+        path: String,
+        obj: Map<String, Value>,
+        merge: bool,
+    },
+    Del {
+        key: String,
+        path: String,
+    },
+}
+
+/// Commits are serialised so a JSON replay reads the state it writes over.
+fn commit_lock() -> &'static Mutex<()> {
+    static LOCK: std::sync::OnceLock<Mutex<()>> = std::sync::OnceLock::new();
+    LOCK.get_or_init(|| Mutex::new(()))
 }
 
 impl TrxWrapper {
@@ -68,6 +97,10 @@ impl TrxWrapper {
                 overlay: BTreeMap::new(),
                 changes: Vec::new(),
                 finalized: false,
+                json_ops: Vec::new(),
+                json_keys: BTreeSet::new(),
+                in_json_op: false,
+                replaying: false,
             }),
         })
     }
@@ -77,6 +110,13 @@ impl TrxWrapper {
     }
 
     fn record_change(&self, inner: &mut Inner, typ: &str, key: Vec<u8>, val: Vec<u8>) {
+        if inner.replaying {
+            // A commit-time rebuild of writes already recorded once.
+            return;
+        }
+        if inner.in_json_op {
+            inner.json_keys.insert(key.clone());
+        }
         inner.changes.push(Update {
             typ: typ.to_string(),
             key: String::from_utf8_lossy(&key).into_owned(),
@@ -146,9 +186,18 @@ impl Drop for TrxWrapper {
 
 impl ITrx for TrxWrapper {
     fn commit(&self) {
+        {
+            let mut inner = self.inner.lock().unwrap();
+            if inner.finalized || self.readonly {
+                inner.finalized = true;
+                return;
+            }
+        }
+        // Serialised, so a JSON replay reads exactly the state it writes over.
+        let _serialised = commit_lock().lock().unwrap_or_else(|p| p.into_inner());
+        self.rebase_json_writes();
         let mut inner = self.inner.lock().unwrap();
-        if inner.finalized || self.readonly {
-            inner.finalized = true;
+        if inner.finalized {
             return;
         }
         // When this instance is part of a geo-distributed cluster, the
@@ -350,13 +399,32 @@ impl ITrx for TrxWrapper {
                 }
             }
         };
-        self.index_json(key, path, &m, merge)?;
-        Ok(())
+        {
+            let mut inner = self.inner.lock().unwrap();
+            inner.json_ops.push(JsonOp::Put {
+                key: key.to_string(),
+                path: path.to_string(),
+                obj: m.clone(),
+                merge,
+            });
+            inner.in_json_op = true;
+        }
+        let written = self.index_json(key, path, &m, merge);
+        self.inner.lock().unwrap().in_json_op = false;
+        written
     }
 
     fn del_json(&self, key: &str, path: &str) {
-        let full = format!("json::{}::{}", key, path);
-        self.del_key(&full);
+        {
+            let mut inner = self.inner.lock().unwrap();
+            inner.json_ops.push(JsonOp::Del {
+                key: key.to_string(),
+                path: path.to_string(),
+            });
+            inner.in_json_op = true;
+        }
+        self.delete_json_tree(key, path);
+        self.inner.lock().unwrap().in_json_op = false;
     }
 
     fn get_json(&self, key: &str, path: &str) -> Result<Map<String, Value>> {
@@ -617,6 +685,50 @@ impl TrxWrapper {
         Ok(())
     }
 
+    /// Delete a JSON document and every leaf path `index_json` splatted for it.
+    fn delete_json_tree(&self, key: &str, path: &str) {
+        self.del_key(&format!("json::{}::{}", key, path));
+        let children = format!("json::{}::{}.", key, path);
+        for (child, _) in self.iter_with_prefix(children.as_bytes()) {
+            self.del_key(&String::from_utf8_lossy(&child));
+        }
+    }
+
+    /// Re-apply this transaction's JSON writes to the state being committed over.
+    ///
+    /// A merge reads the document, folds its fields in and writes the WHOLE
+    /// document back. Done at call time, two concurrent transactions each read
+    /// the same version, and the one committing last silently erased the
+    /// other's fields — a run marked `succeeded` reappeared as `running`, an
+    /// index lost an entry. Called under the commit lock, this rebuilds every
+    /// key those writes produced from the latest committed state, in the order
+    /// they were made, so concurrent merges combine. Whole-document replaces
+    /// keep their last-writer-wins meaning.
+    fn rebase_json_writes(&self) {
+        let ops = {
+            let mut inner = self.inner.lock().unwrap();
+            if inner.json_ops.is_empty() {
+                return;
+            }
+            let ops = std::mem::take(&mut inner.json_ops);
+            let keys = std::mem::take(&mut inner.json_keys);
+            for key in &keys {
+                inner.overlay.remove(key);
+            }
+            inner.replaying = true;
+            ops
+        };
+        for op in &ops {
+            match op {
+                JsonOp::Put { key, path, obj, merge } => {
+                    let _ = self.index_json(key, path, obj, *merge);
+                }
+                JsonOp::Del { key, path } => self.delete_json_tree(key, path),
+            }
+        }
+        self.inner.lock().unwrap().replaying = false;
+    }
+
     /// Iterator-only access to the underlying DB for callers that need raw
     /// key/value pairs without overlay filtering (e.g. recovery / debug).
     pub fn raw_db_iterator(&self) -> Vec<(Vec<u8>, Vec<u8>)> {
@@ -783,6 +895,52 @@ mod tests {
         let core: Arc<dyn ICore> = Arc::new(StubCore { storage: storage.clone() });
         let tw = TrxWrapper::new(core, storage.clone(), readonly);
         (storage, tw)
+    }
+
+    #[test]
+    fn concurrent_merges_into_one_document_both_survive_commit() {
+        // Two transactions open against the same committed version of a shared
+        // index, each merge one field, then commit in turn. Folding the merge in
+        // at call time made the second commit write back a document without the
+        // first one's field.
+        let (storage, a) = fresh_trx(false);
+        let core: Arc<dyn ICore> = Arc::new(StubCore { storage: storage.clone() });
+        let b = TrxWrapper::new(core.clone(), storage.clone(), false);
+        a.put_json("Json::Runs", "runs", &serde_json::json!({"r1": {"state": "succeeded"}}), true).unwrap();
+        b.put_json("Json::Runs", "runs", &serde_json::json!({"r2": {"state": "running"}}), true).unwrap();
+        a.commit();
+        b.commit();
+        let read = TrxWrapper::new(core, storage, true);
+        let runs = read.get_json("Json::Runs", "runs").unwrap();
+        assert_eq!(runs["r1"]["state"], "succeeded", "the first commit's field was lost");
+        assert_eq!(runs["r2"]["state"], "running");
+        assert_eq!(read.get_bytes("json::Json::Runs::runs.r1.state"), br#""succeeded""#);
+    }
+
+    #[test]
+    fn a_later_write_in_the_same_transaction_still_wins_after_replay() {
+        let (storage, tw) = fresh_trx(false);
+        tw.put_json("Json::Doc", "doc", &serde_json::json!({"n": 1, "keep": true}), false).unwrap();
+        tw.put_json("Json::Doc", "doc", &serde_json::json!({"n": 2}), true).unwrap();
+        tw.commit();
+        let read = TrxWrapper::new(Arc::new(StubCore { storage: storage.clone() }), storage, true);
+        let doc = read.get_json("Json::Doc", "doc").unwrap();
+        assert_eq!(doc["n"], 2);
+        assert_eq!(doc["keep"], true);
+    }
+
+    #[test]
+    fn deleting_a_json_document_removes_it_and_its_leaf_paths() {
+        let (storage, tw) = fresh_trx(false);
+        let core: Arc<dyn ICore> = Arc::new(StubCore { storage: storage.clone() });
+        tw.put_json("Json::DvFrame::f1", "doc", &serde_json::json!({"fn": "onAnswer", "state": {"q": 1}}), false).unwrap();
+        tw.commit();
+        let del = TrxWrapper::new(core.clone(), storage.clone(), false);
+        del.del_json("Json::DvFrame::f1", "doc");
+        del.commit();
+        let read = TrxWrapper::new(core, storage, true);
+        assert!(read.get_json("Json::DvFrame::f1", "doc").is_err(), "the document must be gone");
+        assert!(read.get_bytes("json::Json::DvFrame::f1::doc.state.q").is_empty(), "and its leaves");
     }
 
     #[test]

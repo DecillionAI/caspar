@@ -333,7 +333,7 @@ fn raw_db_ops_read_their_own_writes_and_commit_once() {
 fn the_json_transaction_is_closed_at_teardown_even_without_commit_trx() {
     // A half-open write buffer outliving the VM that opened it is the one state
     // finalize() must never leave behind.
-    let (_vm, out) = run(
+    let (vm, out) = run(
         "jsontrx",
         r#"globalThis.update = function () {
              hostCall("putJson", { key: "Json::Test::1", path: "doc", data: { a: 1 } });
@@ -343,9 +343,31 @@ fn the_json_transaction_is_closed_at_teardown_even_without_commit_trx() {
         "{}",
     );
     out.expect("the module should run");
+    let key = vm.state.borrow().trx_key.clone();
     let host = MockHost::get();
     let inner = host.inner.lock().unwrap();
-    assert_eq!(inner.open_trx.get("main"), Some(&false), "trx must be closed");
+    assert_eq!(inner.open_trx.get(&key), Some(&false), "trx must be closed");
+}
+
+#[test]
+fn concurrent_runs_of_one_vm_never_share_a_json_transaction() {
+    // Every signal-driven run is `vmId: "main"`. When the host transaction was
+    // keyed by that, one run's teardown committed and retired the transaction
+    // another run was still writing into — and those writes were lost.
+    let source = r#"globalThis.update = function () {
+         hostCall("putJson", { key: "Json::Test::shared", path: "doc", data: { a: 1 } });
+         return "ok";
+       };"#;
+    let (first, a) = run("trxiso-a", source, "{}");
+    let (second, b) = run("trxiso-b", source, "{}");
+    a.expect("first run");
+    b.expect("second run");
+    let (ka, kb) = (first.state.borrow().trx_key.clone(), second.state.borrow().trx_key.clone());
+    assert_ne!(ka, kb, "each execution needs its own transaction");
+    assert!(ka.starts_with("main#") && kb.starts_with("main#"), "the key still names its VM");
+    let host = MockHost::get();
+    let inner = host.inner.lock().unwrap();
+    assert!(inner.ended_trx.contains(&ka) && inner.ended_trx.contains(&kb), "both committed");
 }
 
 #[test]
