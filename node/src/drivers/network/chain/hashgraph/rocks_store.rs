@@ -375,7 +375,7 @@ impl Store for RocksDbStore {
 
     fn get_frame(&self, rr: i64) -> Result<Frame> {
         // Frames are held in a small in-memory hot set (see
-        // `inmem_store::MAX_FRAME_CACHE`); on a miss fall back to the durable
+        // `inmem_store::max_frame_cache`); on a miss fall back to the durable
         // RocksDB copy written by `db_set_frame`. Without this fallback, evicting
         // a frame from the cache would make it unreadable even though it is on
         // disk. The DB read is not re-cached, so the hot set stays bounded.
