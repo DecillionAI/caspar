@@ -231,6 +231,8 @@ fn write_env(dir: &Path, owner_key: &str) -> Result<()> {
          TELEMETRY_DB_PATH={d}/telemetry\n\
          BABBLE_DIR={d}/babble\n\
          BABBLE_DATA_DIR={d}/babble\n\
+         CASPAR_BABBLE_FRAME_CACHE=25\n\
+         CASPAR_BABBLE_FRAME_RETENTION=25\n\
          QUESTDB_PORT={QDB_PG}\n\
          QUESTDB_HTTP_PORT={QDB_HTTP}\n\
          QUESTDB_HTTP_MIN_PORT={QDB_MIN}\n\

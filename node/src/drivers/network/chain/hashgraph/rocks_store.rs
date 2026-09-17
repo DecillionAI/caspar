@@ -69,19 +69,28 @@ fn frame_key(index: i64) -> String {
 /// (each frame is a full round snapshot — the single biggest consumer, and the
 /// main driver of the data-dir bloat that fills the box). A pruned frame is
 /// recomputed from the retained events/rounds on the rare miss (see
-/// `Hashgraph::get_frame`), so trimming old ones is safe. Env-tunable.
+/// `Hashgraph::get_frame`), so trimming old ones is safe. The last 25 rounds
+/// by default, env-tunable through `CASPAR_BABBLE_FRAME_RETENTION`.
+const DEFAULT_FRAME_RETENTION_ROUNDS: i64 = 25;
+
 fn frame_retention_rounds() -> i64 {
     std::env::var("CASPAR_BABBLE_FRAME_RETENTION")
         .ok()
         .and_then(|v| v.trim().parse::<i64>().ok())
         .filter(|&n| n > 0)
-        .unwrap_or(4096)
+        .unwrap_or(DEFAULT_FRAME_RETENTION_ROUNDS)
 }
 
-/// Prune frames older than the retention window every this many rounds — a
-/// range delete is one tombstone, so an infrequent cadence keeps read
-/// amplification negligible while still cleaning up any existing backlog.
+/// Prune frames older than the retention window at most every this many
+/// rounds — a range delete is one tombstone, so an infrequent cadence keeps
+/// read amplification negligible while still cleaning up any existing backlog.
 const FRAME_PRUNE_EVERY_ROUNDS: i64 = 128;
+
+/// A short retention window is pruned as often as it is long, so the disk
+/// never holds more than about twice the window.
+fn frame_prune_every_rounds(retention: i64) -> i64 {
+    retention.clamp(1, FRAME_PRUNE_EVERY_ROUNDS)
+}
 
 /// Contains references to the RocksDB database and the in-memory store. When
 /// `maintenance_mode` is active, data is written only to the caches.
@@ -336,8 +345,9 @@ impl RocksDbStore {
         // keys with round < cutoff. Range-delete cleans the whole backlog (not
         // just one round), which is what reclaims a data-dir already bloated by
         // old frames. Pruned frames recompute on the rare miss.
-        if frame.round > 0 && frame.round % FRAME_PRUNE_EVERY_ROUNDS == 0 {
-            let cutoff = frame.round - frame_retention_rounds();
+        let retention = frame_retention_rounds();
+        if frame.round > 0 && frame.round % frame_prune_every_rounds(retention) == 0 {
+            let cutoff = frame.round - retention;
             if cutoff > 0 {
                 let mut batch = WriteBatch::default();
                 batch.delete_range(frame_key(0).as_bytes(), frame_key(cutoff).as_bytes());
@@ -375,7 +385,7 @@ impl Store for RocksDbStore {
 
     fn get_frame(&self, rr: i64) -> Result<Frame> {
         // Frames are held in a small in-memory hot set (see
-        // `inmem_store::MAX_FRAME_CACHE`); on a miss fall back to the durable
+        // `inmem_store::max_frame_cache`); on a miss fall back to the durable
         // RocksDB copy written by `db_set_frame`. Without this fallback, evicting
         // a frame from the cache would make it unreadable even though it is on
         // disk. The DB read is not re-cached, so the hot set stays bounded.
