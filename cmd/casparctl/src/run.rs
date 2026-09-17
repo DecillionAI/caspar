@@ -52,6 +52,21 @@ fn has_flag(args: &[String], name: &str) -> bool {
 
 // ── directory resolution ───────────────────────────────────────────────────
 
+/// The prebuilt tree for THIS machine's architecture. `dist/` holds the amd64
+/// build and `dist/arm64/` the arm64 one; running an amd64 binary on an arm64
+/// host fails at exec ("failed to run caspar-keygen") before anything useful
+/// can be said. The choice follows the architecture casparctl itself was built
+/// for, which is the host's — it would not be running otherwise.
+fn arch_dist(repo: &Path) -> PathBuf {
+    if cfg!(target_arch = "aarch64") {
+        let arm = repo.join("dist/arm64");
+        if arm.join("bin/caspar-node").exists() {
+            return arm;
+        }
+    }
+    repo.join("dist")
+}
+
 /// Resolve the repo root: the directory that contains `dist/bin/caspar-node`.
 fn resolve_repo_dir(args: &[String]) -> Result<PathBuf> {
     if let Some(d) = flag_value(args, "repo-dir") {
@@ -146,7 +161,7 @@ fn gen_babble_key(repo: &Path, dir: &Path) -> Result<()> {
     if dir.join("babble/priv_key").exists() && dir.join("babble/key.pub").exists() {
         return Ok(());
     }
-    let keygen = repo.join("dist/bin/caspar-keygen");
+    let keygen = arch_dist(repo).join("bin/caspar-keygen");
     if !keygen.exists() {
         bail!("caspar-keygen not found at {}", keygen.display());
     }
@@ -157,13 +172,13 @@ fn gen_babble_key(repo: &Path, dir: &Path) -> Result<()> {
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .status()
-        .context("failed to run caspar-keygen")?;
-    let _ = status;
+        .with_context(|| format!("failed to run caspar-keygen at {}", keygen.display()))?;
+    // The exit status alone is not trusted either way: the keys are the result.
     let priv_src = tmp.join(".babble/priv_key");
     let pub_src = tmp.join(".babble/key.pub");
     if !priv_src.exists() || !pub_src.exists() {
         let _ = fs::remove_dir_all(&tmp);
-        bail!("caspar-keygen did not produce priv_key + key.pub");
+        bail!("caspar-keygen at {} ({}) did not produce priv_key + key.pub", keygen.display(), status);
     }
     fs::copy(&priv_src, dir.join("babble/priv_key"))?;
     fs::copy(&pub_src, dir.join("babble/key.pub"))?;
@@ -351,7 +366,7 @@ fn start_questdb(repo: &Path, dir: &Path) -> Result<()> {
 
 fn launch_node(repo: &Path, dir: &Path, detach: bool) -> Result<u32> {
     let binary = {
-        let dist = repo.join("dist/bin/caspar-node");
+        let dist = arch_dist(repo).join("bin/caspar-node");
         let built = repo.join("node/target/release/caspar-node");
         if dist.exists() {
             dist
@@ -361,7 +376,7 @@ fn launch_node(repo: &Path, dir: &Path, detach: bool) -> Result<u32> {
             bail!("caspar-node binary not found in dist/ or node/target/release")
         }
     };
-    let wasmedge = repo.join("dist/lib/wasmedge");
+    let wasmedge = arch_dist(repo).join("lib/wasmedge");
     let shardchain = repo.join("node/scripts/shardchain.sh");
     let log_path = dir.join("node.log");
     let log = fs::File::create(&log_path)?;
@@ -401,20 +416,21 @@ fn launch_node(repo: &Path, dir: &Path, detach: bool) -> Result<u32> {
 
 /// Verify every host prerequisite the local node needs to run.
 fn check_requirements(repo: &Path) -> Result<()> {
-    let node_bin = repo.join("dist/bin/caspar-node");
+    let dist = arch_dist(repo);
+    let node_bin = dist.join("bin/caspar-node");
     let built_bin = repo.join("node/target/release/caspar-node");
     if !node_bin.exists() && !built_bin.exists() {
         bail!("caspar-node binary not found (dist/bin/caspar-node or node/target/release/caspar-node)");
     }
     {
-        let wasmedge_dir = repo.join("dist/lib/wasmedge");
+        let wasmedge_dir = dist.join("lib/wasmedge");
         let link = wasmedge_dir.join("libwasmedge.so.0");
         let lib = if link.exists() {
             link
         } else if wasmedge_dir.join("libwasmedge.so").exists() {
             wasmedge_dir.join("libwasmedge.so")
         } else {
-            bail!("bundled WasmEdge library not found under dist/lib/wasmedge");
+            bail!("bundled WasmEdge library not found under {}", wasmedge_dir.display());
         };
         // The real .so is stored in Git LFS. Follow the symlink to the object
         // and confirm it is a genuine ELF library, not an unresolved LFS
@@ -434,8 +450,8 @@ unresolved Git LFS pointer. Install Git LFS and fetch it:\n  git lfs install && 
             );
         }
     }
-    if !repo.join("dist/bin/caspar-keygen").exists() {
-        bail!("caspar-keygen not found at dist/bin/caspar-keygen");
+    if !dist.join("bin/caspar-keygen").exists() {
+        bail!("caspar-keygen not found at {}", dist.join("bin/caspar-keygen").display());
     }
     if resolve_questdb_jar(repo).is_none() {
         bail!("QuestDB jar not found (dist/questdb/questdb.jar or /opt/questdb/questdb.jar)");
